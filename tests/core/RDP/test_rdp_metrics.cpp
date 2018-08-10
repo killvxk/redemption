@@ -100,7 +100,7 @@ RED_AUTO_TEST_CASE(TestRDPMetricsConstructor)
     unlink("/tmp/rdp_metrics-v1.0-2018-08-03.logindex");
 
 }
-/*
+
 RED_AUTO_TEST_CASE(TestRDPMetricsConstructorHoursRotation)
 {
     unlink("/tmp/rdp_metrics-v1.0-1970-01-01.logmetrics");
@@ -1130,4 +1130,4 @@ RED_AUTO_TEST_CASE(TestRDPMetricsLogCLIPRDRIClientTextCopy_PasteOnServer) {
 
     unlink("/tmp/rdp_metrics-v1.0-2018-08-02.logmetrics");
     unlink("/tmp/rdp_metrics-v1.0-2018-08-02.logindex");
-}*/
+}

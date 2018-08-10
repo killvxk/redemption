@@ -184,6 +184,10 @@ public:
         this->metrics = metrics_new("v1.0", "rdp", activate, path.c_str(), session_id, primary_user_sig.c_str(), account_sig.c_str(), target_service_sig.c_str(), session_info_sig.c_str(), now, file_interval.count(), log_delay.count());
     }
 
+    ~RDPMetrics() {
+        metrics_disconnect(this->metrics);
+    }
+
     bool active() {
         return this->metrics->active_;
     }
@@ -534,7 +538,7 @@ public:
 
                 if (nwritten == -1) {
                     // TODO bad filename
-                    //LOG(LOG_ERR, "Log Metrics error(%d): can't write in\"%s\"", this->metrics->fd.fd(), this->metrics->complete_file_path);
+                    LOG(LOG_ERR, "Log Metrics error(%d): can't write \"%s\"", this->metrics->fd.fd(), this->metrics->complete_file_path);
                 }
             }
         }

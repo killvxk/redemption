@@ -35,12 +35,15 @@
 #include "cxx/cxx.hpp"
 
 
+
+
 extern "C"
 {
     REDEMPTION_LIB_EXPORT
     void metrics_encrypt(char * dest, const char * src, const size_t src_len, const unsigned char * key_crypt);
 
     class Metrics;
+
 
     REDEMPTION_LIB_EXPORT
     Metrics * metrics_new( const char * version             // fields version
@@ -110,18 +113,18 @@ extern "C"
 
 
         Metrics( const char * version               // fields version
-               , const char * protocol_name
-               , const bool activate                        // do nothing if false
-               , const char * path
-               , const char * session_id
-/*               , const char * primary_user_sig       // clear primary user account
-               , const char * account_sig            // secondary account
-               , const char * target_service_sig           // clear target service name + clear device name
-               , const char * session_info_sig */      // source_host + client info
-               , const time_t now                           // time at beginning of metrics
-               , const int file_interval     // daily rotation of filename (hours)
-               , const int log_delay       // delay between 2 logs
-               )
+                , const char * protocol_name
+                , const bool activate                        // do nothing if false
+                , const char * path
+                , const char * session_id
+    /*               , const char * primary_user_sig       // clear primary user account
+                , const char * account_sig            // secondary account
+                , const char * target_service_sig           // clear target service name + clear device name
+                , const char * session_info_sig */      // source_host + client info
+                , const time_t now                           // time at beginning of metrics
+                , const int file_interval     // daily rotation of filename (hours)
+                , const int log_delay       // delay between 2 logs
+                )
         : version(version)
         , protocol_name(protocol_name)
         , file_interval{file_interval}
@@ -134,6 +137,7 @@ extern "C"
         , next_log_time{ this->log_delay+now, 0}
         {}
     };
+
 
     Metrics * metrics_new( const char * version              // fields version
                          , const char * protocol_name
@@ -224,3 +228,4 @@ extern "C"
         }
     }
 }
+
