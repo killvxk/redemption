@@ -79,8 +79,6 @@ namespace configs
 
 // config members
 //@{
-#include "core/font.hpp"
-#include "utils/theme.hpp"
 #include "utils/redirection_info.hpp"
 #include <string>
 #include <chrono>
@@ -109,12 +107,6 @@ namespace configs
         }
         return err;
     }
-
-    template<class CfgType>
-    void post_set_value(VariablesConfiguration & /*vars*/, CfgType const & /*x*/)
-    {}
-
-    void post_set_value(VariablesConfiguration & vars, ::cfg::internal_mod::theme const & cfg_value);
 } // namespace configs
 
 
@@ -174,7 +166,6 @@ private:
             configs::spec_type<typename T::mapped_type>{},
             std::forward<Args>(args)...
         );
-        configs::post_set_value(this->variables, static_cast<T&>(this->variables));
         this->insert_index<T>(std::integral_constant<bool, T::is_proxy_to_sesman>());
         this->unask<T>(std::integral_constant<bool, T::is_sesman_to_proxy>());
     }
@@ -250,12 +241,62 @@ public:
 
     static const uint32_t ENABLE_DEBUG_CONFIG = 1;
 
-    struct FieldReference
+private:
+    template<bool is_constant>
+    struct FieldReferenceBase
     {
         bool is_asked() const {
             return this->field->asked_;
         }
 
+        array_view_const_char to_string_view() const {
+            return this->field->to_string_view(this->ini->variables, this->ini->buffers);
+        }
+
+        explicit operator bool () const {
+            return this->field;
+        }
+
+        authid_t authid() const {
+            return this->id;
+        }
+
+        bool is_loggable() const
+        {
+            if (configs::is_loggable(unsigned(this->authid())))  {
+                return true;
+            }
+            if (configs::is_unloggable_if_value_with_password(unsigned(this->authid()))) {
+                return nullptr == strcasestr(this->to_string_view().data(), "password");
+            }
+            return false;
+        }
+
+        FieldReferenceBase(FieldReferenceBase &&) noexcept = default;
+
+        FieldReferenceBase() = default;
+
+        FieldReferenceBase(FieldReferenceBase const &) = delete;
+        FieldReferenceBase & operator=(FieldReferenceBase const &) = delete;
+
+    private:
+        using InternalInifile = std::conditional_t<is_constant, Inifile const, Inifile>;
+        std::conditional_t<is_constant, FieldBase const, FieldBase> * field = nullptr;
+        InternalInifile* ini = nullptr;
+        authid_t id = MAX_AUTHID;
+
+        FieldReferenceBase(InternalInifile& ini, authid_t id)
+        : field(&ini.fields[id])
+        , ini(&ini)
+        , id(id)
+        {}
+
+        friend class Inifile;
+    };
+
+public:
+    struct FieldReference : FieldReferenceBase<false>
+    {
         void ask() {
             this->field->asked_ = true;
         }
@@ -271,22 +312,6 @@ public:
             return err;
         }
 
-        array_view_const_char to_string_view() const {
-            return this->field->to_string_view(this->ini->variables, this->ini->buffers);
-        }
-
-        char const * c_str() const {
-            return this->to_string_view().data();
-        }
-
-        explicit operator bool () const {
-            return this->field;
-        }
-
-        authid_t authid() const {
-            return this->id;
-        }
-
         FieldReference(FieldReference &&) = default;
 
         FieldReference() = default;
@@ -295,21 +320,12 @@ public:
         FieldReference & operator=(FieldReference const &) = delete;
 
     private:
-        FieldBase * field = nullptr;
-        Inifile * ini = nullptr;
-        authid_t id = authid_t::AUTHID_UNKNOWN;
-
-        FieldReference(Inifile & ini, authid_t id)
-        : field(&ini.fields[id])
-        , ini(&ini)
-        , id(id)
-        {}
-
+        using FieldReferenceBase<false>::FieldReferenceBase;
         friend class Inifile;
     };
 
     FieldReference get_acl_field(authid_t authid) {
-        if (authid >= authid_t::MAX_AUTHID) {
+        if (authid >= MAX_AUTHID) {
             return {};
         }
         return {*this, authid};
@@ -327,46 +343,9 @@ public:
         this->to_send_index.clear();
     }
 
-    struct FieldConstReference
+    struct FieldConstReference : FieldReferenceBase<true>
     {
-        bool is_asked() const {
-            return this->field->asked_;
-        }
-
-        array_view_const_char to_string_view() const {
-            return this->field->to_string_view(this->ini->variables, this->ini->buffers);
-        }
-
-        char const * c_str() const {
-            return this->to_string_view().data();
-        }
-
-        explicit operator bool () const {
-            return this->field;
-        }
-
-        authid_t authid() const {
-            return this->id;
-        }
-
-        FieldConstReference(FieldConstReference &&) = default;
-
-        FieldConstReference() = default;
-
-        FieldConstReference(FieldConstReference const &) = delete;
-        FieldConstReference & operator=(FieldConstReference const &) = delete;
-
-    private:
-        FieldBase const * field = nullptr;
-        Inifile const * ini = nullptr;
-        authid_t id = authid_t::AUTHID_UNKNOWN;
-
-        FieldConstReference(Inifile const & ini, authid_t id)
-        : field(&ini.fields[id])
-        , ini(&ini)
-        , id(id)
-        {}
-
+        using FieldReferenceBase<true>::FieldReferenceBase;
         friend class Inifile;
     };
 
@@ -441,9 +420,7 @@ private:
 
         void clear() noexcept
         {
-            for (auto & w : this->words) {
-                w = 0;
-            }
+            this->words.fill(0);
             this->list_size = 0;
         }
 

@@ -20,96 +20,80 @@
 */
 
 #define RED_TEST_MODULE TestFlatDialogMod
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
-
-#include "core/client_info.hpp"
 #include "configs/config.hpp"
 #include "core/RDP/capabilities/window.hpp"
-#include "mod/internal/client_execute.hpp"
+#include "RAIL/client_execute.hpp"
 #include "mod/internal/flat_dialog_mod.hpp"
 #include "keyboard/keymap2.hpp"
 #include "test_only/front/fake_front.hpp"
+#include "test_only/core/font.hpp"
 
 RED_AUTO_TEST_CASE(TestDialogMod)
 {
-    ClientInfo info;
-    info.keylayout = 0x040C;
-    info.console_session = 0;
-    info.brush_cache_code = 0;
-    info.bpp = 24;
-    info.width = 800;
-    info.height = 600;
-
-    FakeFront front(info, 0);
-    WindowListCaps window_list_caps;
-    SessionReactor session_reactor;
-    ClientExecute client_execute(session_reactor, front, window_list_caps, 0);
-
-    Inifile             ini;
-
-    Keymap2 keymap;
-    keymap.init_layout(info.keylayout);
-
-    FlatDialogMod d(ini, session_reactor, front, 800, 600, Rect(0, 0, 799, 599), "Title", "Hello, World", "OK", 0, client_execute);
-    keymap.push_kevent(Keymap2::KEVENT_ENTER); // enterto validate
-    d.rdp_input_scancode(0, 0, 0, 0, &keymap);
-
-    RED_CHECK_EQUAL(true, ini.get<cfg::context::accept_message>());
-}
-
-
-RED_AUTO_TEST_CASE(TestDialogModReject)
-{
-    ClientInfo info;
-    info.keylayout = 0x040C;
-    info.console_session = 0;
-    info.brush_cache_code = 0;
-    info.bpp = 24;
-    info.width = 800;
-    info.height = 600;
-
-    FakeFront front(info, 0);
-    WindowListCaps window_list_caps;
-    SessionReactor session_reactor;
-    ClientExecute client_execute(session_reactor, front, window_list_caps, 0);
-
-    Inifile             ini;
-
-    Keymap2 keymap;
-    keymap.init_layout(info.keylayout);
-
-    FlatDialogMod d(ini, session_reactor, front, 800, 600, Rect(0, 0, 799, 599), "Title", "Hello, World", "Cancel", 0, client_execute);
-    keymap.push_kevent(Keymap2::KEVENT_ESC);
-    d.rdp_input_scancode(0, 0, 0, 0, &keymap);
-
-    RED_CHECK_EQUAL(false, ini.get<cfg::context::accept_message>());
-}
-
-RED_AUTO_TEST_CASE(TestDialogModChallenge)
-{
-    ClientInfo info;
-    info.keylayout = 0x040C;
-    info.console_session = 0;
-    info.brush_cache_code = 0;
-    info.bpp = 24;
-    info.width = 800;
-    info.height = 600;
-
-    FakeFront front(info, 0);
+    ScreenInfo screen_info{BitsPerPixel{24}, 800, 600};
+    FakeFront front(screen_info);
     WindowListCaps window_list_caps;
     SessionReactor session_reactor;
     ClientExecute client_execute(session_reactor, front, window_list_caps, 0);
 
     Inifile ini;
+    Theme theme;
 
     Keymap2 keymap;
-    keymap.init_layout(info.keylayout);
+    keymap.init_layout(0x040C);
 
-    FlatDialogMod d(ini, session_reactor, front, 800, 600, Rect(0, 0, 799, 599), "Title", "Hello, World", "Cancel", 0, client_execute, CHALLENGE_ECHO);
+    FlatDialogMod d(ini, session_reactor, front, screen_info.width, screen_info.height,
+        Rect(0, 0, 799, 599), "Title", "Hello, World", "OK", 0, client_execute, global_font(), theme);
+    keymap.push_kevent(Keymap2::KEVENT_ENTER); // enterto validate
+    d.rdp_input_scancode(0, 0, 0, 0, &keymap);
+
+    RED_CHECK(ini.get<cfg::context::accept_message>());
+}
 
 
-    bool    ctrl_alt_del;
+RED_AUTO_TEST_CASE(TestDialogModReject)
+{
+    ScreenInfo screen_info{BitsPerPixel{24}, 800, 600};
+    FakeFront front(screen_info);
+    WindowListCaps window_list_caps;
+    SessionReactor session_reactor;
+    ClientExecute client_execute(session_reactor, front, window_list_caps, 0);
+
+    Inifile ini;
+    Theme theme;
+
+    Keymap2 keymap;
+    keymap.init_layout(0x040C);
+
+    FlatDialogMod d(ini, session_reactor, front, 800, 600, Rect(0, 0, 799, 599),
+        "Title", "Hello, World", "Cancel", 0, client_execute, global_font(), theme);
+    keymap.push_kevent(Keymap2::KEVENT_ESC);
+    d.rdp_input_scancode(0, 0, 0, 0, &keymap);
+
+    RED_CHECK(!ini.get<cfg::context::accept_message>());
+}
+
+RED_AUTO_TEST_CASE(TestDialogModChallenge)
+{
+    ScreenInfo screen_info{BitsPerPixel{24}, 800, 600};
+    FakeFront front(screen_info);
+    WindowListCaps window_list_caps;
+    SessionReactor session_reactor;
+    ClientExecute client_execute(session_reactor, front, window_list_caps, 0);
+
+    Inifile ini;
+    Theme theme;
+
+    Keymap2 keymap;
+    keymap.init_layout(0x040C);
+
+    FlatDialogMod d(ini, session_reactor, front, 800, 600, Rect(0, 0, 799, 599),
+        "Title", "Hello, World", "Cancel", 0, client_execute, global_font(), theme, CHALLENGE_ECHO);
+
+
+    bool ctrl_alt_del;
 
     uint16_t keyboardFlags = 0 ;
     uint16_t keyCode = 16; // key is 'a'
@@ -135,28 +119,22 @@ RED_AUTO_TEST_CASE(TestDialogModChallenge)
 
 RED_AUTO_TEST_CASE(TestDialogModChallenge2)
 {
-    ClientInfo info;
-    info.keylayout = 0x040C;
-    info.console_session = 0;
-    info.brush_cache_code = 0;
-    info.bpp = 24;
-    info.width = 1600;
-    info.height = 1200;
-
-    FakeFront front(info, 0);
+    ScreenInfo screen_info{BitsPerPixel{24}, 1600, 1200};
+    FakeFront front(screen_info);
     WindowListCaps window_list_caps;
     SessionReactor session_reactor;
     ClientExecute client_execute(session_reactor, front, window_list_caps, 0);
 
     Inifile ini;
+    Theme theme;
 
     Keymap2 keymap;
-    keymap.init_layout(info.keylayout);
+    keymap.init_layout(0x040C);
 
-    FlatDialogMod d(ini, session_reactor, front, 1600, 1200, Rect(800, 600, 799, 599), "Title", "Hello, World", "Cancel", 0, client_execute, CHALLENGE_ECHO);
+    FlatDialogMod d(ini, session_reactor, front, 1600, 1200, Rect(800, 600, 799, 599),
+        "Title", "Hello, World", "Cancel", 0, client_execute, global_font(), theme, CHALLENGE_ECHO);
 
-
-    bool    ctrl_alt_del;
+    bool ctrl_alt_del;
 
     uint16_t keyboardFlags = 0 ;
     uint16_t keyCode = 16; // key is 'a'

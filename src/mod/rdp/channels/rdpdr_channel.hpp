@@ -27,10 +27,10 @@
 #include "mod/rdp/channels/base_channel.hpp"
 #include "mod/rdp/channels/rdpdr_file_system_drive_manager.hpp"
 #include "mod/rdp/channels/sespro_launcher.hpp"
-#include "system/linux/system/ssl_sha256.hpp"
+#include "system/ssl_sha256.hpp"
 #include "utils/key_qvalue_pairs.hpp"
 #include "utils/sugar/algostring.hpp"
-#include "utils/sugar/strutils.hpp"
+#include "utils/strutils.hpp"
 
 #include <deque>
 
@@ -247,8 +247,8 @@ class FileSystemVirtualChannel final : public BaseVirtualChannel
                     if (bool(this->verbose & RDPVerbose::rdpdr)) {
                         LOG(LOG_INFO,
                             "FileSystemVirtualChannel::DeviceRedirectionManager::add_known_device: "
-                                "\"%s\"(DeviceId=%u DeviceType=%u) is already in the device list. "
-                                "Old=\"%s\" (DeviceType=%u)",
+                                "\"%s\"(DeviceId=%" PRIu32 " DeviceType=%" PRIu32 ") is already"
+                                " in the device list. Old=\"%s\" (DeviceType=%" PRIu32 ")",
                             PreferredDosName, DeviceId, underlying_cast(DeviceType),
                             info.preferred_dos_name.c_str(), underlying_cast(info.device_type));
                     }
@@ -261,7 +261,7 @@ class FileSystemVirtualChannel final : public BaseVirtualChannel
             if (bool(this->verbose & RDPVerbose::rdpdr)) {
                 LOG(LOG_INFO,
                     "FileSystemVirtualChannel::DeviceRedirectionManager::add_known_device: "
-                        "Add \"%s\"(DeviceId=%u DeviceType=%u) to known device list.",
+                        "Add \"%s\"(DeviceId=%" PRIu32 " DeviceType=%" PRIu32 ") to known device list.",
                     PreferredDosName, DeviceId, underlying_cast(DeviceType));
             }
 
@@ -271,7 +271,7 @@ class FileSystemVirtualChannel final : public BaseVirtualChannel
     public:
         void DisableSessionProbeDrive() {
             if (!this->user_logged_on) {
-                this->file_system_drive_manager.RemoveSessionProbeDrive(
+                this->file_system_drive_manager.remove_session_probe_drive(
                     this->verbose);
 
                 return;
@@ -279,15 +279,15 @@ class FileSystemVirtualChannel final : public BaseVirtualChannel
 
             this->session_probe_drive_should_be_disable = true;
 
-            this->EffectiveDisableSessionProbeDrive();
+            this->effective_disable_session_probe_drive();
         }
 
-        void EffectiveDisableSessionProbeDrive() {
+        void effective_disable_session_probe_drive() {
             if (this->user_logged_on &&
                 !this->waiting_for_server_device_announce_response &&
                 this->device_announces.empty() &&
                 this->session_probe_drive_should_be_disable) {
-                this->file_system_drive_manager.DisableSessionProbeDrive(
+                this->file_system_drive_manager.disable_session_probe_drive(
                     (*this->to_server_sender), this->verbose);
 
                 this->session_probe_drive_should_be_disable = false;
@@ -332,7 +332,7 @@ class FileSystemVirtualChannel final : public BaseVirtualChannel
                     if (bool(this->verbose & RDPVerbose::rdpdr)) {
                         LOG(LOG_INFO,
                             "FileSystemVirtualChannel::DeviceRedirectionManager::remove_known_device: "
-                                "Remove \"%s\"(DeviceId=%u) from known device list.",
+                                "Remove \"%s\"(DeviceId=%" PRIu32 ") from known device list.",
                             iter->preferred_dos_name,
                             DeviceId);
                     }
@@ -426,7 +426,7 @@ class FileSystemVirtualChannel final : public BaseVirtualChannel
             }   // while (!this->waiting_for_server_device_announce_response &&
                 //        this->device_announces.size())
 
-            this->EffectiveDisableSessionProbeDrive();
+            this->effective_disable_session_probe_drive();
         }   // void announce_device()
 
     public:
@@ -458,7 +458,7 @@ class FileSystemVirtualChannel final : public BaseVirtualChannel
                 if (bool(this->verbose & RDPVerbose::rdpdr)) {
                     LOG(LOG_INFO,
                         "FileSystemVirtualChannel::DeviceRedirectionManager::process_client_device_list_announce_request: "
-                            "DeviceCount=%u",
+                            "DeviceCount=%" PRIu32,
                         DeviceCount);
                 }
 
@@ -484,9 +484,8 @@ class FileSystemVirtualChannel final : public BaseVirtualChannel
                         if (bool(this->verbose & RDPVerbose::rdpdr)) {
                             LOG(LOG_INFO,
                                 "FileSystemVirtualChannel::DeviceRedirectionManager::process_client_device_list_announce_request: "
-                                    "%u byte(s) of request header are saved.",
-                                uint32_t(
-                                    this->remaining_device_announce_request_header_stream.get_offset()));
+                                    "%zu byte(s) of request header are saved.",
+                                this->remaining_device_announce_request_header_stream.get_offset());
                         }
 
                         break;
@@ -541,8 +540,8 @@ class FileSystemVirtualChannel final : public BaseVirtualChannel
                     if (bool(this->verbose & RDPVerbose::rdpdr)) {
                         LOG(LOG_INFO,
                             "FileSystemVirtualChannel::DeviceRedirectionManager::process_client_device_list_announce_request: "
-                                "DeviceType=%s(%u) DeviceId=%u "
-                                "PreferredDosName=\"%s\" DeviceDataLength=%u",
+                                "DeviceType=%s(%" PRIu32 ") DeviceId=%" PRIu32 " "
+                                "PreferredDosName=\"%s\" DeviceDataLength=%" PRIu32,
                             rdpdr::get_DeviceType_name(static_cast<rdpdr::RDPDR_DTYP>(DeviceType)),
                             DeviceType, DeviceId, PreferredDosName,
                             DeviceDataLength);
@@ -878,7 +877,7 @@ class FileSystemVirtualChannel final : public BaseVirtualChannel
             }
             else {
                 if (server_device_announce_response.DeviceId() ==
-                    this->file_system_drive_manager.GetSessionProbeDriveId()) {
+                    this->file_system_drive_manager.get_session_probe_drive_id()) {
                     if (this->file_system_virtual_channel.session_probe_device_announce_responded_notifier) {
                         if (!this->file_system_virtual_channel.session_probe_device_announce_responded_notifier->on_device_announce_responded()) {
                             this->file_system_virtual_channel.session_probe_device_announce_responded_notifier = nullptr;
@@ -927,22 +926,22 @@ class FileSystemVirtualChannel final : public BaseVirtualChannel
 public:
     struct Params : public BaseVirtualChannel::Params
     {
-        const char* client_name;
+        uninit_checked<const char*> client_name;
 
-        bool file_system_read_authorized;
-        bool file_system_write_authorized;
+        uninit_checked<bool> file_system_read_authorized;
+        uninit_checked<bool> file_system_write_authorized;
 
-        bool parallel_port_authorized;
-        bool print_authorized;
-        bool serial_port_authorized;
-        bool smart_card_authorized;
+        uninit_checked<bool> parallel_port_authorized;
+        uninit_checked<bool> print_authorized;
+        uninit_checked<bool> serial_port_authorized;
+        uninit_checked<bool> smart_card_authorized;
 
-        uint32_t random_number;
+        uninit_checked<uint32_t> random_number;
 
-        bool dont_log_data_into_syslog;
-        bool dont_log_data_into_wrm;
+        uninit_checked<bool> dont_log_data_into_syslog;
+        uninit_checked<bool> dont_log_data_into_wrm;
 
-        const char* proxy_managed_drive_prefix;
+        uninit_checked<const char*> proxy_managed_drive_prefix;
 
         explicit Params(ReportMessageApi & report_message)
           : BaseVirtualChannel::Params(report_message) {}
@@ -997,8 +996,8 @@ public:
                 "FileSystemVirtualChannel::~FileSystemVirtualChannel: "
                     "There is Device I/O request information "
                     "remaining in inventory. "
-                    "DeviceId=%u FileId=%u CompletionId=%u "
-                    "MajorFunction=%u extra_data=%u file_path=\"%s\"",
+                    "DeviceId=%" PRIu32 " FileId=%" PRIu32 " CompletionId=%" PRIu32 " "
+                    "MajorFunction=%" PRIu32 " extra_data=%" PRIu32 " file_path=\"%s\"",
                 request_info.device_id,
                 request_info.file_id,
                 request_info.completion_id,
@@ -1016,7 +1015,7 @@ public:
                 "FileSystemVirtualChannel::~FileSystemVirtualChannel: "
                     "There is Device I/O target information "
                     "remaining in inventory. "
-                    "DeviceId=%u FileId=%u file_path=\"%s\" for_reading=%s "
+                    "DeviceId=%" PRIu32 " FileId=%" PRIu32 " file_path=\"%s\" for_reading=%s "
                     "for_writing=%s",
                 target_info.device_id,
                 target_info.file_id,
@@ -1046,7 +1045,7 @@ public:
         LOG(LOG_INFO, "FileSystemVirtualChannel::enable_session_probe_drive: count=%u", this->enable_session_probe_drive_count);
 
         if (1 == this->enable_session_probe_drive_count) {
-            this->file_system_drive_manager.EnableSessionProbeDrive(
+            this->file_system_drive_manager.enable_session_probe_drive(
                 this->param_proxy_managed_drive_prefix, this->verbose);
         }
     }
@@ -1580,7 +1579,7 @@ public:
                 "FileSystemVirtualChannel::process_client_drive_io_response: "
                     "The corresponding "
                     "Server Drive I/O Request is not found! "
-                    "DeviceId=%u CompletionId=%u",
+                    "DeviceId=%" PRIu32 " CompletionId=%" PRIu32,
                 this->client_device_io_response.DeviceId(),
                 this->client_device_io_response.CompletionId());
 
@@ -1599,11 +1598,9 @@ public:
                             (chunk.in_remain() != request_iter->remaining)) {
                             LOG(LOG_ERR,
                                 "FileSystemVirtualChannel::process_client_drive_io_response: "
-                                    "in_remain(%" PRIu64 ") != remaining=(%u)",
+                                    "in_remain(%zu) != remaining=(%" PRIu32 ")",
                                 chunk.in_remain(), request_iter->remaining);
-#ifndef NDEBUG
                             assert(false);
-#endif  // #ifndef NDEBUG
                         }
 
                         target_iter->sha256.update({ chunk.get_current(), effective_chunked_data_length });
@@ -1615,9 +1612,7 @@ public:
                     LOG(LOG_WARNING,
                         "FileSystemVirtualChannel::process_client_drive_io_response: "
                             "Target not found! (1)");
-#ifndef NDEBUG
                     assert(false);
-#endif  // #ifndef NDEBUG
                 }
             }
 
@@ -1671,7 +1666,9 @@ public:
                             this->device_redirection_manager.get_device_type(
                                 this->client_device_io_response.DeviceId());
                         if (rdpdr::RDPDR_DTYP_FILESYSTEM != device_type) {
-                            std::string device_name = (p_device_name) ? *p_device_name : "";
+                            auto device_name = (p_device_name)
+                              ? make_array_view(*p_device_name)
+                              : array_view_const_char();
 
                             auto device_type_name = rdpdr::DeviceAnnounceHeader::get_DeviceType_friendly_name(device_type);
                             auto info = key_qvalue_pairs({
@@ -1680,19 +1677,26 @@ public:
                                     { "device_type", device_type_name }
                                 });
 
-                            this->report_message.log5(info);
+                            ArcsightLogInfo arc_info;
+                            arc_info.name = "DRIVE_REDIRECTION_USE";
+                            arc_info.signatureID = ArcsightLogInfo::DRIVE_REDIRECTION_USE;
+                            arc_info.ApplicationProtocol = "rdp";
+                            arc_info.message = info;
+                            arc_info.direction_flag = ArcsightLogInfo::SERVER_DST;
+
+                            this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                             if (!this->param_dont_log_data_into_syslog) {
                                 LOG(LOG_INFO, "%s", info);
                             }
 
                             if (!this->param_dont_log_data_into_wrm) {
-                                std::string message("DRIVE_REDIRECTION_USE=");
-                                message += device_name;
-                                message += "\x01";
-                                message += rdpdr::DeviceAnnounceHeader::get_DeviceType_friendly_name(
-                                    device_type);
-
+                                std::string message = str_concat(
+                                    "DRIVE_REDIRECTION_USE=",
+                                    device_name,
+                                    '\x01', rdpdr::DeviceAnnounceHeader::get_DeviceType_friendly_name(
+                                    device_type)
+                                );
                                 this->front.session_update(message);
                             }
                         }
@@ -1705,7 +1709,7 @@ public:
                             LOG(LOG_INFO,
                                 "FileSystemVirtualChannel::process_client_drive_io_response: "
                                     "Add \"%s\" to known file list. "
-                                    "DeviceId=%u FileId=%u",
+                                    "DeviceId=%" PRIu32 " FileId=%" PRIu32,
                                 target_file_name,
                                 this->client_device_io_response.DeviceId(),
                                 device_create_response.FileId());
@@ -1726,7 +1730,7 @@ public:
                     else {
                         LOG(LOG_WARNING,
                             "FileSystemVirtualChannel::process_client_drive_io_response: "
-                                "Device not found. DeviceId=%u",
+                                "Device not found. DeviceId=%" PRIu32,
                             this->client_device_io_response.DeviceId());
 
                         //assert(false);
@@ -1749,13 +1753,13 @@ public:
                             this->server_device_io_request.DeviceId());
                     if ((rdpdr::RDPDR_DTYP_FILESYSTEM == device_type) &&
                         (target_iter->for_reading != target_iter->for_writing)) {
-                        static const char DESKTOP_INI_FILENAME[] = "/desktop.ini";
+                        auto const DESKTOP_INI_FILENAME = "/desktop.ini"_av;
                         if (target_iter->sequential_access_offset &&
-                            !::ends_case_with(
+                            !::utils::ends_case_with(
                                     file_path.data(),
                                     file_path.size(),
-                                    DESKTOP_INI_FILENAME,
-                                    sizeof(DESKTOP_INI_FILENAME) - 1
+                                    DESKTOP_INI_FILENAME.data(),
+                                    DESKTOP_INI_FILENAME.size()
                                 )) {
                             if (target_iter->for_reading) {
                                 if (target_iter->sequential_access_offset == target_iter->end_of_file) {
@@ -1787,20 +1791,29 @@ public:
                                             { "sha256", digest_s }
                                         });
 
-                                    this->report_message.log5(info);
+                                    ArcsightLogInfo arc_info;
+                                    arc_info.name = "DRIVE_REDIRECTION_READ_EX";
+                                    arc_info.signatureID = ArcsightLogInfo::DRIVE_REDIRECTION_READ_EX;
+                                    arc_info.ApplicationProtocol = "rdp";
+                                    arc_info.filePath = file_path;
+                                    arc_info.fileSize = target_iter->end_of_file;
+                                    arc_info.WallixBastionSHA256Digest = digest_s;
+                                    arc_info.direction_flag = ArcsightLogInfo::SERVER_DST;
+
+                                    this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                                     if (!this->param_dont_log_data_into_syslog) {
                                         LOG(LOG_INFO, "%s", info);
                                     }
 
                                     if (!this->param_dont_log_data_into_wrm) {
-                                        std::string message("DRIVE_REDIRECTION_READ_EX=");
-                                        message += file_path;
-                                        message += "\x01";
-                                        message += file_size_str;
-                                        message += "\x01";
-                                        message += digest_s;
-
+                                        std::string message = str_concat(
+                                            "DRIVE_REDIRECTION_READ_EX=",
+                                            file_path,
+                                            '\x01',
+                                            file_size_str,
+                                            '\x01',
+                                            digest_s);
                                         this->front.session_update(message);
                                     }
                                 }
@@ -1810,16 +1823,23 @@ public:
                                             { "file_name", file_path }
                                         });
 
-                                    this->report_message.log5(info);
+                                    ArcsightLogInfo arc_info;
+                                    arc_info.name = "DRIVE_REDIRECTION_READ";
+                                    arc_info.signatureID = ArcsightLogInfo::DRIVE_REDIRECTION_READ;
+                                    arc_info.ApplicationProtocol = "rdp";
+                                    arc_info.filePath = file_path;
+                                    arc_info.direction_flag = ArcsightLogInfo::SERVER_DST;
+
+                                    this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                                     if (!this->param_dont_log_data_into_syslog) {
                                         LOG(LOG_INFO, "%s", info);
                                     }
 
                                     if (!this->param_dont_log_data_into_wrm) {
-                                        std::string message("DRIVE_REDIRECTION_READ=");
-                                        message += file_path;
-
+                                        std::string message = str_concat(
+                                            "DRIVE_REDIRECTION_READ=",
+                                            file_path);
                                         this->front.session_update(message);
                                     }
                                 }
@@ -1847,20 +1867,29 @@ public:
                                             { "sha256", digest_s }
                                         });
 
-                                    this->report_message.log5(info);
+                                    ArcsightLogInfo arc_info;
+                                    arc_info.name = "DRIVE_REDIRECTION_WRITE_EX";
+                                    arc_info.signatureID = ArcsightLogInfo::DRIVE_REDIRECTION_WRITE_EX;
+                                    arc_info.ApplicationProtocol = "rdp";
+                                    arc_info.filePath = file_path;
+                                    arc_info.fileSize = target_iter->end_of_file;
+                                    arc_info.WallixBastionSHA256Digest = digest_s;
+                                    arc_info.direction_flag = ArcsightLogInfo::SERVER_DST;
+
+                                    this->report_message.log6(info, arc_info, tvtime());
 
                                     if (!this->param_dont_log_data_into_syslog) {
                                         LOG(LOG_INFO, "%s", info);
                                     }
 
                                     if (!this->param_dont_log_data_into_wrm) {
-                                        std::string message("DRIVE_REDIRECTION_WRITE_EX=");
-                                        message += file_path;
-                                        message += "\x01";
-                                        message += file_size_str;
-                                        message += "\x01";
-                                        message += digest_s;
-
+                                        std::string message = str_concat(
+                                            "DRIVE_REDIRECTION_WRITE_EX=",
+                                            file_path,
+                                            '\x01',
+                                            file_size_str,
+                                            '\x01',
+                                            digest_s);
                                         this->front.session_update(message);
                                     }
                                 }
@@ -1870,16 +1899,23 @@ public:
                                             { "file_name", file_path },
                                         });
 
-                                    this->report_message.log5(info);
+                                    ArcsightLogInfo arc_info;
+                                    arc_info.name = "DRIVE_REDIRECTION_WRITE";
+                                    arc_info.signatureID = ArcsightLogInfo::DRIVE_REDIRECTION_WRITE;
+                                    arc_info.ApplicationProtocol = "rdp";
+                                    arc_info.filePath = file_path;
+                                    arc_info.direction_flag = ArcsightLogInfo::SERVER_DST;
+
+                                    this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                                     if (!this->param_dont_log_data_into_syslog) {
                                         LOG(LOG_INFO, "%s", info);
                                     }
 
                                     if (!this->param_dont_log_data_into_wrm) {
-                                        std::string message("DRIVE_REDIRECTION_WRITE=");
-                                        message += file_path;
-
+                                        std::string message = str_concat(
+                                            "DRIVE_REDIRECTION_WRITE=",
+                                            file_path);
                                         this->front.session_update(message);
                                     }
                                 }
@@ -1891,7 +1927,7 @@ public:
                         LOG(LOG_INFO,
                             "FileSystemVirtualChannel::process_client_drive_io_response: "
                                 "Remove \"%s\" from known file list. "
-                                "DeviceId=%u FileId=%u EndOfFile=%" PRId64,
+                                "DeviceId=%" PRIu32 " FileId=%" PRIu32 " EndOfFile=%" PRId64,
                             file_path.c_str(),
                             this->client_device_io_response.DeviceId(),
                             FileId, target_iter->end_of_file);
@@ -1922,7 +1958,7 @@ public:
                 if (bool(this->verbose & RDPVerbose::rdpdr)) {
                     LOG(LOG_INFO,
                         "FileSystemVirtualChannel::process_client_drive_io_response: "
-                            "Read request. Length=%u",
+                            "Read request. Length=%" PRIu32,
                         Length);
                 }
 
@@ -1953,9 +1989,7 @@ public:
                         LOG(LOG_WARNING,
                             "FileSystemVirtualChannel::process_client_drive_io_response: "
                                 "Target not found! (2)");
-#ifndef NDEBUG
                         assert(false);
-#endif  // #ifndef NDEBUG
                     }
                 }
             }
@@ -1976,9 +2010,7 @@ public:
                         LOG(LOG_WARNING,
                             "FileSystemVirtualChannel::process_client_drive_io_response: "
                                 "Target not found! (3)");
-#ifndef NDEBUG
                         assert(false);
-#endif  // #ifndef NDEBUG
                     }
                 }
             break;
@@ -2012,7 +2044,14 @@ public:
                                         { "file_name", file_path },
                                     });
 
-                                this->report_message.log5(info);
+                                ArcsightLogInfo arc_info;
+                                arc_info.name = "DRIVE_REDIRECTION_DELETE";
+                                arc_info.signatureID = ArcsightLogInfo::DRIVE_REDIRECTION_DELETE;
+                                arc_info.ApplicationProtocol = "rdp";
+                                arc_info.filePath = file_path;
+                                arc_info.direction_flag = ArcsightLogInfo::SERVER_DST;
+
+                                this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                                 if (!this->param_dont_log_data_into_syslog) {
                                     LOG(LOG_INFO, "%s", info);
@@ -2022,15 +2061,13 @@ public:
                                 LOG(LOG_WARNING,
                                     "FileSystemVirtualChannel::process_client_drive_io_response: "
                                         "Target not found! (4)");
-#ifndef NDEBUG
                                 assert(false);
-#endif  // #ifndef NDEBUG
                             }
 
                             if (!this->param_dont_log_data_into_wrm) {
-                                std::string message("DRIVE_REDIRECTION_DELETE=");
-                                message += file_path;
-
+                                std::string message = str_concat(
+                                    "DRIVE_REDIRECTION_DELETE=",
+                                    file_path);
                                 this->front.session_update(message);
                             }
                         }
@@ -2045,7 +2082,15 @@ public:
                                         { "new_file_name", file_path },
                                     });
 
-                                this->report_message.log5(info);
+                                ArcsightLogInfo arc_info;
+                                arc_info.name = "DRIVE_REDIRECTION_RENAME";
+                                arc_info.signatureID = ArcsightLogInfo::DRIVE_REDIRECTION_RENAME;
+                                arc_info.ApplicationProtocol = "rdp";
+                                arc_info.filePath = file_path;
+                                arc_info.oldFilePath = target_iter->file_path;
+                                arc_info.direction_flag = ArcsightLogInfo::SERVER_DST;
+
+                                this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                                 if (!this->param_dont_log_data_into_syslog) {
                                     LOG(LOG_INFO, "%s", info);
@@ -2055,17 +2100,15 @@ public:
                                 LOG(LOG_WARNING,
                                     "FileSystemVirtualChannel::process_client_drive_io_response: "
                                         "Target not found! (5)");
-#ifndef NDEBUG
                                 assert(false);
-#endif  // #ifndef NDEBUG
                             }
 
                             if (!this->param_dont_log_data_into_wrm) {
-                                std::string message("DRIVE_REDIRECTION_RENAME=");
-                                message += target_iter->file_path;
-                                message += "\x01";
-                                message += file_path;
-
+                                std::string message = str_concat(
+                                    "DRIVE_REDIRECTION_RENAME=",
+                                    target_iter->file_path,
+                                    '\x01',
+                                    file_path);
                                 this->front.session_update(message);
                             }
                         }
@@ -2103,7 +2146,7 @@ public:
             StaticOutStream<65536> out_chunk;
             out_chunk.out_copy_bytes(chunk.get_data(), chunk.get_capacity());
 
-            OutStream out_stream(out_chunk.get_data(), out_chunk.get_offset());
+            OutStream out_stream(out_chunk.get_bytes());
             out_stream.rewind(chunk_offset);
             this->client_device_io_response.emit(out_stream);
 
@@ -2123,7 +2166,7 @@ public:
         if (bool(this->verbose & RDPVerbose::rdpdr)) {
             LOG(LOG_INFO,
                 "FileSystemVirtualChannel::process_client_message: "
-                    "total_length=%u flags=0x%08X chunk_data_length=%u",
+                    "total_length=%" PRIu32 " flags=0x%08X chunk_data_length=%" PRIu32,
                 total_length, flags, chunk_data_length);
         }
 
@@ -2525,7 +2568,7 @@ public:
                                               /* strict_check = */false) &&
                 !(device_create_request.CreateOptions() &
                   smb2::FILE_DIRECTORY_FILE) &&
-                0 != ::strcmp(device_create_request.Path(), "/")) {
+                0 != ::strcmp(device_create_request.Path().data(), "/")) {
                 access_ok = false;
             }
             if (!this->param_file_system_write_authorized &&
@@ -2575,7 +2618,8 @@ public:
             return false;
         }
 
-        file_path = device_create_request.Path();
+        auto av = device_create_request.Path();
+        file_path.assign(av.begin(), av.end());
 
         return true;
     }   // process_server_create_drive_request
@@ -2593,10 +2637,10 @@ public:
             }
         }
 
-        if (this->file_system_drive_manager.IsManagedDrive(
+        if (this->file_system_drive_manager.is_managed_drive(
                 this->server_device_io_request.DeviceId()))
         {
-            this->file_system_drive_manager.ProcessDeviceIORequest(
+            this->file_system_drive_manager.process_device_IO_request(
                 this->server_device_io_request,
                 (flags & CHANNELS::CHANNEL_FLAG_FIRST),
                 chunk,
@@ -2628,11 +2672,9 @@ public:
                                 (chunk.in_remain() != request_iter->remaining)) {
                                 LOG(LOG_WARNING,
                                     "FileSystemVirtualChannel::process_server_drive_io_request: "
-                                        "in_remain(%" PRIu64 ") != remaining=(%u)",
+                                        "in_remain(%zu) != remaining=(%" PRIu32 ")",
                                     chunk.in_remain(), request_iter->remaining);
-#ifndef NDEBUG
                                 assert(false);
-#endif  // #ifndef NDEBUG
                             }
 
                             target_iter->sha256.update({ chunk.get_current(), effective_chunked_data_length });
@@ -2643,9 +2685,7 @@ public:
                             LOG(LOG_WARNING,
                                 "FileSystemVirtualChannel::process_server_drive_io_request: "
                                     "Request not found!");
-#ifndef NDEBUG
                             assert(false);
-#endif  // #ifndef NDEBUG
                         }
                     }
                 }
@@ -2653,9 +2693,7 @@ public:
                     LOG(LOG_WARNING,
                         "FileSystemVirtualChannel::process_server_drive_io_request: "
                             "Target not found! (1)");
-#ifndef NDEBUG
                     assert(false);
-#endif  // #ifndef NDEBUG
                 }
             }
 
@@ -2673,7 +2711,7 @@ public:
         std::string file_path;
 
         if (this->device_io_target_info_inventory.end() != target_iter) {
-            file_path = target_iter->file_path.c_str();
+            file_path = target_iter->file_path;
         }
 
         if ((this->server_device_io_request.MajorFunction() == rdpdr::IRP_MJ_READ) ||
@@ -2735,7 +2773,7 @@ public:
                     this->server_device_io_request.DeviceId(),
                     this->server_device_io_request.FileId(),
                     completion_id,
-                    file_path.c_str(),
+                    file_path,
                     rdpdr::IRP_MJ_QUERY_INFORMATION,
                     rdpdr::FileStandardInformation,
                     0,                                          // offset
@@ -2814,7 +2852,7 @@ public:
                 if (bool(this->verbose & RDPVerbose::rdpdr)) {
                     LOG(LOG_INFO,
                         "FileSystemVirtualChannel::process_server_drive_io_request: "
-                            "Write Request. Length=%u Offset=%" PRIu64,
+                            "Write Request. Length=%" PRIu32 " Offset=%" PRIu64,
                         length, offset);
                 }
 
@@ -2842,9 +2880,7 @@ public:
                     LOG(LOG_WARNING,
                         "FileSystemVirtualChannel::process_server_drive_io_request: "
                             "Target not found! (2)");
-#ifndef NDEBUG
                     assert(false);
-#endif  // #ifndef NDEBUG
                 }
 
                 this->update_exchanged_data(length);
@@ -2982,9 +3018,7 @@ public:
                             LOG(LOG_WARNING,
                                 "FileSystemVirtualChannel::process_server_drive_io_request: "
                                     "Target not found! (3)");
-#ifndef NDEBUG
                             assert(false);
-#endif  // #ifndef NDEBUG
                         }
                     }
                     break;
@@ -3042,7 +3076,7 @@ public:
             StaticOutStream<65536> out_chunk;
             out_chunk.out_copy_bytes(chunk.get_data(), chunk.get_capacity());
 
-            OutStream out_stream(out_chunk.get_data(), out_chunk.get_offset());
+            OutStream out_stream(out_chunk.get_bytes());
             out_stream.rewind(chunk_offset);
             this->server_device_io_request.emit(out_stream);
 
@@ -3080,7 +3114,7 @@ public:
         if (bool(this->verbose & RDPVerbose::rdpdr)) {
             LOG(LOG_INFO,
                 "FileSystemVirtualChannel::process_server_message: "
-                    "total_length=%u flags=0x%08X chunk_data_length=%u",
+                    "total_length=%" PRIu32 " flags=0x%08X chunk_data_length=%" PRIu32,
                 total_length, flags, chunk_data_length);
         }
 
@@ -3177,7 +3211,7 @@ public:
                 }
 
                 if (!this->user_logged_on) {
-                    this->file_system_drive_manager.AnnounceDrive(
+                    this->file_system_drive_manager.announce_drive(
                         this->device_capability_version_02_supported,
                         this->device_redirection_manager.to_device_announce_collection_sender,
                         this->verbose);

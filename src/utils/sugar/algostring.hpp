@@ -24,6 +24,8 @@
 #include <algorithm>
 #include <string>
 
+#include <cstring>
+
 #include "utils/sugar/range.hpp"
 #include "utils/sugar/array_view.hpp"
 
@@ -58,84 +60,82 @@ auto trim(R & r, Pred pred = Pred()) -> range<decltype(r.begin())> {
 }
 
 
-namespace algostring
+namespace detail
 {
-    struct is_ascii_double_quote_escapable_fn
+    inline array_view_const_char to_string_view_or_char(array_view_const_char av) noexcept
     {
-        constexpr bool operator()(char c) const noexcept
-        {
-            return c == '\\' || c == '"';
-        }
-    };
-
-
-    template<class Pred>
-    void append_escaped(std::string & escaped_subject, array_view_const_char subject, Pred && pred, char esc)
-    {
-        auto first = subject.begin();
-        auto last = subject.end();
-
-        auto p = first;
-        while ((p = std::find_if(first, last, pred)) != last) {
-            escaped_subject.append(first, p);
-            escaped_subject += esc;
-            escaped_subject += *p;
-            first = p + 1;
-        }
-
-        escaped_subject.append(first, last);
+        return av;
     }
 
-    template<class Pred>
-    void append_escaped(std::string & escaped_subject, char const * subject, Pred && pred, char esc)
+    inline array_view_const_char to_string_view_or_char(char const* s) noexcept
     {
-        for (; *subject; ++subject) {
-            if (pred(*subject)) {
-                escaped_subject += esc;
-            }
-            escaped_subject += *subject;
-        }
+        return {s, ::strlen(s)};
     }
 
-    template<class Pred>
-    std::pair<char *, char const *>
-    append_escaped(
-        char * escaped_subject, std::size_t size_max,
-        char const * subject, Pred && pred, char esc
-    ) {
-        auto end = escaped_subject + size_max;
-        for (; escaped_subject != end && *subject; ++subject) {
-            if (pred(*subject)) {
-                if (escaped_subject + 1 == end) {
-                    break;
-                }
-                *escaped_subject++ = esc;
-            }
-            *escaped_subject++ = *subject;
-        }
-        return {escaped_subject, subject};
+    inline char to_string_view_or_char(char c) noexcept
+    {
+        return c;
     }
-}  // namespace algostring
 
-inline void append_escaped_delimiters(std::string & escaped_subject, array_view_const_char subject)
+
+    inline std::size_t len_from_av_or_char(array_view_const_char av) noexcept
+    {
+        return av.size();
+    }
+
+    inline std::size_t len_from_av_or_char(char c) noexcept
+    {
+        return sizeof(c);
+    }
+
+
+    inline void append_from_av_or_char(std::string& s, array_view_const_char av)
+    {
+        s.append(av.data(), av.size());
+    }
+
+    inline void append_from_av_or_char(std::string& s, char c)
+    {
+        s += c;
+    }
+
+
+    template<class... StringsOrChars>
+    void str_concat_view(std::string& str, StringsOrChars&&... strs)
+    {
+        str.reserve(str.size() + (len_from_av_or_char(strs) + ...));
+        (append_from_av_or_char(str, strs), ...);
+    }
+} // namespace detail
+
+
+template<class String, class... Strings>
+[[nodiscard]] std::string str_concat(String&& str, Strings const&... strs)
 {
-    algostring::append_escaped(
-        escaped_subject, subject,
-        algostring::is_ascii_double_quote_escapable_fn{}, '\\');
+    std::string s;
+    detail::str_concat_view(s, detail::to_string_view_or_char(str),
+                               detail::to_string_view_or_char(strs)...);
+    return s;
 }
 
-inline void append_escaped_delimiters(std::string & escaped_subject, char const * subject)
+template<class... Strings>
+[[nodiscard]] std::string str_concat(std::string&& str, Strings const&... strs)
 {
-    algostring::append_escaped(
-        escaped_subject, subject,
-        algostring::is_ascii_double_quote_escapable_fn{}, '\\');
+    detail::str_concat_view(str, detail::to_string_view_or_char(strs)...);
+    return std::move(str);
 }
 
-inline  std::pair<char *, char const *>
-append_escaped_delimiters(char * escaped_subject, std::size_t size_max, char const * subject)
+
+template<class... Strings>
+void str_append(std::string& str, Strings const&... strs)
 {
-    return algostring::append_escaped(
-        escaped_subject, size_max, subject,
-        algostring::is_ascii_double_quote_escapable_fn{}, '\\'
-    );
+    detail::str_concat_view(str, detail::to_string_view_or_char(strs)...);
+}
+
+
+template<class... Strings>
+void str_assign(std::string& str, Strings const&... strs)
+{
+    str.clear();
+    detail::str_concat_view(str, detail::to_string_view_or_char(strs)...);
 }

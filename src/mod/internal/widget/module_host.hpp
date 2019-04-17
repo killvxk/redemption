@@ -146,17 +146,15 @@ private:
 
         void send_auth_channel_data(const char * string_data) override;
 
+        void send_checkout_channel_data(const char * string_data) override;
+
         // mod_api
 
         void draw_event(time_t now, gdi::GraphicApi& gd) override;
 
-        bool is_up_and_running() override;
+        bool is_up_and_running() const override;
 
         bool is_auto_reconnectable() override;
-
-        void send_to_front_channel(CHANNELS::ChannelNameId mod_channel_name,
-                                   const uint8_t* data, size_t length,
-                                   size_t chunk_size, int flags) override;
 
         // RdpInput
 

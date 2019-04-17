@@ -22,7 +22,7 @@
 */
 
 #define RED_TEST_MODULE TestCapabilityPointer
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "core/RDP/capabilities/pointer.hpp"
@@ -43,7 +43,7 @@ RED_AUTO_TEST_CASE(TestCapabilityPointerEmit)
     StaticOutStream<1024> out_stream;
     pointer_caps.emit(out_stream);
 
-    InStream stream(out_stream.get_data(), out_stream.get_offset());
+    InStream stream(out_stream.get_bytes());
 
     PointerCaps pointer_caps2;
 

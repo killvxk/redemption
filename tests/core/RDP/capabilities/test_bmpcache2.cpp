@@ -19,7 +19,7 @@
 */
 
 #define RED_TEST_MODULE TestCapabilityBmpCache2
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "core/RDP/capabilities/bmpcache2.hpp"
 
@@ -30,7 +30,7 @@ RED_AUTO_TEST_CASE(TestCapabilityBmpCache2)
     StaticOutStream<1024> out_stream;
     cap.emit(out_stream);
 
-    InStream stream(out_stream.get_data(), out_stream.get_offset());
+    InStream stream(out_stream.get_bytes());
 
     BmpCache2Caps cap2;
     cap2.recv(stream, CAPLEN_BITMAPCACHE_REV2);

@@ -27,6 +27,17 @@ To compile ReDemPtion you need the following packages:
 - libffmpeg-dev (see below)
 - g++ >= 7.2 or clang++ >= 5.0 or other C++17 compiler
 
+```sh
+apt install libboost-tools-dev libboost-test-dev libssl-dev libkrb5-dev libsnappy-dev libpng12-dev
+```
+
+Extra packet:
+- libboost-stacktrace-dev (only with `-sBOOST_STACKTRACE=1`)
+
+```sh
+apt install libboost-stacktrace-dev
+```
+
 Submodule ($ `git submodule update --init`):
 - https://github.com/wallix/program_options
 - https://github.com/wallix/ppocr
@@ -41,6 +52,11 @@ Submodule ($ `git submodule update --init`):
 - libswscale-dev
 - libx264-dev
 - libbz2-dev
+
+```sh
+apt install libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libx264-dev libbz2-dev
+```
+
 <!-- ok with 53 (?) and 54 version-->
 <!-- - libavcodec-ffmpeg56 -->
 <!-- - libavformat-ffmpeg56 -->
@@ -57,12 +73,12 @@ And set environment variable (optionally)
 
 ### Note:
 
-Disable ffmpeg with `NO_FFMPEG=1`.
+Disable ffmpeg with `-sNO_FFMPEG=1`.
 
 
 ## Environment variable setting
 
-List with `sed -E '/\[ setvar/!d;s/.*\[ setvar ([^ ]+).*/\1/' jam/defines.jam`
+List with `sed -E '/\[ setvar/!d;s/.*\[ setvar ([^ ]+).*\] ;/\1/' jam/defines.jam`
 
     export FFMPEG_INC_PATH=$HOME/ffmpeg/includes
     bjam ....
@@ -74,6 +90,14 @@ Or
 Or with `-s` to bjam
 
     bjam -s FFMPEG_INC_PATH=$HOME/ffmpeg/includes ...
+
+### Special compilation variables
+
+- `BOOST_STACKTRACE=1`: (debug only) compile with `boost_stacktrace_backtrace`.
+
+### Special runtime variables
+
+- `REDEMPTION_FILTER_ERROR`: Only with `BOOST_STACKTRACE=1`. no backtrace for specific error (see `src/core/error.hpp`). example: `export REDEMPTION_FILTER_ERROR=ERR_TRANSPORT_NO_MORE_DATA`.
 
 
 Compilation
@@ -101,7 +125,10 @@ and install (as administrator):
 
 \# `bjam install`
 
-Binaries are located in `/usr/local/bin`.
+Binaries are located by default in `/usr/local/bin`.
+
+
+Use `bjam --help` for more information.
 
 
 ## Modes and options
@@ -116,6 +143,8 @@ $ `bjam [variant=]{release|debug|san} [cxx-options=value] [target...]`
 - `cxx-lto`: off on fat
 - `cxx-relro`: default off on full
 - `cxx-stack-protector`: off on strong all
+
+(`cxx-*` options list with `sed -E 's/^feature <([^>]+)> .*/\1/;t;d' jam/cxxflags.jam`)
 
 
 Run ReDemPtion
@@ -140,18 +169,10 @@ Example with freerdp when the proxy runs on the same host as the client:
 $ `xfreerdp 127.0.0.1`
 
 A dialog box should open in which you can type a username and a password.
-With default authhook at least internal services should work. Try login: bouncer
-and password: bouncer, or login: card and password: card. To access your own
-remote RDP hosts you'll of course have to configure them in authhook.py.
-Hopefully at some time in the future these won't be hardcoded, but authhook.py
-will access to some configuration file. If you want to provide such extensions
-to current authhook.py, please contribute it, it will be much appreciated.
+With default passthrough.py at least internal services should work. Try login: internal, password: internal and bouncer2 or card as device. If you want to provide such extensions
+to current passthrough.py, please contribute it, it will be much appreciated.
 
-You can also bypass login dialog box and go directly to the RDP server by
-providing a login and a password from command line.
-
-$ `xfreerdp -u 'bouncer' -p 'bouncer' 127.0.0.1`
-
+$ `xfreerdp /u:internal /p:internal 127.0.0.1`
 
 Generate target and lib/obj dependencies
 ========================================
@@ -164,6 +185,24 @@ Or run `./tools/bjam/gen_targets.py > targets.jam`
 
 Specific deps (libs, header, cpp, etc) in `./tools/bjam/gen_targets.py`.
 
+Compile proxy_recorder
+======================
+
+Proxy recorder is a tools used to record dialog between a client and an RDP server without
+any modification of the data by redemption. This allows to record reference traffic for
+replaying it later. It is useful for having available new parts or the RDP protocol in a
+reproducible way and replaying traffic when implementing the new orders. This tools is
+not (yet) packaged with redemption and delivered as stand-alone.
+
+It can be compiled using static c++ libraries (usefull to use the runtime on systems
+where reference compiler is older) using the command line below. Links with openssl
+and kerberos are still dynamic and using shared libraries.
+
+`bjam -a -d2 toolset=gcc-7 proxy_recorder linkflags=-static-libstdc++`
+
+Exemple call line for proxy_recorder:
+
+`proxy_recorder --target-host 10.10.47.252 -p 3389 -P 8000 --nla-username myusername --nla-password mypassword -t dump-%d.out`
 
 Packaging
 =========
@@ -177,7 +216,7 @@ Packaging
 Tag and Version
 ===============
 
-    ./public/tools/packager.py --update-version 1.2.7 --git-tag --git-push-tag --git-push
+    ./tools/packager.py --update-version 1.2.7 --git-tag --git-push-tag --git-push
 
 
 FAQ
@@ -195,3 +234,14 @@ The main drawback of bjam is the smaller user base.
 But keeping in mind the complexity of make (or worse autotools + make), bjam is
 a great help. We also used to have an alternative cmake build system, but it was
 more complex than bjam and not maintained, so was removed.
+
+Q - How to add configuration variables in rdpproxy.ini ?
+--------------------------------------------------------
+
+Just edit config_spec.hpp (./projects/redemption_configs/configs_specs/configs/specs/config_spec.hpp).
+
+The necessary changes should be simple using the surrounding code as exemple.
+
+Then enter directory `projects/redemption_configs` and type `bjam`
+the needed files will be generated.
+

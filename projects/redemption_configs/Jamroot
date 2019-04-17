@@ -1,130 +1,104 @@
-REDEMPTION_CONFIG_SPECS_PATH ?= ./configs_specs ;
 REDEMPTION_CONFIG_PATH ?= . ;
-REDEMPTION_ROOT_PATH ?= ../.. ;
-REDEMPTION_SRC_PATH ?= $(REDEMPTION_ROOT_PATH)/src ;
-REDEMPTION_INCLUDE_PATH ?= $(REDEMPTION_ROOT_PATH)/include ;
-SYSTEM_TYPE ?= linux ;
-SYSTEM_SRC_PATH ?= $(REDEMPTION_SRC_PATH)/system/$(SYSTEM_TYPE) ;
+REDEMPTION_PUBLIC_PATH ?= ../.. ;
+REDEMPTION_INCLUDE_PATH ?= $(REDEMPTION_PUBLIC_PATH)/include ;
 
+include ../../jam/redemption-config.jam ;
 include ../../jam/cxxflags.jam ;
 include ../../jam/defines.jam ;
+include ../../jam/sanitizer.jam ;
 
 project configs
     : requirements
     <include>$(REDEMPTION_CONFIG_PATH)/src
-    <include>$(REDEMPTION_CONFIG_PATH)/include/autogen
-    <include>$(REDEMPTION_CONFIG_SPECS_PATH)
+    <include>$(REDEMPTION_CONFIG_PATH)/autogen/include
+    <include>$(REDEMPTION_CONFIG_PATH)/configs_specs
     <include>$(REDEMPTION_INCLUDE_PATH)
     <include>$(REDEMPTION_SRC_PATH)
     <include>$(SYSTEM_SRC_PATH)
 
-    <cxxflags>-std=c++17
-
-    $(CXXFLAGS)
+    $(REDEMPTION_CXXFLAGS)
     <toolset>clang:<cxxflags>-Wno-class-varargs
 
-   : default-build release
+   : default-build debug
 ;
 
-constant AUTOGENDIR : include/autogen/configs/autogen ;
-constant FILEGEN_CONF : $(AUTOGENDIR)/variables_configuration.hpp ;
-constant FILEGEN_CONF_FWD : $(AUTOGENDIR)/variables_configuration_fwd.hpp ;
-constant FILEGEN_SPEC : $(AUTOGENDIR)/str_python_spec.hpp ;
-constant FILEGEN_INI : $(AUTOGENDIR)/str_ini.hpp ;
-constant FILEGEN_ENUM : $(AUTOGENDIR)/enums.hpp ;
+constant AUTOGEN_SPEC_DIR : autogen/spec ;
+constant AUTOGEN_INC_DIR : autogen/include/configs/autogen ;
+constant FILEGEN_ENUM : $(AUTOGEN_INC_DIR)/enums.hpp ;
+constant FILEGEN_CONF : $(AUTOGEN_INC_DIR)/variables_configuration.hpp ;
 
-actions generate_cpp_configs {
-    $(>[0]) \
-        $(AUTOGENDIR)/authid.hpp \
-        $(FILEGEN_CONF_FWD) \
-        $(FILEGEN_CONF) \
-        $(AUTOGENDIR)/set_value.tcc
+actions generate_cpp_enumeration
+{
+    $(>) $(FILEGEN_ENUM) $(AUTOGEN_INC_DIR)/enums_func_ini.hpp
 }
 
-actions generate_python_spec {
-    $(>[0]) $(FILEGEN_SPEC)
+actions generate_config_spec
+{
+    $(>)
 }
 
-actions generate_ini {
-    $(>[0]) $(FILEGEN_INI)
+rule create_generator ( name : file : requirements * )
+{
+    make $(file) : make_$(name) $(requirements) : @generate_$(name) : <location>. ;
+    alias generate_$(name) : $(file) ;
+    exe make_$(name) : src/configs/write_$(name).cpp : <library>keymap <library>log_test.o ;
 }
-
-actions generate_enum {
-    $(>) $(FILEGEN_ENUM) $(AUTOGENDIR)/enums_func_ini.hpp
-}
-
-make $(FILEGEN_CONF) : make_cpp_config generate_enum : @generate_cpp_configs : <location>. ;
-make $(FILEGEN_SPEC) : make_python_spec generate_enum : @generate_python_spec : <location>. ;
-make $(FILEGEN_ENUM) : make_cpp_enum : @generate_enum : <location>. ;
-make $(FILEGEN_INI) : make_ini : @generate_ini : <location>. ;
-
-alias generate_cpp_configs : $(FILEGEN_CONF) ;
-alias generate_python_spec : $(FILEGEN_SPEC) ;
-alias generate_enum : $(FILEGEN_ENUM) ;
-alias generate_ini : $(FILEGEN_INI) ;
 
 obj log_test.o : $(REDEMPTION_SRC_PATH)/utils/log_as_logtest.cpp ;
 obj error.o : $(REDEMPTION_SRC_PATH)/core/error.cpp : <define>NDEBUG ;
 obj keymap : $(REDEMPTION_SRC_PATH)/keyboard/keymap2.cpp : ;
 
-exe make_cpp_config : src/configs/write_cpp_config.cpp : <library>keymap <library>log_test.o ;
-exe make_python_spec : src/configs/write_python_spec.cpp : <library>keymap <library>log_test.o ;
-exe make_cpp_enum : src/configs/write_cpp_enumeration.cpp : <library>keymap <library>log_test.o ;
-exe make_ini : src/configs/write_ini.cpp : <library>keymap <library>log_test.o ;
+create_generator cpp_enumeration : $(FILEGEN_ENUM) ;
+create_generator config_spec : $(FILEGEN_CONF) ;
 
-
-alias generate_types :
-    generate_enum
+alias generate :
+    generate_cpp_enumeration
+    generate_config_spec
 ;
-
-alias generate_descs :
-    generate_ini
-    generate_python_spec
-    generate_cpp_configs
-;
-
-alias generate : generate_types generate_descs ;
 
 
 include ../../jam/testing-coverage.jam ;
 
 obj font.o : $(REDEMPTION_SRC_PATH)/core/font.cpp ;
 obj cfgloader.o : $(REDEMPTION_SRC_PATH)/utils/cfgloader.cpp ;
+obj strutils.o : $(REDEMPTION_SRC_PATH)/utils/strutils.cpp ;
 obj fileutils.o : $(REDEMPTION_SRC_PATH)/utils/fileutils.cpp ;
 obj hexdump.o : $(REDEMPTION_SRC_PATH)/utils/hexdump.cpp ;
 obj app_path_test.o : $(REDEMPTION_SRC_PATH)/core/app_path.cpp :
     <conditional>@defines-for-test
     <define>SHARE_PATH='\"\"'
-    <define>CFG_PATH='\"$(REDEMPTION_ROOT_PATH)/etc/rdpproxy/\"'
+    <define>CFG_PATH='\"$(REDEMPTION_SYS_PATH)/etc/rdpproxy/\"'
 ;
 
 obj config.o : redemption_src/configs/config.cpp
 :
     <include>redemption_src
-    <implicit-dependency>generate_cpp_configs
-    <implicit-dependency>generate_python_spec
-    <implicit-dependency>generate_enum
+    <implicit-dependency>generate_config_spec
+    <implicit-dependency>generate_cpp_enumeration
 ;
 
-constant TEST_DEPENDENCIES :
-    $(UNIT_TEST_DEPENDENCIES)
-    <library>libunit_test
-    <library>app_path_test.o
-    <library>cfgloader.o
-    <library>config.o
-    <library>error.o
-    <library>fileutils.o
-    <library>font.o
-    <library>hexdump.o
-    <library>log_test.o
-    <cxxflags>-frtti
-    <include>redemption_src
-    <conditional>@defines-for-test
-;
+rule test-run ( name )
+{
+    unit-test $(name) : tests/$(name).cpp generate_config_spec :
+        $(TEST_DEPENDENCIES)
+        <library>app_path_test.o
+        <library>cfgloader.o
+        <library>config.o
+        <library>error.o
+        <library>strutils.o
+        <library>fileutils.o
+        <library>font.o
+        <library>hexdump.o
+        # <cxxflags>-frtti
+        <include>redemption_src
+        <conditional>@defines-for-test
+    ;
+
+}
 
 ## Tests
 ## @{
-unit-test test_config : tests/test_config.cpp : $(TEST_DEPENDENCIES) ;
-unit-test test_parser : tests/test_parser.cpp : $(TEST_DEPENDENCIES) ;
-unit-test test_config_assign : tests/test_config_assign.cpp : $(TEST_DEPENDENCIES) ;
+test-run test_config ;
+test-run test_parser ;
+test-run test_config_assign ;
 ## }

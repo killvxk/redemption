@@ -108,28 +108,16 @@ public:
         }
     }
 
-    void log5(const std::string & info) override
+    void log6(const std::string & info, const ArcsightLogInfo & asl_info, const timeval time) override
     {
         // TODO: should we delay logs sent to SIEM ?
         if (this->acl_serial && this->session_log_is_open) {
-            this->acl_serial->log5(info);
+            this->acl_serial->log6(info, asl_info, time);
         }
         else {
             this->buffered_log_params.push_back({info});
         }
     }
-
-    void log6(const std::string & info, const ArcsightLogInfo & asl_info) override
-    {
-        // TODO: should we delay logs sent to SIEM ?
-        if (this->acl_serial && this->session_log_is_open) {
-            this->acl_serial->log6(info, asl_info);
-        }
-        else {
-            this->buffered_log_params.push_back({info});
-        }
-    }
-
 
     void update_inactivity_timeout() override
     {
@@ -154,7 +142,10 @@ public:
             this->session_log_is_open = true;
 
             for (LogParam const & log_param : this->buffered_log_params) {
-                this->acl_serial->log5(log_param.info);
+
+                ArcsightLogInfo asl_info;
+
+                this->acl_serial->log6(log_param.info, asl_info, tvtime());
             }
             this->buffered_log_params.clear();
             this->buffered_log_params.shrink_to_fit();
@@ -167,6 +158,12 @@ public:
             if (this->session_log_is_open) {
                 this->acl_serial->close_session_log();
             }
+        }
+    }
+
+    void set_pm_request(const char * request) override {
+        if (this->acl_serial){
+            this->acl_serial->ini.set_acl<cfg::context::pm_request>(request);
         }
     }
 };

@@ -63,7 +63,7 @@
 #include "core/RDP/caches/bmpcachepersister.hpp"
 #include "core/RDP/caches/glyphcache.hpp"
 
-#include "mod/rdp/rdp_log.hpp"
+#include "mod/rdp/rdp_verbose.hpp"
 
 #include "gdi/graphic_api.hpp"
 
@@ -89,7 +89,7 @@ class rdp_orders
     RDPNineGrid        ninegrid;
 
 public:
-    uint8_t bpp = 0;
+    BitsPerPixel bpp {};
     BGRPalette global_palette;
 
     std::unique_ptr<BmpCache> bmp_cache;
@@ -215,7 +215,8 @@ public:
             // Generates the name of file.
             char filename[2048];
             ::snprintf(filename, sizeof(filename) - 1, "%s/PDBC-%s-%d",
-                app_path(AppPath::PersistentRdp), this->target_host.c_str(), this->bmp_cache->bpp);
+                app_path(AppPath::PersistentRdp), this->target_host.c_str(),
+                underlying_cast(this->bmp_cache->bpp));
             filename[sizeof(filename) - 1] = '\0';
 
             int fd = ::open(filename, O_RDONLY);
@@ -342,6 +343,14 @@ private:
                     gd.draw(order);
                 }
                 break;
+
+            default:
+                LOG(LOG_INFO,
+                    "rdp_orders::process_window_information: "
+                        "unsupported Windowing Alternate Secondary Drawing Orders! "
+                        "FieldsPresentFlags=0x%08X",
+                    FieldsPresentFlags);
+                break;
         }
     }
 
@@ -373,6 +382,14 @@ private:
                     }
                     gd.draw(order);
                 }
+                break;
+
+            default:
+                LOG(LOG_INFO,
+                    "rdp_orders::process_notification_icon_information: "
+                        "unsupported Windowing Alternate Secondary Drawing Orders! "
+                        "FieldsPresentFlags=0x%08X",
+                    FieldsPresentFlags);
                 break;
         }
     }

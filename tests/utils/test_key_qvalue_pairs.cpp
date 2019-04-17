@@ -21,7 +21,7 @@
 */
 
 #define RED_TEST_MODULE TestKeyValuePairs
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "utils/key_qvalue_pairs.hpp"
 
@@ -53,21 +53,31 @@ RED_AUTO_TEST_CASE(Test_KVPairs1quote_bis)
 RED_AUTO_TEST_CASE(Test_KVPairs2)
 {
     kv_pair pairs[] = {{"type", "INPUT"}, {"data", "xxxyyy"}};
-
     RED_CHECK_EQUAL("type=\"INPUT\" data=\"xxxyyy\"", key_qvalue_pairs(pairs));
 }
 
 RED_AUTO_TEST_CASE(Test_KVPairs3)
 {
     kv_pair pairs[] = {{"type", "INPUT"}, {"data", "xxxyyy"}, {"field", "data"}};
-
     RED_CHECK_EQUAL("type=\"INPUT\" data=\"xxxyyy\" field=\"data\"", key_qvalue_pairs(pairs));
+}
+
+RED_AUTO_TEST_CASE(Test_KVPairs4)
+{
+    kv_pair pairs[] = {{"type", "a\\b\"c \r\n"}};
+    RED_CHECK_EQUAL("type=\"a\\\\b\\\"c \\r\\n\"", key_qvalue_pairs(pairs));
+}
+
+RED_AUTO_TEST_CASE(Test_KVPairs5)
+{
+    kv_pair pairs[] = {{"type", "\xf5"}};
+    RED_CHECK_EQUAL("type=\"\xf5\"", key_qvalue_pairs(pairs));
 }
 
 RED_AUTO_TEST_CASE(Test_KVPairs_noarray)
 {
-    RED_CHECK_EQUAL(std::string("type=\"INPUT\" data=\"xxxyyy\" field=\"data\""),
-                    key_qvalue_pairs({{"type", "INPUT"}, {"data", "xxxyyy"}, {"field", "data"}}));
+    kv_pair pairs[] = {{"type", "INPUT"}, {"data", "xxxyyy"}, {"field", "data"}};
+    RED_CHECK_EQUAL("type=\"INPUT\" data=\"xxxyyy\" field=\"data\"", key_qvalue_pairs(pairs));
 }
 
 RED_AUTO_TEST_CASE(Test_KeyQvalueFormatter)

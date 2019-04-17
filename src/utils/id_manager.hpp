@@ -31,6 +31,7 @@ template <typename T, unsigned int next_usable,
 class IDManager
 {
 private:
+    // PERF very slow
     std::map<T, T>                  src_to_dest;
     std::map<T, std::pair<T, bool>> dest_to_src;
 
@@ -83,11 +84,7 @@ public:
     bool is_dest_only_id(T dest_id) const {
         auto iter = this->dest_to_src.find(dest_id);
         if (this->dest_to_src.end() != iter) {
-            if (iter->second.second) {
-                return false;
-            }
-
-            return true;
+            return !iter->second.second;
         }
 
         LOG(LOG_ERR,
@@ -116,9 +113,8 @@ private:
             this->update_next_usable_dest_id();
         }
 
-        this->dest_to_src[dest_id].first  = src_id;
-        this->dest_to_src[dest_id].second = true;
-        this->src_to_dest[src_id]         = dest_id;
+        this->dest_to_src[dest_id] = {src_id, true};
+        this->src_to_dest[src_id]  = dest_id;
 
         if (this->verbose) {
             LOG(LOG_INFO,
@@ -135,8 +131,7 @@ public:
 
         this->update_next_usable_dest_id();
 
-        this->dest_to_src[dest_id].first  = 0;
-        this->dest_to_src[dest_id].second = false;
+        this->dest_to_src[dest_id] = {0, false};
 
         if (this->verbose) {
             LOG(LOG_INFO, "IDManager::reg_dest_only_id(...): dest_id=0x%X",

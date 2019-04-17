@@ -20,27 +20,25 @@
  */
 
 #define RED_TEST_MODULE TestCopyPaste
-#include "system/redemption_unit_tests.hpp"
-
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "core/RDP/clipboard.hpp"
-#include "core/font.hpp"
-#include "core/client_info.hpp"
 #include "mod/internal/copy_paste.hpp"
 #include "mod/internal/widget/edit.hpp"
 #include "mod/internal/widget/screen.hpp"
 #include "keyboard/keymap2.hpp"
 #include "test_only/front/fake_front.hpp"
-#include "test_only/mod/fake_draw.hpp"
+#include "test_only/gdi/test_graphic.hpp"
 #include "test_only/check_sig.hpp"
+#include "test_only/core/font.hpp"
 
 #include <string>
 
 
 struct CopyPasteFront : FakeFront
 {
-    CopyPasteFront(ClientInfo & info, CopyPaste & copy_paste)
-    : FakeFront(info, 0)
+    CopyPasteFront(ScreenInfo & info, CopyPaste & copy_paste)
+    : FakeFront(info)
     , copy_paste(copy_paste)
     {
         CHANNELS::ChannelDef def;
@@ -60,11 +58,26 @@ struct CopyPasteFront : FakeFront
 
         InStream stream(data, length);
         RDPECLIP::RecvPredictor rp(stream);
-        uint16_t msgType = rp.msgType;
 
-        switch (msgType) {
+        switch (rp.msgType()) {
             case RDPECLIP::CB_MONITOR_READY:
-                this->send_to_server(RDPECLIP::FormatListPDU());
+            {
+                RDPECLIP::FormatListPDUEx format_list_pdu;
+                format_list_pdu.add_format_name(RDPECLIP::CF_TEXT);
+
+                const bool use_long_format_names = false;
+                const bool in_ASCII_8 = format_list_pdu.will_be_sent_in_ASCII_8(use_long_format_names);
+
+                RDPECLIP::CliprdrHeader clipboard_header(RDPECLIP::CB_FORMAT_LIST,
+                    RDPECLIP::CB_RESPONSE__NONE_ | (in_ASCII_8 ? RDPECLIP::CB_ASCII_NAMES : 0),
+                    format_list_pdu.size(use_long_format_names));
+
+                StaticOutStream<256> out_s;
+                clipboard_header.emit(out_s);
+                format_list_pdu.emit(out_s, use_long_format_names);
+                InStream in_s(out_s.get_bytes());
+                this->copy_paste.send_to_mod_channel(in_s, CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_LAST);
+            }
             break;
             //case RDPECLIP::CB_FORMAT_LIST:
             //    break;
@@ -75,12 +88,18 @@ struct CopyPasteFront : FakeFront
                 RDPECLIP::FormatDataRequestPDU().recv(stream);
                 constexpr std::size_t buf_sz = 65535;
                 uint8_t buf[buf_sz];
-                size_t unicode_data_length = ::UTF8toUTF16(byte_ptr_cast(this->str.c_str()),
-                    buf, buf_sz);
+                size_t unicode_data_length = ::UTF8toUTF16(this->str, buf, buf_sz);
                 buf[unicode_data_length    ] = 0;
                 buf[unicode_data_length + 1] = 0;
                 unicode_data_length += 2;
-                this->send_to_server(RDPECLIP::FormatDataResponsePDU(true), buf, unicode_data_length);
+
+                RDPECLIP::CliprdrHeader header(RDPECLIP::CB_FORMAT_DATA_RESPONSE, RDPECLIP::CB_RESPONSE_OK, unicode_data_length);
+                RDPECLIP::FormatDataResponsePDU format_data_response_pdu;
+                StaticOutStream<256> out_s;
+                header.emit(out_s);
+                format_data_response_pdu.emit(out_s, buf, unicode_data_length);
+                InStream in_s(out_s.get_bytes());
+                this->copy_paste.send_to_mod_channel(in_s, CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_LAST);
             }
             break;
             default:
@@ -90,17 +109,32 @@ struct CopyPasteFront : FakeFront
 
     void copy(const char * s) {
         this->str = s;
-        this->send_to_server(RDPECLIP::FormatListPDU());
+
+        RDPECLIP::FormatListPDUEx format_list_pdu;
+        format_list_pdu.add_format_name(RDPECLIP::CF_TEXT);
+
+        const bool use_long_format_names = false;
+        const bool in_ASCII_8 = format_list_pdu.will_be_sent_in_ASCII_8(use_long_format_names);
+
+        RDPECLIP::CliprdrHeader clipboard_header(RDPECLIP::CB_FORMAT_LIST,
+            RDPECLIP::CB_RESPONSE__NONE_ | (in_ASCII_8 ? RDPECLIP::CB_ASCII_NAMES : 0),
+            format_list_pdu.size(use_long_format_names));
+
+        StaticOutStream<256> out_s;
+        clipboard_header.emit(out_s);
+        format_list_pdu.emit(out_s, use_long_format_names);
+        InStream in_s(out_s.get_bytes());
+        this->copy_paste.send_to_mod_channel(in_s, CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_LAST);
     }
 
 private:
-    template<class PDU, class... Args>
-    void send_to_server(PDU && pdu, Args && ...args) {
-        StaticOutStream<256> out_s;
-        pdu.emit(out_s, std::move(args)...);
-        InStream in_s(out_s.get_data(), out_s.get_offset());
-        this->copy_paste.send_to_mod_channel(in_s, CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_LAST);
-    }
+//    template<class PDU, class... Args>
+//    void send_to_server(PDU && pdu, Args && ...args) {
+//        StaticOutStream<256> out_s;
+//        pdu.emit(out_s, std::move(args)...);
+//        InStream in_s(out_s.get_bytes());
+//        this->copy_paste.send_to_mod_channel(in_s, CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_LAST);
+//    }
 
     CHANNELS::ChannelDefArray channel_def_array;
     CopyPaste & copy_paste;
@@ -124,29 +158,21 @@ public:
 
 RED_AUTO_TEST_CASE(TestPaste)
 {
-    ClientInfo info;
-    info.keylayout = 0x040C;
-    info.console_session = 0;
-    info.brush_cache_code = 0;
-    info.bpp = 24;
-    info.width = 120;
-    info.height = 20;
+    ScreenInfo screen_info{BitsPerPixel{24}, 120, 20};
 
     CopyPaste copy_paste;
-    CopyPasteFront front(info, copy_paste);
-    TestDraw mod(info.width, info.height);
+    CopyPasteFront front(screen_info, copy_paste);
+    TestGraphic gd(screen_info.width, screen_info.height);
 
     Keymap2 keymap;
-    keymap.init_layout(info.keylayout);
+    keymap.init_layout(0x040C);
 
     CopyPasteProcess notifier(copy_paste);
 
-    Font font(FIXTURES_PATH "/Lato-Light_16.rbf");
+    WidgetScreen parent(gd, global_font_lato_light_16(), nullptr, Theme{});
+    parent.set_wh(screen_info.width, screen_info.height);
 
-    WidgetScreen parent(mod.gd, font, nullptr, Theme{});
-    parent.set_wh(info.width, info.height);
-
-    WidgetEdit edit(mod.gd, parent, &notifier, "", 0, PINK, ORANGE, RED, font);
+    WidgetEdit edit(gd, parent, &notifier, "", 0, PINK, ORANGE, RED, global_font_lato_light_16());
     Dimension dim = edit.get_optimal_dim();
     edit.set_wh(120, dim.h);
     edit.set_xy(0, 0);
@@ -164,7 +190,7 @@ RED_AUTO_TEST_CASE(TestPaste)
         /*sprintf(filename, "test_copy_paste_%d.png", __LINE__);*/ \
         /*mod.save_to_png(filename);*/                             \
                                                                    \
-        RED_CHECK_SIG(mod.gd.impl(), sig);                         \
+        RED_CHECK_SIG(gd, sig);                                    \
     }
     edit_paste("",
         "\x55\x78\x56\xd2\x65\x6c\x78\x4a\x23\x26\x2b\xf5\xfb\x67\xdd\x0f\xa9\x96\xaf\xa6");

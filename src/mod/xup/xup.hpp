@@ -71,7 +71,7 @@ enum {
     FrontAPI & front;
     int width;
     int height;
-    int bpp;
+    BitsPerPixel bpp;
     Transport & t;
     int rop;
     BGRColor fgcolor;
@@ -86,7 +86,7 @@ enum {
            , uint16_t /*front_height*/
            , int context_width
            , int context_height
-           , int context_bpp
+           , BitsPerPixel context_bpp
            )
     : front(front)
     , width(context_width)
@@ -108,7 +108,7 @@ enum {
         stream.out_uint32_le(0);
         stream.out_uint32_le(0);
         stream.set_out_uint32_le(stream.get_offset(), 0);
-        this->t.send(stream.get_data(), stream.get_offset());
+        this->t.send(stream.get_bytes());
     }
 
     ~xup_mod() override = default;
@@ -267,7 +267,7 @@ enum {
                         int height = stream.in_uint16_le();
                         int srcx = stream.in_sint16_le();
                         int srcy = stream.in_sint16_le();
-                        Bitmap bmp(this->bpp, bpp, &this->palette332, width, height, bmpdata, sizeof(bmpdata));
+                        Bitmap bmp(this->bpp, this->bpp, &this->palette332, width, height, bmpdata, sizeof(bmpdata));
                         gd.draw(RDPMemBlt(0, r, 0xCC, srcx, srcy, 0), r, bmp);
                     }
                     break;
@@ -337,14 +337,5 @@ enum {
 // TODO            this->event.signal = BACK_EVENT_NEXT;
             this->front.must_be_stop_capture();
         }
-    }
-
-    void send_to_front_channel(CHANNELS::ChannelNameId mod_channel_name, uint8_t const * data, size_t length, size_t chunk_size, int flags) override {
-        // TODO xup_mod::send_to_front_channel: unimplemented
-        (void)mod_channel_name;
-        (void)data;
-        (void)length;
-        (void)chunk_size;
-        (void)flags;
     }
 };

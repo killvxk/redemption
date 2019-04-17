@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "utils/sugar/numerics/safe_conversions.hpp"
 #include "gdi/image_frame_api.hpp"
 
 #include <cstring>
@@ -42,14 +43,14 @@ class TimestampTracer {
         size_str_timestamp = ts_max_length + 1
     };
 
-    uint8_t timestamp_save[ts_width * ts_height * /*DrawableImplPrivate::Bpp*/4];
-    uint8_t timestamp_data[ts_width * ts_height * /*DrawableImplPrivate::Bpp*/4];
+    uint8_t timestamp_save[ts_width * ts_height * /*DrawableImplPrivate::bytes_per_pixel*/4];
+    uint8_t timestamp_data[ts_width * ts_height * /*DrawableImplPrivate::bytes_per_pixel*/4];
     char previous_timestamp[size_str_timestamp];
     uint8_t previous_timestamp_length;
 
     unsigned int width;
     unsigned int height;
-    unsigned int Bpp;
+    unsigned int bytes_per_pixel;
     uint8_t*     pixels;
     unsigned int rowsize;
 
@@ -58,7 +59,7 @@ public:
     : previous_timestamp_length(0)
     , width(image_view.width())
     , height(image_view.height())
-    , Bpp(image_view.bytes_per_pixel())
+    , bytes_per_pixel(safe_int(image_view.bytes_per_pixel()))
     , pixels(image_view.mutable_data())
     , rowsize(image_view.line_size()) {
         memset(this->timestamp_data, 0xFF, sizeof(this->timestamp_data));
@@ -608,15 +609,15 @@ private:
                 const char * poldch = digits + this->_posch_12x7(oldch);
 
                 unsigned br_pix = 0;
-                unsigned br_pixindex = i * (char_width * this->Bpp);
+                unsigned br_pixindex = i * (char_width * this->bytes_per_pixel);
 
-                for (size_t y = 0; y < char_height; ++y, br_pix += char_width, br_pixindex += width * this->Bpp) {
+                for (size_t y = 0; y < char_height; ++y, br_pix += char_width, br_pixindex += width * this->bytes_per_pixel) {
                     for (size_t x = 0; x <  char_width; ++x) {
                         unsigned pix = br_pix + x;
                         if (pnewch[pix] != poldch[pix]) {
                             uint8_t pixcolorcomponent = (pnewch[pix] == 'X') ? 0xFF : 0;
-                            unsigned pixindex = br_pixindex + x * this->Bpp;
-                            memset(&rgbpixbuf[pixindex], pixcolorcomponent, this->Bpp);
+                            unsigned pixindex = br_pixindex + x * this->bytes_per_pixel;
+                            memset(&rgbpixbuf[pixindex], pixcolorcomponent, this->bytes_per_pixel);
                         }
                     }
                 }
@@ -630,9 +631,12 @@ public:
         const char* timezone = (daylight ? tzname[1] : tzname[0]);
         const uint8_t timestamp_length = 20 + strlen(timezone);
         char rawdate[size_str_timestamp] {};
+        REDEMPTION_DIAGNOSTIC_PUSH
+        REDEMPTION_DIAGNOSTIC_GCC_ONLY_IGNORE("-Wformat-truncation")
         snprintf(rawdate, timestamp_length + 1, "%4d-%02d-%02d %02d:%02d:%02d %s",
             now.tm_year + 1900, now.tm_mon + 1, now.tm_mday,
             now.tm_hour, now.tm_min, now.tm_sec, timezone);
+        REDEMPTION_DIAGNOSTIC_POP
         this->draw_12x7_digits(this->timestamp_data, ts_width, size_str_timestamp - 1, rawdate,
             this->previous_timestamp);
         memcpy(this->previous_timestamp, rawdate, size_str_timestamp);
@@ -640,12 +644,12 @@ public:
 
         uint8_t * tsave = this->timestamp_save;
         uint8_t * buf = this->pixels;
-        const size_t n = timestamp_length * char_width * this->Bpp;
-        const size_t cp_n = std::min<size_t>(n, this->width * this->Bpp);
+        const size_t n = timestamp_length * char_width * this->bytes_per_pixel;
+        const size_t cp_n = std::min<size_t>(n, this->width * this->bytes_per_pixel);
         const size_t ny = std::min<size_t>(ts_height, this->height);
         for (size_t y = 0; y < ny ; ++y, buf += this->rowsize, tsave += n) {
             memcpy(tsave, buf, cp_n);
-            memcpy(buf, this->timestamp_data + y * ts_width * this->Bpp, cp_n);
+            memcpy(buf, this->timestamp_data + y * ts_width * this->bytes_per_pixel, cp_n);
         }
     }
 
@@ -653,7 +657,7 @@ public:
     {
         const uint8_t * tsave = this->timestamp_save;
         uint8_t * buf = this->pixels;
-        const size_t n = this->previous_timestamp_length * char_width * this->Bpp;
+        const size_t n = this->previous_timestamp_length * char_width * this->bytes_per_pixel;
         const size_t cp_n = std::min<size_t>(n, this->width);
         const size_t ny = std::min<size_t>(ts_height, this->height);
         for (size_t y = 0; y < ny; ++y, buf += this->rowsize, tsave += n) {

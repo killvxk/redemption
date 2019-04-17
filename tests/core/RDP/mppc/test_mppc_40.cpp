@@ -19,7 +19,7 @@
 */
 
 #define RED_TEST_MODULE TestMPPC40
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "core/RDP/mppc/mppc_40.hpp"
@@ -45,7 +45,7 @@ RED_AUTO_TEST_CASE(TestRDP40BlukCompression4)
     mppc_enc.flags         = 0x20;
     mppc_enc.flagsHold     = 0;
     mppc_enc.first_pkt     = false;
-    memcpy(mppc_enc.hash_tab_mgr.hash_table.get(), hash_table,       rdp_mppc_40_enc::hash_table_manager::get_table_size());
+    mppc_enc.hash_tab_mgr.initialize_hash_table(hash_table);
 
     uint8_t  compressionFlags;
     uint16_t datalen;

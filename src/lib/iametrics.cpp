@@ -37,19 +37,6 @@ extern "C"
         return VERSION;
     }
 
-    char* new_hmac_sha256_hex(
-        const char * src, const unsigned src_len, const uint8_t * key_crypt) noexcept
-    {
-        return reinterpret_cast<char*>( /*NOLINT*/
-            new(std::nothrow) MetricsHmacSha256Encrypt({src, src_len}, {key_crypt, 32u}));
-    }
-
-    void delete_hmac_sha256_hex(char* sign) noexcept /*NOLINT*/
-    {
-        delete reinterpret_cast<MetricsHmacSha256Encrypt*>(sign); /*NOLINT*/
-    }
-
-
     Metrics * metrics_new( const char * version             // fields version
                          , const char * protocol_name
                          , const unsigned nbitems
@@ -67,11 +54,14 @@ extern "C"
         auto av = [](char const* s){ return array_view_const_char{s, strlen(s)}; };
         using std::chrono::seconds;
         using std::chrono::hours;
-        return new(std::nothrow) Metrics(
-            version, protocol_name, true, nbitems, path, session_id,
+        timeval now{static_cast<time_t>(now_seconds), 0};
+        Metrics * metrics = new(std::nothrow) Metrics(
+            path, session_id,
             av(primary_user_sig), av(account_sig), av(target_service_sig),
-            av(session_info_sig), seconds(now_seconds), hours(file_interval_hours),
+            av(session_info_sig), now, hours(file_interval_hours),
             seconds(log_delay_seconds));
+        metrics->set_protocol(version, protocol_name, nbitems);
+        return metrics;
     }
 
     void metrics_delete(Metrics * metrics) noexcept

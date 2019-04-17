@@ -37,8 +37,6 @@ using FlatLoginModVariables = vcfg::variables<
     vcfg::var<cfg::globals::target_device,              vcfg::accessmode::ask>,
     vcfg::var<cfg::globals::target_user,                vcfg::accessmode::ask>,
     vcfg::var<cfg::translation::language,               vcfg::accessmode::get>,
-    vcfg::var<cfg::font,                                vcfg::accessmode::get>,
-    vcfg::var<cfg::theme,                               vcfg::accessmode::get>,
     vcfg::var<cfg::context::opt_message,                vcfg::accessmode::get>,
     vcfg::var<cfg::context::login_message,              vcfg::accessmode::get>,
     vcfg::var<cfg::client::keyboard_layout_proposals,   vcfg::accessmode::get>,
@@ -64,7 +62,7 @@ public:
         FlatLoginModVariables vars, SessionReactor& session_reactor,
         char const * username, char const * password,
         FrontAPI & front, uint16_t width, uint16_t height, Rect const widget_rect, time_t now,
-        ClientExecute & client_execute
+        ClientExecute & client_execute, Font const& font, Theme const& theme
     );
 
     ~FlatLoginMod() override;
@@ -73,7 +71,7 @@ public:
 
     void draw_event(time_t now, gdi::GraphicApi & gapi) override;
 
-    bool is_up_and_running() override { return true; }
+    bool is_up_and_running() const override { return true; }
 
     void send_to_mod_channel(CHANNELS::ChannelNameId front_channel_name, InStream& chunk, size_t length, uint32_t flags) override;
 

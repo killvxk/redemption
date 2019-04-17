@@ -309,6 +309,7 @@ namespace X224
         PROTOCOL_RDP    = 0,
         PROTOCOL_TLS    = 1,
         PROTOCOL_HYBRID = 2,
+        PROTOCOL_RDSTLS = 4,
         PROTOCOL_HYBRID_EX = 8
     };
 
@@ -510,13 +511,15 @@ namespace X224
     // +-------------------------------+----------------------------------------------+
     // | 0x00000000 PROTOCOL_RDP       | Standard RDP Security (section 5.3).         |
     // +-------------------------------+----------------------------------------------+
-    // | 0x00000001 PROTOCOL_SSL       | TLS 1.0 (section 5.4.5.1).                   |
+    // | 0x00000001 PROTOCOL_SSL       | TLS 1.0, 1.1 or 1.2 (section 5.4.5.1).       |
     // +-------------------------------+----------------------------------------------+
     // | 0x00000002 PROTOCOL_HYBRID    | Credential Security Support Provider protocol|
     // |                               | (CredSSP) (section 5.4.5.2). If this flag is |
     // |                               | set, then the PROTOCOL_SSL (0x00000001)      |
     // |                               | SHOULD also be set because Transport Layer   |
     // |                               | Security (TLS) is a subset of CredSSP.       |
+    // +-------------------------------+----------------------------------------------+
+    // | 0x00000004 PROTOCOL_RDSTLS    | RDSTLS protocol (section 5.4.5.3).           |
     // +-------------------------------+----------------------------------------------+
     // | 0x00000008 PROTOCOL_HYBRID_EX | Credential Security Support Provider protocol|
     // |                               | (CredSSP) (section 5.4.5.2) coupled with the |
@@ -612,18 +615,18 @@ namespace X224
 
         size_t _header_size;
 
-        size_t cookie_len;
+        size_t cookie_len = 0;
         char cookie[1024];
 
-        uint8_t rdp_neg_type;
-        uint8_t rdp_neg_flags;
-        uint16_t rdp_neg_length;
-        uint32_t rdp_neg_requestedProtocols;
+        uint8_t rdp_neg_type = 0;
+        uint8_t rdp_neg_flags = 0;
+        uint16_t rdp_neg_length = 0;
+        uint32_t rdp_neg_requestedProtocols = 0;
 
-        uint8_t rdp_cinfo_type;
-        uint8_t rdp_cinfo_flags;
-        uint16_t rdp_cinfo_length;
-        uint8_t rdp_cinfo_correlationid[16];
+        uint8_t rdp_cinfo_type = 0;
+        uint8_t rdp_cinfo_flags = 0;
+        uint16_t rdp_cinfo_length = 0;
+        uint8_t rdp_cinfo_correlationid[16]{};
 
         CR_TPDU_Recv(InStream & stream, bool bogus_neg_req, uint32_t verbose = 0)
         : Recv(stream)
@@ -650,16 +653,7 @@ namespace X224
                 return CR_Header{LI, code, dst_ref, src_ref, class_option};
             }())
         , _header_size(X224::TPKT_HEADER_LEN + this->tpdu_hdr.LI + 1)
-        , rdp_neg_type(0)
-        , rdp_neg_flags(0)
-        , rdp_neg_length(0)
-        , rdp_neg_requestedProtocols(0)
-        , rdp_cinfo_type(0)
-        , rdp_cinfo_flags(0)
-        , rdp_cinfo_length(0)
-        , rdp_cinfo_correlationid()
         {
-
             if (stream.get_capacity() < this->_header_size){
                 LOG(LOG_ERR, "Truncated CR TPDU header: expected %zu, got %zu",
                     this->_header_size, stream.get_capacity());
@@ -669,9 +663,7 @@ namespace X224
             // TODO CGR: we should fix the code here to support routingtoken (or we may have some troubles with load balancing RDP hardware
 
             // extended negotiation header
-            this->cookie_len = 0;
             this->cookie[0] = 0;
-            this->rdp_neg_type = 0;
 
             // TODO We should have some reading function in stream to read this
             uint8_t const * end_of_header = stream.get_data() + X224::TPKT_HEADER_LEN + this->tpdu_hdr.LI + 1;
@@ -718,7 +710,7 @@ namespace X224
                         LOG(LOG_INFO, "CR Recv: PROTOCOL RDP");
                     }
                     if (this->rdp_neg_requestedProtocols & X224::PROTOCOL_TLS){
-                        LOG(LOG_INFO, "CR Recv: PROTOCOL TLS 1.0");
+                        LOG(LOG_INFO, "CR Recv: PROTOCOL TLS");
                     }
                     if (this->rdp_neg_requestedProtocols & X224::PROTOCOL_HYBRID){
                         LOG(LOG_INFO, "CR Recv: PROTOCOL HYBRID");
@@ -744,8 +736,9 @@ namespace X224
                 stream.in_skip_bytes(16);
                 hexdump_c(this->rdp_cinfo_correlationid, 16);
             }
+                hexdump_c(stream.get_data(), stream.get_capacity());
             if (end_of_header != stream.get_current()){
-                LOG(LOG_ERR, "CR TPDU header should be terminated, got trailing data %" PRIdPTR, end_of_header - stream.get_current());
+                LOG(LOG_ERR, "CR TPDU header should be terminated, got trailing data %ld", end_of_header - stream.get_current());
                 hexdump_c(stream.get_data(), stream.get_capacity());
                 throw Error(ERR_X224);
             }
@@ -866,7 +859,7 @@ namespace X224
     // +-------------------------------+----------------------------------------------+
     // | 0x00000000 PROTOCOL_RDP       | Standard RDP Security (section 5.3)          |
     // +-------------------------------+----------------------------------------------+
-    // | 0x00000001 PROTOCOL_SSL       | TLS 1.0 (section 5.4.5.1)                    |
+    // | 0x00000001 PROTOCOL_SSL       | TLS 1.0, 1.1 or 1.2 (section 5.4.5.1)                    |
     // +-------------------------------+----------------------------------------------+
     // | 0x00000002 PROTOCOL_HYBRID    | CredSSP (section 5.4.5.2)                    |
     // +-------------------------------+----------------------------------------------+
@@ -1051,7 +1044,7 @@ namespace X224
                             LOG(LOG_INFO, "CC Recv: PROTOCOL RDP");
                             break;
                         case X224::PROTOCOL_TLS:
-                            LOG(LOG_INFO, "CC Recv: PROTOCOL TLS 1.0");
+                            LOG(LOG_INFO, "CC Recv: PROTOCOL TLS");
                             break;
                         case X224::PROTOCOL_HYBRID:
                             LOG(LOG_INFO, "CC Recv: PROTOCOL HYBRID");
@@ -1092,7 +1085,7 @@ namespace X224
             }
 
             if (end_of_header != stream.get_current()){
-                LOG(LOG_ERR, "CC TPDU header should be terminated, got trailing data %" PRIdPTR , end_of_header - stream.get_current());
+                LOG(LOG_ERR, "CC TPDU header should be terminated, got trailing data %ld", end_of_header - stream.get_current());
                 throw Error(ERR_X224);
             }
             this->_header_size = stream.get_offset();
@@ -1149,7 +1142,7 @@ namespace X224
                         LOG(LOG_INFO, "CC Send: PROTOCOL RDP");
                     break;
                     case X224::PROTOCOL_TLS:
-                        LOG(LOG_INFO, "CC Send: PROTOCOL TLS 1.0");
+                        LOG(LOG_INFO, "CC Send: PROTOCOL TLS");
                     break;
                     case X224::PROTOCOL_HYBRID:
                         LOG(LOG_INFO, "CC Send: PROTOCOL HYBRID");
@@ -1254,7 +1247,7 @@ namespace X224
         {
             uint8_t const * end_of_header = stream.get_data() + X224::TPKT_HEADER_LEN + this->tpdu_hdr.LI + 1;
             if (end_of_header != stream.get_current()){
-                LOG(LOG_ERR, "DR TPDU header should be terminated, got trailing data %" PRIdPTR, end_of_header - stream.get_current());
+                LOG(LOG_ERR, "DR TPDU header should be terminated, got trailing data %ld", end_of_header - stream.get_current());
                 throw Error(ERR_X224);
             }
         }

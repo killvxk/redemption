@@ -23,6 +23,7 @@
 #include "utils/fileutils.hpp"
 #include "utils/log.hpp"
 #include "utils/file.hpp"
+#include "utils/strutils.hpp"
 
 #include <cstdio>
 #include <cstddef>
@@ -35,7 +36,32 @@
 #include <dirent.h>
 #include <alloca.h>
 
-#include <string>
+#ifdef __EMSCRIPTEN__
+char const* basename(char const* path)
+{
+    char const* p = path;
+
+    do {
+        while (*p != '/' && *p) {
+            ++p;
+        }
+
+        if (!*p) {
+            return path;
+        }
+
+        ++p;
+        path = p;
+    } while (*path);
+
+    return path;
+}
+
+char* basename(char* path)
+{
+    return const_cast<char*>(basename(const_cast<char const*>(path)));
+}
+#endif
 
 // two flavors of basename_len to make it const agnostic
 const char * basename_len(const char * path, size_t & len)
@@ -186,8 +212,7 @@ bool canonical_path(const char * fullpath, char * path, size_t path_len,
         }
         const char * start_of_extension = strrchr(end_of_path + 1, '.');
         if (start_of_extension){
-            snprintf(extension, extension_len, "%s", start_of_extension);
-            //strcpy(extension, start_of_extension);
+            utils::strlcpy(extension, start_of_extension, extension_len);
             if (start_of_extension > end_of_path + 1){
                 if (static_cast<size_t>(start_of_extension - end_of_path - 1) <= basename_len) {
                     memcpy(basename, end_of_path + 1, start_of_extension - end_of_path - 1);
@@ -202,8 +227,7 @@ bool canonical_path(const char * fullpath, char * path, size_t path_len,
         }
         else {
             if (end_of_path[1]){
-                snprintf(basename, basename_len, "%s", end_of_path + 1);
-                //strcpy(basename, end_of_path + 1);
+                utils::strlcpy(basename, end_of_path + 1, basename_len);
                 // default extension : leave whatever is in extension output buffer
             }
             else {
@@ -216,8 +240,7 @@ bool canonical_path(const char * fullpath, char * path, size_t path_len,
         // default path : leave whatever is in path output buffer
         const char * start_of_extension = strrchr(fullpath, '.');
         if (start_of_extension){
-            snprintf(extension, extension_len, "%s", start_of_extension);
-            // strcpy(extension, start_of_extension);
+            utils::strlcpy(extension, start_of_extension, extension_len);
             if (start_of_extension > fullpath){
                 if (static_cast<size_t>(start_of_extension - fullpath) <= basename_len) {
                     memcpy(basename, fullpath, start_of_extension - fullpath);
@@ -232,8 +255,7 @@ bool canonical_path(const char * fullpath, char * path, size_t path_len,
         }
         else {
             if (fullpath[0]){
-                snprintf(basename, basename_len, "%s", fullpath);
-                // strcpy(basename, fullpath);
+                utils::strlcpy(basename, fullpath, basename_len);
                 // default extension : leave whatever is in extension output buffer
             }
             else {
@@ -246,7 +268,7 @@ bool canonical_path(const char * fullpath, char * path, size_t path_len,
 }
 
 
-static int _internal_make_directory(const char *directory, mode_t mode, const int groupid)
+static int _internal_make_directory(const char *directory, mode_t mode, int groupid)
 {
     struct stat st;
     int status = 0;
@@ -259,11 +281,16 @@ static int _internal_make_directory(const char *directory, mode_t mode, const in
                 LOG(LOG_ERR, "failed to create directory %s : %s [%d]", directory, strerror(errno), errno);
             }
             if (groupid >= 0) {
-                if (chown(directory, static_cast<uid_t>(-1), groupid) < 0){
+                #ifdef __EMSCRIPTEN__
+                    groupid = (groupid == -1) ? getpid() : groupid;
+                    const uid_t userid = getuid();
+                #else
+                    const uid_t userid = -1;
+                #endif
+                if (chown(directory, userid, groupid) < 0){
                     LOG(LOG_ERR, "can't set directory %s group to %d : %s [%d]", directory, groupid, strerror(errno), errno);
                 }
             }
-
         }
         else if (!S_ISDIR(st.st_mode)) {
             errno = ENOTDIR;
@@ -278,6 +305,7 @@ static int _internal_make_directory(const char *directory, mode_t mode, const in
 int recursive_create_directory(const char * directory, mode_t mode, const int groupid)
 {
     if (!directory) {
+        LOG(LOG_ERR, "Call to recursive create directory without directory path (null)");
         return -1;
     }
 
@@ -297,7 +325,8 @@ int recursive_create_directory(const char * directory, mode_t mode, const int gr
         *pSearch = '/';
     }
 
-    if (status == 0) {
+    // creation of last directory in chain or nothing if path ending with slash
+    if (status == 0 && *directory != 0) {
         status = _internal_make_directory(directory, mode, groupid);
     }
 

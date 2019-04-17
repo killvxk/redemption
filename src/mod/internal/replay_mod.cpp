@@ -30,6 +30,7 @@
 #include "mod/internal/replay_mod.hpp"
 #include "transport/in_meta_sequence_transport.hpp"
 #include "transport/mwrm_reader.hpp"
+#include "utils/sugar/algostring.hpp"
 #include "utils/genfstat.hpp"
 
 struct ReplayMod::Reader
@@ -48,9 +49,9 @@ struct ReplayMod::Reader
 
             char path[1024];
             char basename[1024];
-            strcpy(path, app_path(AppPath::Record)); // default value, actual one should come from movie_path
-            strcpy(basename, "replay"); // default value actual one should come from movie_path
-            strcpy(this->extension, ".mwrm"); // extension is currently ignored
+            utils::strlcpy(path, app_path(AppPath::Record)); // default value, actual one should come from movie_path
+            utils::strlcpy(basename, "replay"); // default value actual one should come from movie_path
+            utils::strlcpy(this->extension, ".mwrm"); // extension is currently ignored
 
             const bool res = canonical_path(
                 replay_path,
@@ -78,7 +79,7 @@ struct ReplayMod::Reader
 
     Reader(
         Path path, timeval const& begin_read, timeval const& end_read,
-        time_t balise_time_frame, Verbose debug_capture)
+        time_t balise_time_frame, bool play_video_with_corrupted_bitmap, Verbose debug_capture)
     : movie_path(path)
     // TODO RZ: Support encrypted recorded file.
     , in_trans(
@@ -92,6 +93,7 @@ struct ReplayMod::Reader
         begin_read,
         end_read,
         true,
+        play_video_with_corrupted_bitmap,
         debug_capture)
     , balise_time_frame(balise_time_frame)
     , debug_capture(debug_capture)
@@ -141,17 +143,19 @@ ReplayMod::ReplayMod(
   , timeval const & end_read
   , time_t balise_time_frame
   , bool replay_on_loop
+  , bool play_video_with_corrupted_bitmap
   , Verbose debug_capture)
 : auth_error_message(auth_error_message)
 , front_width(width)
 , front_height(height)
 , front(front)
 , internal_reader(std::make_unique<Reader>(
-    Reader::Path{replay_path}, begin_read, end_read, balise_time_frame, debug_capture))
+    Reader::Path{replay_path}, begin_read, end_read, balise_time_frame, play_video_with_corrupted_bitmap, debug_capture))
 , end_of_data(false)
 , wait_for_escape(wait_for_escape)
 , sync_setted(false)
 , replay_on_loop(replay_on_loop)
+, play_video_with_corrupted_bitmap(play_video_with_corrupted_bitmap)
 , session_reactor(session_reactor)
 {
     if (this->internal_reader->server_resize(front)) {
@@ -295,6 +299,7 @@ void ReplayMod::draw_event(time_t /*now*/, gdi::GraphicApi & /*gd*/)
                         this->internal_reader->movie_path,
                         begin_read, end_read,
                         this->internal_reader->balise_time_frame,
+                        this->play_video_with_corrupted_bitmap,
                         this->internal_reader->debug_capture);
 
                     if (this->internal_reader->server_resize(this->front)) {
@@ -333,6 +338,5 @@ void ReplayMod::draw_event(time_t /*now*/, gdi::GraphicApi & /*gd*/)
 
 std::string ReplayMod::get_mwrm_path() const
 {
-    using namespace std::string_literals;
-    return this->internal_reader->movie_path.prefix + ".mwrm"s;
+    return str_concat(this->internal_reader->movie_path.prefix, ".mwrm");
 }

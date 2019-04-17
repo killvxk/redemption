@@ -27,13 +27,9 @@
 
 #include "configs/generators/python_spec.hpp"
 
-#include <algorithm>
 #include <iostream>
-#include <fstream>
 #include <chrono>
-#include <locale>
 #include <vector>
-#include <unordered_map>
 
 #include <cerrno>
 #include <cstring>
@@ -45,220 +41,214 @@ namespace ini_writer {
 
 using namespace cfg_attributes;
 
-template<class Inherit>
-struct IniWriterBase : python_spec_writer::PythonSpecWriterBase<Inherit>
+namespace impl
 {
-    using base_type = IniWriterBase;
-
-    using base_type_ = typename python_spec_writer::PythonSpecWriterBase<Inherit>::base_type;
-
-    using base_type_::base_type_;
-    using base_type_::write_type_info;
-
-    template<class Pack>
-    void do_member(
-        std::string const & section_name,
-        std::string const & member_name,
-        Pack const & infos
-    ) {
-        // comments variable
-        base_type_::do_member(section_name, '#' + member_name, infos);
-    }
-
-    template<class... Ts>
-    void write_comment_line(Ts const & ... args)
+    inline void write_enum_info(std::ostream& out, type_enumeration const & e)
     {
-        this->out() << "\"# ";
-        (void)std::initializer_list<int>{(void(this->out() << args), 0)...};
-        this->out() << "\\n\"\n";
-    }
-
-    template<class T>
-    void write_type_info(type_<bool>, T)
-    { this->write_comment_line("0 or 1"); }
-
-    template<class Int, class T>
-    std::enable_if_t<
-        std::is_base_of<types::integer_base, Int>::value
-        or
-        std::is_integral<Int>::value
-    >
-    write_type_info(type_<Int>, T)
-    {
-        if (std::is_unsigned<Int>::value || std::is_base_of<types::unsigned_base, Int>::value) {
-            this->write_comment_line("min = 0");
-        }
-    }
-
-    template<class Int, long min, long max, class T>
-    void write_type_info(type_<types::range<Int, min, max>>, T)
-    { this->write_comment_line("min = ", min, ", max = ", max); }
-
-
-    template<class T, class Ratio, class U>
-    void write_type_info(type_<std::chrono::duration<T, Ratio>>, U)
-    { this->write_comment_line("min = 0"); }
-
-    template<unsigned N, class T>
-    void write_type_info(type_<types::fixed_binary<N>>, T const &)
-    { this->write_comment_line("(hexadecimal string) size = ", N*2); }
-
-    template<unsigned N, class T>
-    void write_type_info(type_<types::fixed_string<N>>, T const &)
-    {this->write_comment_line("size_max = ", N); }
-
-    template<class T>
-    void write_type_info(type_<types::dirpath>, T const & x)
-    { this->write_type_info(type_<typename types::dirpath::fixed_type>{}, x); }
-
-    template<class T, class E>
-    enable_if_enum_t<T>
-    write_type_info(type_<T>, E const & x)
-    {
-        static_assert(std::is_same<T, E>::value, "");
-        apply_enumeration_for<T>(this->enums, [&x, this](auto const & e) {
-            this->write_enum_info(e, static_cast<std::underlying_type_t<E>>(x));
-        });
-    }
-
-    template<class T>
-    void write_enum_info(type_enumeration const & e, T /*default_value*/)
-    {
-        if (e.flag == type_enumeration::flags) {
-            this->write_comment_line("(flags) min = 0, max = ", e.max());
-        }
-        else if (e.is_string_parser) {
-            this->out() << "\"# ";
+        if (e.is_string_parser) {
+            out << "values: ";
             for (type_enumeration::Value const & v : e.values) {
-                this->out() << "'" << (v.alias ? v.alias : v.name) << "', ";
+                out << "'" << (v.alias ? v.alias : v.name) << "', ";
             }
-            this->out() << "\\n\"\n";
+            out << "\n";
         }
         else {
-            this->write_comment_line("min = 0, max = ", e.count());
+            out << "min = 0, max = " << e.count() << "\n";
         }
     }
 
-    template<class T>
-    void write_enum_info(type_enumeration_set const & e, T /*default_value*/)
+    inline void write_enum_info(std::ostream& /*out*/, type_enumeration_set const & /*e*/)
     {
-        this->out() << "\"# ";
-        for (type_enumeration_set::Value const & v : e.values) {
-            this->out() << v.val << ", ";
-        }
-        this->out() << "\\n\"\n";
+        // out << "values: ";
+        // for (type_enumeration_set::Value const & v : e.values) {
+        //     out << v.val << ", ";
+        // }
+        // out << "\n";
     }
+}
+
+template<class T>
+void write_type_info(std::ostream& out, type_enumerations& enums, type_<T>)
+{
+    if constexpr (std::is_enum_v<T>) {
+        apply_enumeration_for<T>(enums, [&](auto const & e) {
+            impl::write_enum_info(out, e);
+        });
+    }
+    else if (std::is_unsigned<T>::value || std::is_base_of<types::unsigned_base, T>::value) {
+        out << "min = 0";
+    }
+}
+
+template<class T, class Ratio>
+void write_type_info(std::ostream& out, type_enumerations&, type_<std::chrono::duration<T, Ratio>> t)
+{ python_spec_writer::write_type_info(out, t); }
+
+// template<class T, class Ratio>
+// void write_type_info(std::ostream& out, type_enumerations&, type_<std::chrono::duration<T, Ratio>>)
+// { out << "min = 0\n"; }
+
+inline void write_type_info(std::ostream& out, type_enumerations&, type_<bool>)
+{ out << "value: 0 or 1"; }
+
+template<class Int, long min, long max>
+void write_type_info(std::ostream& out, type_enumerations& enums, type_<types::range<Int, min, max>>)
+{
+    out << "min = " << min << ", max = " << max << "\n";
+    write_type_info(out, enums, type_<Int>{});
+}
+
+template<unsigned N, class T>
+void write_type_info(std::ostream& out, type_enumerations&, type_<types::fixed_binary<N>>)
+{ out << "(hexadecimal string) size = " << N*2 << "\n"; }
+
+template<unsigned N>
+void write_type_info(std::ostream& out, type_enumerations&, type_<types::fixed_string<N>>)
+{ out << "maxlen = " << N << "\n"; }
+
+inline void write_type_info(std::ostream& out, type_enumerations& enums, type_<types::dirpath>)
+{ write_type_info(out, enums, type_<typename types::dirpath::fixed_type>{}); }
 
 
-    static std::string stringize_bool(bool x)
+namespace impl
+{
+    inline std::string stringize_bool(bool x)
     {
         return bool(x) ? "1" : "0";
     }
 
-    static std::string stringize_bool(cpp::macro x)
+    inline auto stringize_bool(cpp::expr e)
     {
-        return base_type_::stringize_integral(x);
+        return python_spec_writer::impl::stringize_bool(e);
     }
 
+    using python_spec_writer::impl::stringize_integral;
+    using python_spec_writer::impl::quoted2;
+}
 
-    template<class T>
-    void write_type(type_<bool>, T x)
-    { this->out() << stringize_bool(x); }
+template<class T>
+void write_type(std::ostream& out, type_enumerations&, type_<bool>, T x)
+{ out << impl::stringize_bool(x); }
 
-    template<class T>
-    void write_type(type_<std::string>, T const & s)
-    { this->out() << this->quoted2(s); }
+template<class T>
+void write_type(std::ostream& out, type_enumerations&, type_<std::string>, T const & s)
+{ out << impl::quoted2(s); }
 
-    template<class Int, class T>
-    std::enable_if_t<
-        std::is_base_of<types::integer_base, Int>::value
-        or
-        std::is_integral<Int>::value
-    >
-    write_type(type_<Int>, T i)
-    { this->out() << this->stringize_integral(i); }
+template<class Int, class T>
+std::enable_if_t<
+    std::is_base_of<types::integer_base, Int>::value
+    or
+    std::is_integral<Int>::value
+>
+write_type(std::ostream& out, type_enumerations&, type_<Int>, T i)
+{ out << impl::stringize_integral(i); }
 
-    template<class Int, long min, long max, class T>
-    void write_type(type_<types::range<Int, min, max>>, T i)
-    { this->out() << this->stringize_integral(i); }
+template<class Int, long min, long max, class T>
+void write_type(std::ostream& out, type_enumerations&, type_<types::range<Int, min, max>>, T i)
+{ out << impl::stringize_integral(i); }
 
 
-    template<class T, class Ratio, class U>
-    void write_type(type_<std::chrono::duration<T, Ratio>>, U i)
-    { this->out() << this->stringize_integral(i); }
+template<class T, class Ratio, class U>
+void write_type(std::ostream& out, type_enumerations&, type_<std::chrono::duration<T, Ratio>>, U i)
+{ out << impl::stringize_integral(i); }
 
-    template<unsigned N, class T>
-    void write_type(type_<types::fixed_binary<N>>, T const & x)
-    { this->out() << io_hexkey{this->get_string(x), N}; }
+template<unsigned N, class T>
+void write_type(std::ostream& out, type_enumerations&, type_<types::fixed_binary<N>>, T const & x)
+{ out << io_hexkey{x.c_str(), N}; }
 
-    template<unsigned N, class T>
-    void write_type(type_<types::fixed_string<N>>, T const & x)
-    { this->out() << this->quoted2(x); }
+template<unsigned N, class T>
+void write_type(std::ostream& out, type_enumerations&, type_<types::fixed_string<N>>, T const & x)
+{ out << impl::quoted2(x); }
 
-    template<class T>
-    void write_type(type_<types::dirpath>, T const & x)
-    { this->write_type(type_<typename types::dirpath::fixed_type>{}, x); }
+template<class T>
+void write_type(std::ostream& out, type_enumerations& enums, type_<types::dirpath>, T const & x)
+{ write_type(out, enums, type_<typename types::dirpath::fixed_type>{}, x); }
 
-    template<class T>
-    void write_type(type_<types::ip_string>, T const & x)
-    { this->out() << this->quoted2(x); }
+template<class T>
+void write_type(std::ostream& out, type_enumerations&, type_<types::ip_string>, T const & x)
+{ out << impl::quoted2(x); }
 
-    template<class T, class L>
-    void write_type(type_<types::list<T>>, L const & s)
-    {
-        if (!is_empty(s)) {
-            this->out() << this->quoted2(s);
-        }
+template<class T, class L>
+void write_type(std::ostream& out, type_enumerations&, type_<types::list<T>>, L const & s)
+{
+    if (!is_empty(s)) {
+        out << impl::quoted2(s);
     }
+}
 
-    template<class T, class E>
-    enable_if_enum_t<T>
-    write_type(type_<T>, E const & x)
-    {
-        static_assert(std::is_same<T, E>::value, "");
-        apply_enumeration_for<T>(this->enums, [&x, this](auto const & e) {
-            this->write_enum_value(e, static_cast<std::underlying_type_t<E>>(x));
-        });
-    }
-
+namespace impl
+{
     template<class T>
-    void write_enum_value(type_enumeration const & e, T default_value)
+    void write_enum_value(std::ostream& out, type_enumeration const & e, T default_value)
     {
         if (e.flag == type_enumeration::flags) {
-            this->out() << default_value;
+            out << default_value;
         }
         else if (e.is_string_parser) {
-            this->out() << e.values[default_value].name;
+            out << e.values[default_value].name;
         }
         else {
-            this->out() << default_value;
+            out << default_value;
         }
     }
 
     template<class T>
-    void write_enum_value(type_enumeration_set const &, T default_value)
-    { this->out() << default_value; }
+    void write_enum_value(std::ostream& out, type_enumeration_set const &, T default_value)
+    { out << default_value; }
+}
+
+template<class T, class E>
+std::enable_if_t<std::is_enum_v<T>>
+write_type(std::ostream& out, type_enumerations& enums, type_<T>, E const & x)
+{
+    using ll = long long;
+    static_assert(std::is_same<T, E>::value, "");
+    apply_enumeration_for<T>(enums, [&](auto const & e) {
+        impl::write_enum_value(out, e, ll{static_cast<std::underlying_type_t<E>>(x)});
+    });
+}
+
+
+struct IniWriterBase : python_spec_writer::IniPythonSpecWriterBase
+{
+    using attribute_name_type = spec::name;
+
+    using IniPythonSpecWriterBase::IniPythonSpecWriterBase;
+
+    void do_init()
+    {
+        this->out_file_ <<
+            "#include \"config_variant.hpp\"\n\n"
+            "\"## Config file for RDP proxy.\\n\\n\\n\"\n"
+        ;
+    }
+
+    template<class Pack>
+    void evaluate_member(std::string const & /*section_name*/, Pack const & infos, type_enumerations& enums)
+    {
+        if constexpr (is_convertible_v<Pack, spec_attr_t>) {
+            auto type = get_type<spec::type_>(infos);
+            std::string const& member_name = get_name<spec::name>(infos);
+
+            std::stringstream comments;
+
+            python_spec_writer::write_description(comments, enums, type, infos);
+            write_type_info(comments, enums, type);
+            python_spec_writer::write_enumeration_value_description(comments, enums, type, infos);
+
+            this->out() << io_prefix_lines{comments.str().c_str(), "\"# ", "\\n\"", 0};
+            comments.str("");
+
+            python_spec_writer::write_spec_attr(comments, get_elem<spec_attr_t>(infos).value);
+
+            this->out() << io_prefix_lines{comments.str().c_str(), "\"#", "\\n\"", 0};
+
+            python_spec_writer::write_member(this->out(), "#" + member_name);
+            write_type(this->out(), enums, type, get_default(type, infos));
+            this->out() << "\\n\\n\"\n\n";
+        }
+    }
 };
 
 }
-
-
-template<class SpecWriter>
-int app_write_ini(int ac, char const * const * av)
-{
-    if (ac < 2) {
-        std::cerr << av[0] << " out-spec.h\n";
-        return 1;
-    }
-
-    SpecWriter writer(av[1]);
-    writer.evaluate();
-
-    if (!writer.out_file_) {
-        std::cerr << av[0] << ": " << av[1] << ": " << strerror(errno) << "\n";
-        return 1;
-    }
-    return 0;
-}
-
 }

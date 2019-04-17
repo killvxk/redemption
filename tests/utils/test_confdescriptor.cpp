@@ -19,7 +19,7 @@
 */
 
 #define RED_TEST_MODULE TestConfDescriptor
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "utils/confdescriptor.hpp"
@@ -31,7 +31,7 @@
 RED_AUTO_TEST_CASE(TestConfigDescriptorFromFile)
 {
     GeneralCaps       generalcaps;
-    general_caps_load(generalcaps, FIXTURES_PATH "/capsset.ini");
+    RED_CHECK(general_caps_load(generalcaps, FIXTURES_PATH "/capsset.ini"));
 
     RED_CHECK_EQUAL(generalcaps.os_major,              1);
     RED_CHECK_EQUAL(generalcaps.os_minor,              3);
@@ -48,7 +48,7 @@ RED_AUTO_TEST_CASE(TestConfigDescriptorFromFile)
 RED_AUTO_TEST_CASE(TestConfigDescriptorFromFile1)
 {
     BitmapCaps       bitmapcaps;
-    bitmap_caps_load(bitmapcaps, FIXTURES_PATH "/capsset.ini");
+    RED_CHECK(bitmap_caps_load(bitmapcaps, FIXTURES_PATH "/capsset.ini"));
 
     RED_CHECK_EQUAL(bitmapcaps.preferredBitsPerPixel,    8);
     RED_CHECK_EQUAL(bitmapcaps.receive1BitPerPixel,      1);
@@ -66,7 +66,7 @@ RED_AUTO_TEST_CASE(TestConfigDescriptorFromFile1)
 RED_AUTO_TEST_CASE(TestConfigDescriptorFromFile2)
 {
     OrderCaps       ordercaps;
-    order_caps_load(ordercaps, FIXTURES_PATH "/capsset.ini");
+    RED_CHECK(order_caps_load(ordercaps, FIXTURES_PATH "/capsset.ini"));
 
     RED_CHECK_EQUAL(ordercaps.desktopSaveXGranularity,                       1);
     RED_CHECK_EQUAL(ordercaps.desktopSaveYGranularity,                       20);
@@ -95,7 +95,7 @@ RED_AUTO_TEST_CASE(TestConfigDescriptorFromFile2)
     RED_CHECK_EQUAL(ordercaps.orderSupport[TS_NEG_ELLIPSE_CB_INDEX],         1);
     RED_CHECK_EQUAL(ordercaps.orderSupport[TS_NEG_INDEX_INDEX],              1);
     RED_CHECK_EQUAL(ordercaps.orderSupportExFlags,                           0);
-    RED_CHECK_EQUAL(ordercaps.desktopSaveSize,                               1000000);
+    RED_CHECK_EQUAL(ordercaps.desktopSaveSize,                               1000000u);
     RED_CHECK_EQUAL(ordercaps.textANSICodePage,                              0);
 }
 
@@ -104,7 +104,7 @@ RED_AUTO_TEST_CASE(TestConfigDescriptorFromFile2)
 RED_AUTO_TEST_CASE(TestConfigDescriptorFromFile3)
 {
     GeneralCaps       generalcaps;
-    general_caps_load(generalcaps, FIXTURES_PATH "/capsset1.ini");
+    RED_CHECK(general_caps_load(generalcaps, FIXTURES_PATH "/capsset1.ini"));
 
     RED_CHECK_EQUAL(generalcaps.os_major,              2);
     RED_CHECK_EQUAL(generalcaps.os_minor,              7);
@@ -121,7 +121,7 @@ RED_AUTO_TEST_CASE(TestConfigDescriptorFromFile3)
 RED_AUTO_TEST_CASE(TestConfigDescriptorFromFile4)
 {
     BitmapCaps       bitmapcaps;
-    bitmap_caps_load(bitmapcaps, FIXTURES_PATH "/capsset1.ini");
+    RED_CHECK(bitmap_caps_load(bitmapcaps, FIXTURES_PATH "/capsset1.ini"));
 
     RED_CHECK_EQUAL(bitmapcaps.preferredBitsPerPixel,    9);
     RED_CHECK_EQUAL(bitmapcaps.receive1BitPerPixel,      8);
@@ -139,7 +139,7 @@ RED_AUTO_TEST_CASE(TestConfigDescriptorFromFile4)
 RED_AUTO_TEST_CASE(TestConfigDescriptorFromFile5)
 {
     OrderCaps       ordercaps;
-    order_caps_load(ordercaps, FIXTURES_PATH "/capsset1.ini");
+    RED_CHECK(order_caps_load(ordercaps, FIXTURES_PATH "/capsset1.ini"));
 
     RED_CHECK_EQUAL(ordercaps.desktopSaveXGranularity,                       9);
     RED_CHECK_EQUAL(ordercaps.desktopSaveYGranularity,                       8);
@@ -168,6 +168,6 @@ RED_AUTO_TEST_CASE(TestConfigDescriptorFromFile5)
     RED_CHECK_EQUAL(ordercaps.orderSupport[TS_NEG_ELLIPSE_CB_INDEX],         6);
     RED_CHECK_EQUAL(ordercaps.orderSupport[TS_NEG_INDEX_INDEX],              5);
     RED_CHECK_EQUAL(ordercaps.orderSupportExFlags,                           9);
-    RED_CHECK_EQUAL(ordercaps.desktopSaveSize,                               20000);
+    RED_CHECK_EQUAL(ordercaps.desktopSaveSize,                               20000u);
     RED_CHECK_EQUAL(ordercaps.textANSICodePage,                              8);
 }

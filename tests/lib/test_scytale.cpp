@@ -20,7 +20,7 @@
 */
 
 #define RED_TEST_MODULE Testscytale
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "lib/scytale.hpp"
 #include "transport/crypto_transport.hpp"
@@ -62,7 +62,7 @@ extern "C" {
 
 inline uint8_t const * bytes(char const * p)
 {
-    return reinterpret_cast<uint8_t const *>(p);
+    return byte_ptr_cast(p);
 }
 
 RED_AUTO_TEST_CASE(Testscytale)
@@ -230,7 +230,7 @@ RED_AUTO_TEST_CASE(TestscytaleReaderOpenAutoDetectScheme)
         int(EncryptionSchemeTypeResult::OldScheme));
 
     char buf[20]{};
-    RED_CHECK_EQ(scytale_reader_read(handle, reinterpret_cast<uint8_t*>(buf), sizeof(buf)), 20);
+    RED_CHECK_EQ(scytale_reader_read(handle, byte_ptr_cast(buf), sizeof(buf)), 20);
     RED_CHECK_EQUAL_RANGES(buf, cstr_array_view("800 600\n\n\n/var/wab/r"));
 
     scytale_reader_close(handle);

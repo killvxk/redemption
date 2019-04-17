@@ -21,7 +21,7 @@
 */
 
 #define RED_TEST_MODULE TestGCC
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "test_only/transport/test_transport.hpp"
@@ -87,7 +87,7 @@ RED_AUTO_TEST_CASE(Test_gcc_write_conference_create_request)
 
     StaticOutStream<65536> gcc_header;
     GCC::Create_Request_Send(gcc_header, stream.get_offset());
-    t.send(gcc_header.get_data(), gcc_header.get_offset());
+    t.send(gcc_header.get_bytes());
 
     constexpr std::size_t sz = sizeof(gcc_conference_create_request_expected)-1;  // -1 to ignore final 0
     uint8_t buf[sz];
@@ -95,7 +95,6 @@ RED_AUTO_TEST_CASE(Test_gcc_write_conference_create_request)
 
     InStream in_stream(buf);
     RED_CHECK_NO_THROW(GCC::Create_Request_Recv{in_stream});
-//    RED_CHECK(t.get_status());
 }
 
 
@@ -198,14 +197,14 @@ RED_AUTO_TEST_CASE(Test_gcc_user_data_cs_net)
     RED_CHECK_EQUAL(2, cs_net.channelCount);
     RED_CHECK_EQUAL('c', cs_net.channelDefArray[0].name[0]);
     RED_CHECK_EQUAL(0, memcmp("cliprdr\0", cs_net.channelDefArray[0].name, 8));
-    RED_CHECK_EQUAL( GCC::UserData::CSNet::CHANNEL_OPTION_INITIALIZED
+    RED_CHECK_EQUAL((GCC::UserData::CSNet::CHANNEL_OPTION_INITIALIZED
                      | GCC::UserData::CSNet::CHANNEL_OPTION_ENCRYPT_RDP
                      | GCC::UserData::CSNet::CHANNEL_OPTION_COMPRESS_RDP
-                     | GCC::UserData::CSNet::CHANNEL_OPTION_SHOW_PROTOCOL
+                     | GCC::UserData::CSNet::CHANNEL_OPTION_SHOW_PROTOCOL)
                      , cs_net.channelDefArray[0].options);
     RED_CHECK_EQUAL(0, memcmp("rdpdr\0\0\0", cs_net.channelDefArray[1].name, 8));
-    RED_CHECK_EQUAL( GCC::UserData::CSNet::CHANNEL_OPTION_INITIALIZED
-                     | GCC::UserData::CSNet::CHANNEL_OPTION_COMPRESS_RDP
+    RED_CHECK_EQUAL((GCC::UserData::CSNet::CHANNEL_OPTION_INITIALIZED
+                     | GCC::UserData::CSNet::CHANNEL_OPTION_COMPRESS_RDP)
                      , cs_net.channelDefArray[1].options);
 
     cs_net.log("Client Received");
@@ -607,7 +606,7 @@ RED_AUTO_TEST_CASE(Test_gcc_user_data_sc_sec1_lage_rsa_key_blob)
 
     CheckTransport ct(indata, sizeof(indata) - 1);
 
-    ct.send(out_stream.get_data(), out_stream.get_offset());
+    ct.send(out_stream.get_bytes());
 }
 
 RED_AUTO_TEST_CASE(Test_gcc_user_data_cs_mcs_msgchannel)
@@ -653,10 +652,10 @@ RED_AUTO_TEST_CASE(Test_gcc_user_data_cs_multitransport)
     cs_multitransport.recv(stream);
     RED_CHECK_EQUAL(CS_MULTITRANSPORT, cs_multitransport.userDataType);
     RED_CHECK_EQUAL(8, cs_multitransport.length);
-    RED_CHECK_EQUAL(GCC::UserData::CSMultiTransport::TRANSPORTTYPE_UDPFECR |
+    RED_CHECK_EQUAL((GCC::UserData::CSMultiTransport::TRANSPORTTYPE_UDPFECR |
                       GCC::UserData::CSMultiTransport::TRANSPORTTYPE_UDPFECL |
                       GCC::UserData::CSMultiTransport::TRANSPORTTYPE_UDP_PREFERRED |
-                      GCC::UserData::CSMultiTransport::SOFTSYNC_TCP_TO_UDP,
+                      GCC::UserData::CSMultiTransport::SOFTSYNC_TCP_TO_UDP),
                       cs_multitransport.flags);
 
     cs_multitransport.log("Client Received");

@@ -23,6 +23,7 @@
 */
 
 #include "capture/cryptofile.hpp"
+#include "capture/ocr/locale/locale_id.hpp"
 #include "capture/rdp_ppocr/get_ocr_constants.hpp"
 
 #include "configs/config.hpp"
@@ -234,7 +235,7 @@ int main(int argc, char** argv)
 
     std::string config_filename = app_path(AppPath::CfgIni);
 
-    static constexpr char const * opt_print_spec = "print-spec";
+    static constexpr char const * opt_print_ini_spec = "print-spec";
     static constexpr char const * opt_print_ini = "print-default-ini";
 
     program_options::options_description desc({
@@ -259,13 +260,21 @@ int main(int argc, char** argv)
 
         {"config-file", &config_filename, "use an another ini file"},
 
-        {opt_print_spec, "Configuration file spec for rdpproxy.ini"},
-        {opt_print_ini, "Show rdpproxy.ini by default"}
+        {opt_print_ini_spec, "Show file spec for rdpproxy.ini"},
+        {opt_print_ini, "Show default rdpproxy.ini"}
 
         //{"test", "check Inifile syntax"}
     });
 
-    auto options = program_options::parse_command_line(argc, argv, desc);
+    program_options::variables_map options;
+
+    try {
+        options = program_options::parse_command_line(argc, argv, desc);
+    }
+    catch (std::exception const& e) {
+        std::cerr << argv[0] << ": error: " << e.what() << "\n";
+        return 17;
+    }
 
     if (options.count("kill")) {
         int status = shutdown();
@@ -289,7 +298,7 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    if (options.count(opt_print_spec)) {
+    if (options.count(opt_print_ini_spec)) {
         std::cout <<
             #include "configs/autogen/str_python_spec.hpp"
         ;

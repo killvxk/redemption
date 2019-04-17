@@ -19,7 +19,7 @@
 */
 
 #define RED_TEST_MODULE TestSplitter
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "utils/sugar/algostring.hpp"
 #include <string>
@@ -43,53 +43,34 @@ RED_AUTO_TEST_CASE(TestTrim)
     RED_CHECK(trim(r) == trimmed);
 }
 
-RED_AUTO_TEST_CASE(Test_escape_delimiters)
+RED_AUTO_TEST_CASE(Test_str_concat)
 {
-    std::string s;
-    char as[16]{};
-    std::pair<char *, char const *> p;
-    #define CHECK(Escaped, S)                              \
-        s.clear();                                         \
-        append_escaped_delimiters(s, S);                   \
-        RED_CHECK_EQUAL(Escaped, s);                       \
-        s.clear();                                         \
-        append_escaped_delimiters(s, cstr_array_view(S));  \
-        RED_CHECK_EQUAL(Escaped, s);                       \
-        std::fill(std::begin(as), std::end(as), 0);        \
-        p = append_escaped_delimiters(as, sizeof(as), S);  \
-        RED_CHECK_EQUAL(sizeof(Escaped)-1u, p.first - as); \
-        RED_CHECK_EQUAL(sizeof(S)-1u, p.second - S);       \
-        RED_CHECK_EQUAL(Escaped, as)
-    CHECK("", "");
-    CHECK("\\\\", "\\");
-    CHECK("\\\"", "\"");
-    CHECK("\\\"\\\"", "\"\"");
-    CHECK("\\\"\\\"\\\"", "\"\"\"");
-    CHECK("abcd", "abcd");
-    CHECK("ab\\\"cd", "ab\"cd");
-    CHECK("ab\\\\cd", "ab\\cd");
-    CHECK("ab\\\\\\\"cd", "ab\\\"cd");
-    CHECK("\\\\ab\\\\\\\"cd", "\\ab\\\"cd");
-    CHECK("\\\\ab\\\\\\\"cd\\\"", "\\ab\\\"cd\"");
+    char const* cstr = "abc\0yyy";
+    std::string s = "a";
+    RED_CHECK_EQ(str_concat("a", "b", "c", "d"), "abcd");
+    RED_CHECK_EQ(str_concat("a", "b", "c\0xxx", "d"), "abcd");
+    RED_CHECK_EQ(str_concat('a', "b", 'c', "d"), "abcd");
+    RED_CHECK_EQ(str_concat("abc", "d"), "abcd");
+    RED_CHECK_EQ(str_concat('a', "bc", "d"), "abcd");
+    RED_CHECK_EQ(str_concat('a', "bc"_av, std::string("d")), "abcd");
+    RED_CHECK_EQ(str_concat(s, "bc"_av, std::string("d")), "abcd");
+    RED_CHECK_EQ(str_concat(std::as_const(s), "bc"_av, std::string("d")), "abcd");
+    RED_CHECK_EQ(str_concat(std::move(s), "bc"_av, std::string("d")), "abcd");
+    RED_CHECK_EQ(str_concat(cstr, "d"), "abcd");
+}
 
-    std::fill(std::begin(as), std::end(as), 0);
+RED_AUTO_TEST_CASE(Test_str_append)
+{
+    char const* cstr = "fg";
+    std::string s = "a";
+    str_append(s, "b\0xxx", "cd"_av, "e", cstr, std::string("h"), 'i');
+    RED_CHECK_EQ(s, "abcdefghi");
+}
 
-    char long_astr[] = "0123456789";
-    p = append_escaped_delimiters(as, 5, long_astr);
-    RED_CHECK_EQUAL(5, p.first - as);
-    RED_CHECK_EQUAL(5, p.second - long_astr);
-    RED_CHECK_EQUAL("01234", as);
-
-    std::fill(std::begin(as), std::begin(as) + 5, 0);
-    char long_astr2[] = "\\0\\1\\2\\3\\4\\5\\6";
-    p = append_escaped_delimiters(as, 5, long_astr2);
-    RED_CHECK_EQUAL(5, p.first - as);
-    RED_CHECK_EQUAL(3, p.second - long_astr2);
-    RED_CHECK_EQUAL("\\\\0\\\\", as);
-
-    std::fill(std::begin(as), std::begin(as) + 4, 0);
-    p = append_escaped_delimiters(as, 4, long_astr2);
-    RED_CHECK_EQUAL(3, p.first - as);
-    RED_CHECK_EQUAL(2, p.second - long_astr2);
-    RED_CHECK_EQUAL("\\\\0", as);
+RED_AUTO_TEST_CASE(Test_str_assign)
+{
+    char const* cstr = "fg";
+    std::string s = "a";
+    str_assign(s, "b\0xxx", "cd"_av, "e", cstr, std::string("h"), 'i');
+    RED_CHECK_EQ(s, "bcdefghi");
 }

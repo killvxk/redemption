@@ -37,23 +37,21 @@
 #include "front/execute_events.hpp"
 #include "gdi/graphic_cmd_color.hpp"
 
+
 class ClientFront : public FrontAPI
 {
     bool verbose;
-    ClientInfo &info;
+    ScreenInfo& screen_info;
     CHANNELS::ChannelDefArray   cl;
-    bool is_capture_state_;
 
 public:
-    ClientFront(ClientInfo & info, bool verbose)
+    ClientFront(ScreenInfo& screen_info, bool verbose)
     : verbose(verbose)
-    , info(info)
-    , is_capture_state_(false)
+    , screen_info(screen_info)
     {}
 
     bool can_be_start_capture() override
     {
-        this->is_capture_state_ = true;
         return false;
     }
 
@@ -61,13 +59,6 @@ public:
     {
         return false;
     }
-
-    bool is_capture_state() const
-    {
-        return this->is_capture_state_;
-    }
-
-    void flush() { }
 
     void draw(RDPOpaqueRect const & /*cmd*/, Rect /*clip*/, gdi::ColorCtx /*color_ctx*/) override { }
     void draw(const RDPScrBlt & /*cmd*/, Rect /*clip*/) override { }
@@ -102,8 +93,10 @@ public:
     void draw(RDPNineGrid const &  /*unused*/, Rect  /*unused*/, gdi::ColorCtx  /*unused*/, Bitmap const & /*unused*/) override {}
 
 
-    ResizeResult server_resize(int width, int height, int bpp) override {
-        this->info.bpp = bpp;
+    ResizeResult server_resize(int width, int height, BitsPerPixel bpp) override {
+        this->screen_info.width = width;
+        this->screen_info.height = height;
+        this->screen_info.bpp = bpp;
         if (this->verbose) {
             LOG(LOG_INFO, "--------- ClientFront ------------------");
             LOG(LOG_INFO, "server_resize(width=%d, height=%d, bpp=%d", width, height, bpp);
@@ -138,7 +131,7 @@ inline int run_connection_test(
 {
     int       timeout_counter = 0;
     int const timeout_counter_max = 3;
-    timeval const timeout = {5, 0};
+    std::chrono::milliseconds const timeout = 5s;
 
     for (;;) {
         LOG(LOG_INFO, "run_connection_test");
@@ -169,7 +162,7 @@ inline int run_connection_test(
     }
 }
 
-
+// return 0 : do screenshot, don't do screenshot an error occurred
 inline int wait_for_screenshot(
     char const* type, SessionReactor& session_reactor, Callback& callback, gdi::GraphicApi & gd,
     std::chrono::milliseconds inactivity_time, std::chrono::milliseconds max_time)
@@ -184,12 +177,7 @@ inline int wait_for_screenshot(
             return 0;
         }
 
-        auto const ms = std::min(max_time - elapsed, inactivity_time);
-        auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(ms);
-        timeval timeout = {
-            seconds.count(),
-            std::chrono::duration_cast<std::chrono::microseconds>(ms - seconds).count()
-        };
+        std::chrono::milliseconds timeout = std::min(max_time - elapsed, inactivity_time);
 
         switch (execute_events(
             timeout, session_reactor,
@@ -203,14 +191,14 @@ inline int wait_for_screenshot(
                 REDEMPTION_CXX_FALLTHROUGH;
             case ExecuteEventsResult::Continue:
             case ExecuteEventsResult::Timeout:
-                if (!timeout.tv_sec && !timeout.tv_usec) {
+                if (timeout == 0ms) {
                     return 0;
                 }
         }
     }
 }
 
-inline error_t run_test_client(
+inline int run_test_client(
     char const* type, SessionReactor& session_reactor, mod_api& mod, gdi::GraphicApi& gd,
     std::chrono::milliseconds inactivity_time, std::chrono::milliseconds max_time,
     std::string const& screen_output)
@@ -226,7 +214,7 @@ inline error_t run_test_client(
 
         File f(screen_output, "w");
         if (!f) {
-            LOG(LOG_ERR, "%s CLIENT :: %s: %s", type, screen_output.c_str(), strerror(errno));
+            LOG(LOG_ERR, "%s CLIENT :: %s: %s", type, screen_output, strerror(errno));
             return ERR_RECORDER_FAILED_TO_OPEN_TARGET_FILE;
         }
 

@@ -22,7 +22,7 @@
 */
 
 #define RED_TEST_MODULE TestRDP
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "utils/stream.hpp"
@@ -43,7 +43,7 @@ RED_AUTO_TEST_CASE(TestSendShareControlAndData)
 
     uint8_t * data = sctrl_header.get_data();
     RED_CHECK_EQUAL(0x12, data[0] + data[1]*256);
-    RED_CHECK_EQUAL(0x10 | PDUTYPE_DATAPDU, data[2] + data[3]*256);
+    RED_CHECK_EQUAL((0x10 | PDUTYPE_DATAPDU), data[2] + data[3]*256);
     RED_CHECK_EQUAL(1, data[4] + data[5]*256);
 
     data = stream.get_data();
@@ -59,10 +59,10 @@ RED_AUTO_TEST_CASE(TestSendShareControlAndData)
 
     // concatenate Data and control before checking read
     StaticOutStream<65536> stream2;
-    stream2.out_copy_bytes(sctrl_header.get_data(), sctrl_header.get_offset());
-    stream2.out_copy_bytes(stream.get_data(), stream.get_offset());
+    stream2.out_copy_bytes(sctrl_header.get_bytes());
+    stream2.out_copy_bytes(stream.get_bytes());
 
-    InStream in_stream2(stream2.get_data(), stream2.get_offset());
+    InStream in_stream2(stream2.get_bytes());
 
     ShareControl_Recv sctrl2(in_stream2);
     RED_CHECK_EQUAL(unsigned(PDUTYPE_DATAPDU), unsigned(sctrl2.pduType));
@@ -84,7 +84,7 @@ RED_AUTO_TEST_CASE(TestX224SendShareControlAndData)
 
     uint8_t * data = sctrl_header.get_data();
     RED_CHECK_EQUAL(0x12, data[0] + data[1]*256);
-    RED_CHECK_EQUAL(0x10 | PDUTYPE_DATAPDU, data[2] + data[3]*256);
+    RED_CHECK_EQUAL((0x10 | PDUTYPE_DATAPDU), data[2] + data[3]*256);
     RED_CHECK_EQUAL(1, data[4] + data[5]*256);
 
     data = stream.get_data();
@@ -99,10 +99,10 @@ RED_AUTO_TEST_CASE(TestX224SendShareControlAndData)
 
     // concatenate Data and control before checking read
     StaticOutStream<65536> stream2;
-    stream2.out_copy_bytes(sctrl_header.get_data(), sctrl_header.get_offset());
-    stream2.out_copy_bytes(stream.get_data(), stream.get_offset());
+    stream2.out_copy_bytes(sctrl_header.get_bytes());
+    stream2.out_copy_bytes(stream.get_bytes());
 
-    InStream in_stream2(stream2.get_data(), stream2.get_offset());
+    InStream in_stream2(stream2.get_bytes());
 
     ShareControl_Recv sctrl2(in_stream2);
     RED_CHECK_EQUAL(unsigned(PDUTYPE_DATAPDU), unsigned(sctrl2.pduType));

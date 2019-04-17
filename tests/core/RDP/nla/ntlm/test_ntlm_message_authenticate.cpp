@@ -19,7 +19,7 @@
 */
 
 #define RED_TEST_MODULE TestNtlmMessageAuthenticate
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "core/RDP/nla/credssp.hpp"
@@ -225,7 +225,7 @@ RED_AUTO_TEST_CASE(TestAuthenticate)
 
     NTLMAuthenticateMessage AuthMsgDuplicate;
 
-    InStream in_tosend(tosend.get_data(), tosend.get_offset());
+    InStream in_tosend(tosend.get_bytes());
     AuthMsgDuplicate.recv(in_tosend);
 
     RED_CHECK_EQUAL(AuthMsgDuplicate.negoFlags.flags, 0xE2888235);

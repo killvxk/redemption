@@ -23,8 +23,12 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include <sys/select.h>
 #include "cxx/diagnostic.hpp"
+
+#include "utils/invalid_socket.hpp"
 
 REDEMPTION_DIAGNOSTIC_PUSH
 REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wold-style-cast")
@@ -48,3 +52,12 @@ inline int io_fd_isset(int const fd, fd_set const & rfds)
     return FD_ISSET(fd, &rfds);
 }
 REDEMPTION_DIAGNOSTIC_POP
+
+inline unsigned prepare_fds(int const fd, unsigned max, fd_set & rfds)
+{
+    if (fd > INVALID_SOCKET) {
+        io_fd_set(fd, rfds);
+        max = std::max(static_cast<unsigned>(fd), max);
+    }
+    return max;
+}

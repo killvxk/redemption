@@ -22,7 +22,7 @@
 */
 
 #define RED_TEST_MODULE TestParse
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "utils/parse.hpp"
 
@@ -37,6 +37,6 @@ RED_AUTO_TEST_CASE(TestParse_0)
 
 RED_AUTO_TEST_CASE(TestParse_1)
 {
-    RED_CHECK_EQUAL(Parse(reinterpret_cast<const uint8_t *>("2281701377")).ulong_from_cstr(), 0x88000001);
+    RED_CHECK_EQUAL(Parse(byte_ptr_cast("2281701377")).ulong_from_cstr(), 0x88000001);
 }
 

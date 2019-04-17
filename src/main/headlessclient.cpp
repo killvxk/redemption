@@ -22,7 +22,7 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wfloat-equal"
 
-#include <signal.h>
+#include <csignal>
 
 #include "utils/log.hpp"
 
@@ -30,27 +30,95 @@
 #include "client_redemption/client_redemption.hpp"
 #include "utils/set_exception_handler_pretty_message.hpp"
 
-#include "client_redemption/client_headless_socket.hpp"
-
-#include "client_redemption/client_channel_managers/fake_client_mod.hpp"
-
 #pragma GCC diagnostic pop
 
-int run_mod(ClientRedemption & front);
+#include <chrono>
 
 
-int main(int argc, char** argv)
+
+class ClientHeadlessSocket : public ClientInputSocketAPI
+{
+
+public:
+
+    SessionReactor& session_reactor;
+    ClientRedemptionAPI * client;
+
+    ClientHeadlessSocket(SessionReactor& session_reactor, ClientRedemptionAPI * client)
+      : session_reactor(session_reactor)
+      , client(client)
+    {}
+
+    virtual bool start_to_listen(int /*client_sck*/, mod_api * mod) override
+    {
+        using namespace std::chrono_literals;
+
+        while (!mod->is_up_and_running()) {
+            if (int err = this->client->wait_and_draw_event(3s)) {
+                std::cout << " Error: wait_and_draw_event() fail during negociation (" << err << ").\n";
+            }
+        }
+        return true;
+    }
+
+    virtual void disconnect() override {}
+};
+
+
+
+class ClientRedemptionHeadless : public ClientRedemption
+{
+
+private:
+    ClientHeadlessSocket headless_socket;
+
+public:
+    ClientRedemptionHeadless(SessionReactor & session_reactor,
+                             ClientRedemptionConfig & config)
+        :ClientRedemption(session_reactor, config)
+        , headless_socket(session_reactor, this)
+    {
+        this->cmd_launch_conn();
+    }
+
+    ~ClientRedemptionHeadless() = default;
+
+
+    void close() override {}
+
+    virtual void connect(const std::string& ip, const std::string& name, const std::string& pwd, const int port) override {
+        ClientRedemption::connect(ip, name, pwd, port);
+
+        if (this->config.connected) {
+
+            if (this->headless_socket.start_to_listen(this->client_sck, this->_callback.get_mod())) {
+
+                this->start_wab_session_time = tvtime();
+            }
+        }
+    }
+
+    void disconnect(std::string const & error, bool pipe_broken) override {
+        this->headless_socket.disconnect();
+        ClientRedemption::disconnect(error, pipe_broken);
+    }
+};
+
+
+
+using namespace std::chrono_literals;
+
+int run_mod(ClientRedemptionAPI & front, ClientRedemptionConfig & config, ClientCallback & callback, timeval start_win_session_time);
+
+
+int main(int argc, char const** argv)
 {
     set_exception_handler_pretty_message();
+    openlog("rdpproxy", LOG_CONS | LOG_PERROR, LOG_USER);
 
     SessionReactor session_reactor;
 
     RDPVerbose verbose = to_verbose_flags(0x0);      //to_verbose_flags(0x0);
-
-    LOG(LOG_INFO, "ClientRedemption init");
-
-    ClientHeadlessSocket headless_socket(session_reactor);
-    ClientInputSocketAPI * headless_socket_api_obj = &headless_socket;
 
     {
         struct sigaction sa;
@@ -62,31 +130,28 @@ int main(int argc, char** argv)
         REDEMPTION_DIAGNOSTIC_PUSH
         REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wold-style-cast")
         REDEMPTION_DIAGNOSTIC_GCC_ONLY_IGNORE("-Wzero-as-null-pointer-constant")
-        #if REDEMPTION_COMP_CLANG >= REDEMPTION_COMP_VERSION_NUMBER(5, 0, 0)
+        #if REDEMPTION_COMP_CLANG_VERSION >= REDEMPTION_COMP_VERSION_NUMBER(5, 0, 0)
             REDEMPTION_DIAGNOSTIC_CLANG_IGNORE("-Wzero-as-null-pointer-constant")
         #endif
         sigaction(SIGPIPE, &sa, nullptr);
         REDEMPTION_DIAGNOSTIC_POP
     }
 
-    ClientRedemption client( session_reactor, argv, argc, verbose
-                           , nullptr
-                           , nullptr
-                           , nullptr
-                           , headless_socket_api_obj
-                           , nullptr
-                           , nullptr);
+    ClientRedemptionConfig config(verbose, CLIENT_REDEMPTION_MAIN_PATH);
+    ClientConfig::set_config(argc, const_cast<const char**>(argv), config);
 
-    return run_mod(client);
+    ClientRedemptionHeadless client( session_reactor, config);
+
+    return run_mod(client, client.config, client._callback, client.start_win_session_time);
 }
 
 
-int run_mod(ClientRedemption & front) {
-    const timeval time_stop = addusectimeval(front.config.time_out_disconnection, tvtime());
-    const timeval time_mark = { 0, 50000 };
+int run_mod(ClientRedemptionAPI & front, ClientRedemptionConfig & config, ClientCallback & callback, timeval start_win_session_time) {
+    const timeval time_stop = addusectimeval(config.time_out_disconnection, tvtime());
+    const std::chrono::milliseconds time_mark = 50ms;
 
-    if (front.mod) {
-        auto & mod = *(front.mod);
+    if (callback.get_mod()) {
+        auto & mod = *(callback.get_mod());
 
         bool logged = false;
 
@@ -97,7 +162,7 @@ int run_mod(ClientRedemption & front) {
                 logged = true;
 
                 std::cout << "RDP Session Log On.\n";
-                if (front.config.quick_connection_test) {
+                if (config.quick_connection_test) {
 
                     std::cout << "quick_connection_test\n";
                     front.disconnect("", false);
@@ -105,8 +170,8 @@ int run_mod(ClientRedemption & front) {
                 }
             }
 
-            if (time_stop < tvtime() && !front.config.persist) {
-                std::cerr <<  " Exit timeout (timeout = " << front.config.time_out_disconnection.count() << " ms)" << std::endl;
+            if (time_stop < tvtime() && !config.persist) {
+                std::cerr <<  " Exit timeout (timeout = " << config.time_out_disconnection.count() << " ms)" << std::endl;
                 front.disconnect("", false);
                 return 8;
             }
@@ -115,7 +180,15 @@ int run_mod(ClientRedemption & front) {
                 return err;
             }
 
-            front.send_key_to_keep_alive();
+            // send key to keep alive
+            if (config.keep_alive_freq) {
+                std::chrono::microseconds duration = difftimeval(tvtime(), start_win_session_time);
+
+                if ( ((duration.count() / 1000000) % config.keep_alive_freq) == 0) {
+                    callback.send_rdp_scanCode(0x1e, KBD_FLAG_UP);
+                    callback.send_rdp_scanCode(0x1e, 0);
+                }
+            }
         }
     }
 

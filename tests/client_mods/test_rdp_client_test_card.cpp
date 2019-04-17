@@ -23,31 +23,20 @@
 */
 
 #define RED_TEST_MODULE TestRdpClientTestCard
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
-#include "core/font.hpp"
-#include "core/client_info.hpp"
 #include "mod/internal/test_card_mod.hpp"
 
 #include "test_only/front/fake_front.hpp"
+#include "test_only/core/font.hpp"
 
 RED_AUTO_TEST_CASE(TestShowTestCard)
 {
-    RED_CHECK(true);
-    ClientInfo info;
-    info.keylayout = 0x04C;
-    info.console_session = 0;
-    info.brush_cache_code = 0;
-    info.bpp = 24;
-    info.width = 800;
-    info.height = 600;
+    ScreenInfo screen_info{BitsPerPixel{24}, 800, 600};
+    FakeFront front(screen_info);
 
-    FakeFront front(info, 0);
 
-    Font font;
-
-    RED_CHECK(true);
     SessionReactor session_reactor;
-    TestCardMod mod(session_reactor, front, info.width, info.height, font);
+    TestCardMod mod(session_reactor, front, screen_info.width, screen_info.height, global_font());
     RED_CHECK_NO_THROW(mod.draw_event(time(nullptr), front));
 }

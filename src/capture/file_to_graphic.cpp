@@ -40,7 +40,7 @@
 #include "utils/png.hpp"
 
 
-FileToGraphic::FileToGraphic(Transport & trans, const timeval begin_capture, const timeval end_capture, bool real_time, Verbose verbose)
+FileToGraphic::FileToGraphic(Transport & trans, const timeval begin_capture, const timeval end_capture, bool real_time, bool play_video_with_corrupted_bitmap, Verbose verbose)
     : stream(stream_buf)
     , compression_builder(trans, WrmCompressionAlgorithm::no_compression)
     , trans_source(&trans)
@@ -64,6 +64,7 @@ FileToGraphic::FileToGraphic(Transport & trans, const timeval begin_capture, con
     , statistics()
     , break_privplay_client(false)
     , movie_elapsed_client{}
+    , play_video_with_corrupted_bitmap(play_video_with_corrupted_bitmap)
     , verbose(verbose)
 {
     while (this->next_order()){
@@ -249,7 +250,7 @@ struct ReceiveOrder
 
     struct ColorCtxFromBppConverter
     {
-        uint16_t info_bpp;
+        BitsPerPixel info_bpp;
         BGRPalette const & palette;
 
         operator gdi::ColorCtx () const
@@ -637,10 +638,44 @@ void FileToGraphic::interpret_order()
         auto bitmap_data = receive_order.read<RDPBitmapData>(
             this->statistics.BitmapUpdate, Verbose::rdp_orders);
 
+        // Detect TS_BITMAP_DATA(Uncompressed bitmap data) + (Compressed)bitmapDataStream
+        if (this->play_video_with_corrupted_bitmap && !(bitmap_data.flags & BITMAP_COMPRESSION)) {
+            InStream RM18446_stream2(this->stream.get_current(), this->stream.in_remain());
+            const uint8_t * RM18446_test_data = RM18446_stream2.in_uint8p(std::min<size_t>(RM18446_stream2.in_remain(), bitmap_data.bitmap_size()));
+
+            size_t RM18446_adjusted_size = 0;
+
+            Bitmap RM18446_test_bitmap( this->info.bpp
+                              , checked_int(bitmap_data.bits_per_pixel)
+                              , /*0*/&palette
+                              , bitmap_data.width
+                              , bitmap_data.height
+                              , RM18446_test_data
+                              , this->stream.in_remain()
+                              , true
+                              , &RM18446_adjusted_size
+                              );
+
+            if (RM18446_adjusted_size) {
+                RDPBitmapData RM18446_test_bitmap_data = bitmap_data;
+
+                RM18446_test_bitmap_data.flags         = BITMAP_COMPRESSION | NO_BITMAP_COMPRESSION_HDR;
+                RM18446_test_bitmap_data.bitmap_length = RM18446_adjusted_size;
+
+                this->stream.in_skip_bytes(RM18446_adjusted_size);
+
+                for (gdi::GraphicApi * gd : this->graphic_consumers){
+                    gd->draw(RM18446_test_bitmap_data, RM18446_test_bitmap);
+                }
+
+                break;
+            }
+        }
+
         const uint8_t * data = this->stream.in_uint8p(bitmap_data.bitmap_size());
 
         Bitmap bitmap( this->info.bpp
-                     , bitmap_data.bits_per_pixel
+                     , checked_int(bitmap_data.bits_per_pixel)
                      , /*0*/&palette
                      , bitmap_data.width
                      , bitmap_data.height
@@ -811,8 +846,8 @@ void FileToGraphic::process_windowing( InStream & stream, const RDP::AltsecDrawi
     }();
 
     switch (FieldsPresentFlags & (  RDP::RAIL::WINDOW_ORDER_TYPE_WINDOW
-                                 | RDP::RAIL::WINDOW_ORDER_TYPE_NOTIFY
-                                 | RDP::RAIL::WINDOW_ORDER_TYPE_DESKTOP)) {
+                                 | RDP::RAIL::WINDOW_ORDER_TYPE_NOTIFY /*NOLINT*/
+                                 | RDP::RAIL::WINDOW_ORDER_TYPE_DESKTOP  /*NOLINT*/)) {
         case RDP::RAIL::WINDOW_ORDER_TYPE_WINDOW:
             this->process_window_information(stream, header, FieldsPresentFlags);
             break;
@@ -843,9 +878,9 @@ void FileToGraphic::process_window_information(
     }
 
     switch (FieldsPresentFlags & (  RDP::RAIL::WINDOW_ORDER_STATE_NEW
-                                 | RDP::RAIL::WINDOW_ORDER_ICON
-                                 | RDP::RAIL::WINDOW_ORDER_CACHEDICON
-                                 | RDP::RAIL::WINDOW_ORDER_STATE_DELETED))
+                                 | RDP::RAIL::WINDOW_ORDER_ICON /*NOLINT*/
+                                 | RDP::RAIL::WINDOW_ORDER_CACHEDICON /*NOLINT*/
+                                 | RDP::RAIL::WINDOW_ORDER_STATE_DELETED /*NOLINT*/))
     {
         case RDP::RAIL::WINDOW_ORDER_ICON: {
                 RDP::RAIL::WindowIcon order;

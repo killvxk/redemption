@@ -19,12 +19,14 @@
 */
 
 #define RED_TEST_MODULE TestVNCZrleEncoder
-#include "system/redemption_unit_tests.hpp"
-#include "test_only/fake_graphic.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
+
+#include "test_only/gdi/test_graphic.hpp"
 #include "test_only/check_sig.hpp"
 
-#include "mod/vnc/encoder/zrle.hpp"
+#include "mod/vnc/encoder/zrle.cpp"
 
+RED_TEST_DELEGATE_PRINT_NS(VNC::Encoder, EncoderState, int(x))
 
 //connection to 10.10.47.0:5900 (10.10.47.0) succeeded : socket 34
 //Connected to [10.10.47.0].
@@ -6617,46 +6619,46 @@ RED_AUTO_TEST_CASE(TestZrle)
     Zdecompressor<> zd;
     Buf64k buf;
 
-    FakeGraphic drawable(16, 1920, 55, 0);
+    TestGraphic drawable(1920, 55);
 
     // First rect
     {
-        VNC::Encoder::Zrle encoder(16, nbbytes(16), Rect(0, 0, 1898, 19), zd, VNCVerbose::none);
+        VNC::Encoder::Zrle encoder(BitsPerPixel{16}, BytesPerPixel{2}, Rect(0, 0, 1898, 19), zd, VNCVerbose::none);
 
         BlockRead z0b0(z0_block0, sizeof(z0_block0));
         buf.read_with(z0b0);
         RED_CHECK(z0b0.empty());
-        RED_CHECK(VNC::Encoder::EncoderState::Ready == encoder.consume(buf, drawable));
-        RED_CHECK(VNC::Encoder::EncoderState::NeedMoreData == encoder.consume(buf, drawable));
+        RED_CHECK(VNC::Encoder::EncoderState::Ready == encoder(buf, drawable));
+        RED_CHECK(VNC::Encoder::EncoderState::NeedMoreData == encoder(buf, drawable));
 
         BlockRead z0b1(z0_block1, sizeof(z0_block1));
         buf.read_with(z0b1);
         RED_CHECK(z0b1.empty());
-        RED_CHECK(VNC::Encoder::EncoderState::Exit == encoder.consume(buf, drawable));
+        RED_CHECK(VNC::Encoder::EncoderState::Exit == encoder(buf, drawable));
     }
 
     // Second rect
     {
-        VNC::Encoder::Zrle encoder(16, nbbytes(16), Rect(1910, 0, 10, 19), zd, VNCVerbose::none);
+        VNC::Encoder::Zrle encoder(BitsPerPixel{16}, BytesPerPixel{2}, Rect(1910, 0, 10, 19), zd, VNCVerbose::none);
 
         BlockRead z1b0(z1_block0, sizeof(z1_block0));
         buf.read_with(z1b0);
-        RED_CHECK(VNC::Encoder::EncoderState::Ready == encoder.consume(buf, drawable));
-        RED_CHECK(VNC::Encoder::EncoderState::Exit == encoder.consume(buf, drawable));
+        RED_CHECK(VNC::Encoder::EncoderState::Ready == encoder(buf, drawable));
+        RED_CHECK(VNC::Encoder::EncoderState::Exit == encoder(buf, drawable));
     }
 
     // Third rect
     {
-        VNC::Encoder::Zrle encoder(16, nbbytes(16), Rect(0, 19, 1920, 34), zd, VNCVerbose::none);
+        VNC::Encoder::Zrle encoder(BitsPerPixel{16}, BytesPerPixel{2}, Rect(0, 19, 1920, 34), zd, VNCVerbose::none);
 
         BlockRead z2b0(z2_block0, sizeof(z2_block0));
         buf.read_with(z2b0);
-        RED_CHECK(VNC::Encoder::EncoderState::Ready == encoder.consume(buf, drawable));
-        RED_CHECK(VNC::Encoder::EncoderState::NeedMoreData == encoder.consume(buf, drawable));
+        RED_CHECK(VNC::Encoder::EncoderState::Ready == encoder(buf, drawable));
+        RED_CHECK(VNC::Encoder::EncoderState::NeedMoreData == encoder(buf, drawable));
 
         BlockRead z2b1(z2_block1, sizeof(z2_block1));
         buf.read_with(z2b1);
-        RED_CHECK(VNC::Encoder::EncoderState::Exit == encoder.consume(buf, drawable));
+        RED_CHECK(VNC::Encoder::EncoderState::Exit == encoder(buf, drawable));
     }
 
 //    drawable.save_to_png("vnc_first_len.png");
@@ -6696,9 +6698,9 @@ RED_AUTO_TEST_CASE(TestZrleRaw)
 {
     Zdecompressor<> zd;
 
-    FakeGraphic drawable(16, 16, 19, 0);
+    TestGraphic drawable(16, 19);
 
-    VNC::Encoder::Zrle encoder(16, nbbytes(16), Rect(0, 0, 10, 19), zd, VNCVerbose::none);
+    VNC::Encoder::Zrle encoder(BitsPerPixel{16}, BytesPerPixel{2}, Rect(0, 0, 10, 19), zd, VNCVerbose::none);
     InStream buffer(raw0, sizeof(raw0));
     encoder.rle_test_bypass(buffer, drawable);
 //    drawable.save_to_png("vnc_first_len.png");
@@ -6719,13 +6721,13 @@ RED_AUTO_TEST_CASE(TestZrleSolid)
 {
     Zdecompressor<> zd;
 
-    FakeGraphic drawable(16, 128, 128, 0);
+    TestGraphic drawable(128, 128);
     auto const color_context= gdi::ColorCtx::depth24();
     auto pixel_color = RDPColor::from(PINK);
     const RDPOpaqueRect cmd(Rect(0,0,75,66), pixel_color);
-    drawable.draw(cmd, Rect(0,0,75,66), color_context);
+    drawable->draw(cmd, Rect(0,0,75,66), color_context);
 
-    VNC::Encoder::Zrle encoder(16, nbbytes(16), Rect(0, 0, 74, 65), zd, VNCVerbose::none);
+    VNC::Encoder::Zrle encoder(BitsPerPixel{16}, BytesPerPixel{2}, Rect(0, 0, 74, 65), zd, VNCVerbose::none);
     InStream buffer(solid0, sizeof(solid0));
     encoder.rle_test_bypass(buffer, drawable);
 //    drawable.save_to_png("vnc_first_len.png");
@@ -6753,13 +6755,13 @@ RED_AUTO_TEST_CASE(TestZrlePalette2)
 {
     Zdecompressor<> zd;
 
-    FakeGraphic drawable(16, 128, 9, 0);
+    TestGraphic drawable(128, 9);
     auto const color_context= gdi::ColorCtx::depth24();
     auto pixel_color = RDPColor::from(PINK);
     const RDPOpaqueRect cmd(Rect(0,0,68,9), pixel_color);
-    drawable.draw(cmd, Rect(0, 0, 68, 9), color_context);
+    drawable->draw(cmd, Rect(0, 0, 68, 9), color_context);
 
-    VNC::Encoder::Zrle encoder(16, nbbytes(16), Rect(0, 0, 67, 8), zd, VNCVerbose::none);
+    VNC::Encoder::Zrle encoder(BitsPerPixel{16}, BytesPerPixel{2}, Rect(0, 0, 67, 8), zd, VNCVerbose::none);
     InStream buffer(palette2, sizeof(palette2));
     encoder.rle_test_bypass(buffer, drawable);
 //    drawable.save_to_png("vnc0.png");
@@ -6808,13 +6810,13 @@ RED_AUTO_TEST_CASE(TestZrlePalette13)
 {
     Zdecompressor<> zd;
 
-    FakeGraphic drawable(16, 128, 9, 0);
+    TestGraphic drawable(128, 9);
     auto const color_context= gdi::ColorCtx::depth24();
     auto pixel_color = RDPColor::from(PINK);
     const RDPOpaqueRect cmd(Rect(0,0,68,9), pixel_color);
-    drawable.draw(cmd, Rect(0, 0, 68, 9), color_context);
+    drawable->draw(cmd, Rect(0, 0, 68, 9), color_context);
 
-    VNC::Encoder::Zrle encoder(16, nbbytes(16), Rect(0, 0, 67, 8), zd, VNCVerbose::none);
+    VNC::Encoder::Zrle encoder(BitsPerPixel{16}, BytesPerPixel{2}, Rect(0, 0, 67, 8), zd, VNCVerbose::none);
     InStream buffer(palette13, sizeof(palette13));
     encoder.rle_test_bypass(buffer, drawable);
 //    drawable.save_to_png("vnc.png");
@@ -6838,13 +6840,13 @@ RED_AUTO_TEST_CASE(TestZrlePlainRLE)
 {
     Zdecompressor<> zd;
 
-    FakeGraphic drawable(16, 128, 9, 0);
+    TestGraphic drawable(128, 9);
     auto const color_context= gdi::ColorCtx::depth24();
     auto pixel_color = RDPColor::from(PINK);
     const RDPOpaqueRect cmd(Rect(0,0,68,9), pixel_color);
-    drawable.draw(cmd, Rect(0, 0, 68, 9), color_context);
+    drawable->draw(cmd, Rect(0, 0, 68, 9), color_context);
 
-    VNC::Encoder::Zrle encoder(16, nbbytes(16), Rect(0, 0, 67, 8), zd, VNCVerbose::none);
+    VNC::Encoder::Zrle encoder(BitsPerPixel{16}, BytesPerPixel{2}, Rect(0, 0, 67, 8), zd, VNCVerbose::none);
     InStream buffer(plainrle, sizeof(plainrle));
     encoder.rle_test_bypass(buffer, drawable);
 //    drawable.save_to_png("vnc2.png");
@@ -6882,13 +6884,13 @@ RED_AUTO_TEST_CASE(TestZrlePaletteRLE)
 {
     Zdecompressor<> zd;
 
-    FakeGraphic drawable(16, 128, 9, 0);
+    TestGraphic drawable(128, 9);
     auto const color_context= gdi::ColorCtx::depth24();
     auto pixel_color = RDPColor::from(PINK);
     const RDPOpaqueRect cmd(Rect(0,0,68,9), pixel_color);
-    drawable.draw(cmd, Rect(0, 0, 68, 9), color_context);
+    drawable->draw(cmd, Rect(0, 0, 68, 9), color_context);
 
-    VNC::Encoder::Zrle encoder(16, nbbytes(16), Rect(0, 0, 67, 8), zd, VNCVerbose::none);
+    VNC::Encoder::Zrle encoder(BitsPerPixel{16}, BytesPerPixel{2}, Rect(0, 0, 67, 8), zd, VNCVerbose::none);
     InStream buffer(paletteRLE, sizeof(paletteRLE));
     encoder.rle_test_bypass(buffer, drawable);
 //    drawable.save_to_png("vnc3.png");
@@ -6915,13 +6917,13 @@ RED_AUTO_TEST_CASE(TestZrlePackedPalette5)
 {
     Zdecompressor<> zd;
 
-    FakeGraphic drawable(16, 128, 9, 0);
+    TestGraphic drawable(128, 9);
     auto const color_context= gdi::ColorCtx::depth24();
     auto pixel_color = RDPColor::from(PINK);
     const RDPOpaqueRect cmd(Rect(0,0,68,9), pixel_color);
-    drawable.draw(cmd, Rect(0, 0, 68, 9), color_context);
+    drawable->draw(cmd, Rect(0, 0, 68, 9), color_context);
 
-    VNC::Encoder::Zrle encoder(16, nbbytes(16), Rect(0, 0, 64, 4), zd, VNCVerbose::none);
+    VNC::Encoder::Zrle encoder(BitsPerPixel{16}, BytesPerPixel{2}, Rect(0, 0, 64, 4), zd, VNCVerbose::none);
     InStream buffer(PackedPalette5, sizeof(PackedPalette5));
     encoder.rle_test_bypass(buffer, drawable);
     RED_CHECK_EQUAL(0, buffer.in_remain());

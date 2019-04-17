@@ -22,7 +22,7 @@
 */
 
 #define RED_TEST_MODULE TestCapabilityBrushCache
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "core/RDP/capabilities/cap_brushcache.hpp"
 
@@ -38,7 +38,7 @@ RED_AUTO_TEST_CASE(TestCapabilityBrushCacheEmit)
     StaticOutStream<1024> out_stream;
     brushcache_caps.emit(out_stream);
 
-    InStream stream(out_stream.get_data(), out_stream.get_offset());
+    InStream stream(out_stream.get_bytes());
 
 
     BrushCacheCaps brushcache_caps2;

@@ -20,23 +20,24 @@
  *
  */
 
+#include "acl/auth_api.hpp"
 #include "configs/config.hpp"
 #include "core/client_info.hpp"
 #include "core/set_server_redirection_target.hpp"
 #include "front/client_front.hpp"
-#include "mod/rdp/rdp.hpp"
-#include "mod/rdp/rdp_params.hpp"
-#include "mod/vnc/vnc.hpp"
+#include "mod/rdp/new_mod_rdp.hpp"
+#include "mod/vnc/new_mod_vnc.hpp"
 #include "program_options/program_options.hpp"
+#include "test_only/get_file_contents.hpp"
 #include "transport/recorder_transport.hpp"
 #include "transport/socket_transport.hpp"
 #include "utils/cfgloader.hpp"
 #include "utils/fixed_random.hpp"
 #include "utils/genrandom.hpp"
 #include "utils/netutils.hpp"
-#include "utils/redirection_info.hpp"
 #include "utils/redemption_info_version.hpp"
-#include "test_only/get_file_contents.hpp"
+#include "utils/redirection_info.hpp"
+#include "utils/theme.hpp"
 
 #include <iostream>
 #include <string>
@@ -126,9 +127,9 @@ int main(int argc, char** argv)
     }
 
     ClientInfo client_info;
-    client_info.width = 800;
-    client_info.height = 600;
-    client_info.bpp = 24;
+    client_info.screen_info.width = 800;
+    client_info.screen_info.height = 600;
+    client_info.screen_info.bpp = BitsPerPixel{24};
     if (is_vnc) {
         client_info.keylayout = 0x04C;
         client_info.console_session = false;
@@ -142,7 +143,7 @@ int main(int argc, char** argv)
 
     SSL_library_init();
 
-    ClientFront front(client_info, verbose);
+    ClientFront front(client_info.screen_info, verbose);
     NullReportMessage report_message;
     SessionReactor session_reactor;
     TimeSystem system_timeobj;
@@ -168,13 +169,24 @@ int main(int argc, char** argv)
         auto mod = create_mod(*trans);
         using Ms = std::chrono::milliseconds;
         return run_test_client(
-            is_vnc ? "VNC" : "RDP", session_reactor, mod, front,
+            is_vnc ? "VNC" : "RDP", session_reactor, *mod, front,
             Ms(inactivity_time_ms), Ms(max_time_ms), screen_output);
     };
 
+    Inifile ini;
+    if (!ini_file.empty()) {
+        configuration_load(ini.configuration_holder(), ini_file);
+    }
+
+    UdevRandom system_gen;
+    FixedRandom lcg_gen;
+    LCGTime lcg_timeobj;
+    NullAuthentifier authentifier;
+    RedirectionInfo redir_info;
+
     if (is_vnc) {
         return run([&](Transport& trans){
-            return mod_vnc(
+            return new_mod_vnc(
                 trans
               , session_reactor
               , username.c_str()
@@ -187,18 +199,14 @@ int main(int argc, char** argv)
               , true          /* clipboard */
               , true          /* clipboard */
               , "16, 2, 0, 1,-239"    /* encodings: Raw,CopyRect,Cursor pseudo-encoding */
-              , mod_vnc::ClipboardEncodingType::UTF8
-              , VncBogusClipboardInfiniteLoop::delayed
               , report_message
               , false
+              , false          /*remove_server_alt_state_for_char*/
               , nullptr
-              , to_verbose_flags(verbose) | VNCVerbose::connection | VNCVerbose::basic_trace);
+              , ini
+              , to_verbose_flags(verbose) | VNCVerbose::connection | VNCVerbose::basic_trace
+              , nullptr);
         }) ? 1 : 0;
-    }
-
-    Inifile ini;
-    if (!ini_file.empty()) {
-        configuration_load(ini.configuration_holder(), ini_file);
     }
 
     ini.set<cfg::mod_rdp::server_redirection_support>(true);
@@ -238,27 +246,21 @@ int main(int argc, char** argv)
         mod_rdp_params.log();
     }
 
-    UdevRandom system_gen;
-    FixedRandom lcg_gen;
-    LCGTime lcg_timeobj;
-    NullAuthentifier authentifier;
-    RedirectionInfo redir_info;
-
     bool const use_system_obj = record_output.empty() && !options.count("lcg");
 
     auto run_rdp = [&]{
         return run([&](Transport& trans){
             using TimeObjRef = TimeObj&;
             using RandomRef = Random&;
-            return mod_rdp(
+            return new_mod_rdp(
                 trans, session_reactor, front, client_info, redir_info,
                 use_system_obj ? RandomRef(system_gen) : lcg_gen,
                 use_system_obj ? TimeObjRef(system_timeobj) : lcg_timeobj,
-                mod_rdp_params, authentifier, report_message, ini);
+                mod_rdp_params, authentifier, report_message, ini, nullptr);
         });
     };
 
-    error_t eid = run_rdp();
+    int eid = run_rdp();
 
     if (ERR_RDP_SERVER_REDIR != eid) {
         return eid  ? 1 : 0;

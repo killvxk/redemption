@@ -15,7 +15,7 @@
 
   Product name: redemption, a FLOSS RDP proxy
   Copyright (C) Wallix 2010
-  Author(s): Christophe Grosjean, Meng Tan, Jennifer Inthavong
+  Author(s): Christophe Grosjean, Meng Tauth_rail_exec_an, Jennifer Inthavong
 
   Protocol layer for communication with ACL
   Updating context dictionnary from incoming acl traffic
@@ -29,12 +29,15 @@
 #include "acl/module_manager/enums.hpp"
 #include "configs/config.hpp"
 #include "main/version.hpp"
+#include "mod/rdp/rdp_api.hpp"
 #include "core/authid.hpp"
 #include "core/date_dir_from_filename.hpp"
 #include "core/set_server_redirection_target.hpp"
 #include "transport/crypto_transport.hpp"
 #include "transport/transport.hpp"
+#include "transport/socket_transport.hpp"
 #include "utils/difftimeval.hpp"
+#include "utils/texttime.hpp"
 #include "utils/fileutils.hpp"
 #include "utils/get_printable_password.hpp"
 #include "utils/key_qvalue_pairs.hpp"
@@ -42,9 +45,12 @@
 #include "utils/stream.hpp"
 #include "utils/translation.hpp"
 #include "utils/verbose_flags.hpp"
+#include "utils/hexdump.hpp"
+#include "utils/sugar/algostring.hpp"
 
 #include <string>
 #include <utility>
+#include <algorithm>
 
 #include <ctime>
 #include <cinttypes>
@@ -68,6 +74,7 @@ public:
     {
         none,
         state = 0x10,
+        arcsight = 0x20
     };
 
     KeepAlive(std::chrono::seconds grace_delay_, Verbose verbose)
@@ -290,7 +297,7 @@ public:
         variable = 0x2,
         buffer   = 0x40,
         state    = 0x10,
-        log_arcsight  = 0x20,
+        arcsight  = 0x20,
     };
 
 public:
@@ -372,12 +379,14 @@ public:
         }
     }
 
-    void log5(const std::string & info) override
+    void log6(const std::string & info, const ArcsightLogInfo & asl_info, const timeval time) override
     {
-        this->log_file.write_line(std::time(nullptr), info);
+        time_t const time_now = time.tv_sec;
+        this->log_file.write_line(time_now, info);
 
         /* Log to SIEM (redirected syslog) */
         if (this->ini.get<cfg::session_log::enable_session_log>()) {
+
             auto const& target_ip = (isdigit(this->ini.get<cfg::context::target_host>()[0])
                 ? this->ini.get<cfg::context::target_host>()
                 : this->ini.get<cfg::context::ip_target>());
@@ -393,108 +402,133 @@ public:
             });
 
             LOG_SIEM(
-                LOG_INFO
-              , "[%s Session] %s %s"
+                "[%s Session] %s %s"
               , (this->session_type.empty() ? "Neutral" : this->session_type.c_str())
               , session_info.c_str()
               , info.c_str());
         }
-    }
 
-    void log6(const std::string & info, const ArcsightLogInfo & asl_info) override
-    {
-        this->log_file.write_line(std::time(nullptr), info);
+        if (this->ini.get<cfg::session_log::enable_arcsight_log>()) {
 
-        /* Log to SIEM (redirected syslog) */
-        if (this->ini.get<cfg::session_log::enable_session_log>()) {
-            // TODO duplicated with log5
-            auto const& target_ip = (isdigit(this->ini.get<cfg::context::target_host>()[0])
+            auto const& target_ip    = (isdigit(this->ini.get<cfg::context::target_host>()[0])
                 ? this->ini.get<cfg::context::target_host>()
                 : this->ini.get<cfg::context::ip_target>());
+            auto const& formted_date = arcsight_gmdatetime(time);
+            auto const& user         = this->ini.get<cfg::globals::auth_user>();
+            auto const& account      = this->ini.get<cfg::globals::target_user>();
+            auto const& session_id   = this->ini.get<cfg::context::session_id>();
+            auto const& host         = this->ini.get<cfg::globals::host>();
+            // auto const& device = this->ini.get<cfg::globals::target_device>();
 
-            auto session_info = key_qvalue_pairs({
-                {"session_id", this->ini.get<cfg::context::session_id>()},
-                {"client_ip",  this->ini.get<cfg::globals::host>()},
-                {"target_ip",  target_ip},
-                {"user",       this->ini.get<cfg::globals::auth_user>()},
-                {"device",     this->ini.get<cfg::globals::target_device>()},
-                {"service",    this->ini.get<cfg::context::target_service>()},
-                {"account",    this->ini.get<cfg::globals::target_user>()},
-            });
+            std::string extension;
+            extension.reserve(256);
+//             std::string extension;
 
-            LOG_SIEM(
-                LOG_INFO
-              , "[%s Session] %s %s"
-              , (this->session_type.empty() ? "Neutral" : this->session_type.c_str())
-              , session_info.c_str()
-              , info.c_str());
+            switch (asl_info.direction_flag) {
 
-            if (bool(this->verbose & Verbose::log_arcsight)) {
-                timeval now = tvtime();
-                time_t time_now = now.tv_sec;
+                case ArcsightLogInfo::NONE: break;
 
-                auto const& suser = this->ini.get<cfg::globals::auth_user>();
-                auto const& duser = this->ini.get<cfg::globals::target_user>();
-                auto const& session_id = this->ini.get<cfg::context::session_id>();
-                auto const& host = this->ini.get<cfg::globals::host>();
-                // auto const& device = this->ini.get<cfg::globals::target_device>();
+                case ArcsightLogInfo::SERVER_DST:
+                    str_append(extension,
+                        " suser=", user, " duser=", account,
+                        " src=", host, " dst=", target_ip);
+                    break;
 
-                std::string extension;
-                if (!asl_info.ApplicationProtocol.empty()) {
-                    extension += " app=";
-                    extension += this->arcsight_text_formating(asl_info.ApplicationProtocol);
-                }
-                if (!asl_info.WallixBastionStatus.empty()) {
-                    extension += " WallixBastionStatus=";
-                    extension += this->arcsight_text_formating(asl_info.WallixBastionStatus);
-                }
-                if (!asl_info.message.empty()) {
-                    extension += " msg=\"";
-                    extension += this->arcsight_text_formating(asl_info.message)+"\"";
-                }
-                if (!asl_info.oldFilePath.empty()) {
-                    extension += " oldFilePath=";
-                    extension += this->arcsight_text_formating(asl_info.oldFilePath);
-                }
-                if (!asl_info.filePath.empty()) {
-                    extension += " filePath=";
-                    extension += this->arcsight_text_formating(asl_info.filePath);
-                }
-                if (!asl_info.fileSize.empty()) {
-                    extension += " fsize=";
-                    extension += this->arcsight_text_formating(asl_info.fileSize);
-                }
-
-                // TODO string_view + %.*s format
-                std::string current_date(ctime(&time_now));
-                std::string mmm_dd(current_date.substr(4, 6));
-                std::string hhmmss(current_date.substr(11, 8));
-                std::string yyyy(current_date.substr(20, 4));
-                std::string formted_date(mmm_dd+" "+yyyy+" "+hhmmss);
-
-                LOG_SIEM(LOG_INFO, "%s host message CEF:%s|%s|%s|%s|%d|%s|%d|suser=%s duser=%s WallixBastionSession_id=%s WallixBastionSessionType=%s src=%s dst=%s %s", formted_date.c_str(), "1", "Wallix", "Bastion", VERSION, asl_info.signatureID, asl_info.name.c_str(), asl_info.severity, suser.c_str(), duser.c_str(), session_id.c_str(), (this->session_type.empty() ? "Neutral" : this->session_type.c_str()), host.c_str(), target_ip.c_str(), /*device.c_str(),*/ extension.c_str());
+                case ArcsightLogInfo::SERVER_SRC:
+                    str_append(extension,
+                        " suser=", account, " duser=", user,
+                        " src=", target_ip, " dst=", host);
+                    break;
             }
+            if (!asl_info.ApplicationProtocol.empty()) {
+                extension += " app=";
+                this->arcsight_text_formating(extension, asl_info.ApplicationProtocol);
+            }
+            if (!asl_info.WallixBastionStatus.empty()) {
+                extension += " WallixBastionStatus=";
+                this->arcsight_text_formating(extension, asl_info.WallixBastionStatus);
+            }
+            if (!asl_info.message.empty()) {
+                extension += " msg=\"";
+                this->arcsight_text_formating(extension, asl_info.message);
+                extension +="\"";
+            }
+            if (!asl_info.oldFilePath.empty()) {
+                extension += " oldFilePath=";
+                this->arcsight_text_formating(extension, asl_info.oldFilePath);
+            }
+            if (!asl_info.filePath.empty()) {
+                extension += " filePath=";
+                this->arcsight_text_formating(extension, asl_info.filePath);
+            }
+            if (asl_info.fileSize) {
+                extension += " fsize=";
+                this->arcsight_text_formating(extension, std::to_string(asl_info.fileSize));
+            }
+            if (asl_info.endTime) {
+                timeval time = {time_t(asl_info.endTime), 0};
+                extension += " end=";
+                this->arcsight_text_formating(extension, arcsight_gmdatetime(time));
+            }
+            if (!asl_info.fileName.empty()) {
+                extension += " fname=";
+                this->arcsight_text_formating(extension, asl_info.fileName);
+            }
+
+            LOG_SIEM("%s host message CEF:%s|%s|%s|%s|%d|%s|%d|WallixBastionUser=%s WallixBastionAccount=%s WallixBastionHost=%s WallixBastionTargetIP=%s WallixBastionSession_id=%s WallixBastionSessionType=%s%s",
+                formted_date.c_str(),
+                "1",
+                "Wallix",
+                "Bastion",
+                VERSION,
+                asl_info.signatureID,
+                asl_info.name.c_str(),
+                asl_info.severity,
+                user.c_str(),
+                account.c_str(),
+                host.c_str(),
+                target_ip.c_str(),
+                session_id.c_str(),
+                (this->session_type.empty() ? "Neutral" : this->session_type.c_str()),
+                /*device.c_str(),*/
+                extension.c_str()
+            );
         }
     }
 
-    std::string arcsight_text_formating(const std::string & text) {
-        std::string temp(text);
-        size_t i = 0;
-        while (i < temp.length()) {
-            if (temp[i] == '\\' || temp[i] == '=' || temp[i] == '|') {
-                temp = temp.substr(0, i) + "\\" + temp.substr(i, temp.length());
-                i++;
+private:
+    static void arcsight_text_formating(std::string& buff, std::string const& text)
+    {
+        auto* p = text.data();
+        auto* curr = p;
+        while (*p) {
+            while (!(*curr == '\0'
+                  || *curr == '\\'
+                  || *curr == '='
+                  || *curr == '|'
+                  || *curr == ' ')
+            ) {
+                ++curr;
             }
-            if (temp[i] == ' ') {
-                temp = temp.substr(0, i) + "<space>" + temp.substr(i+1, temp.length());
-                i += 7;
-            }
-            i++;
-        }
 
-        return temp;
+            buff.append(p, curr);
+
+            if (*curr == '\\' || *curr == '=' || *curr == '|') {
+                buff += '\\';
+                buff += *curr;
+                ++curr;
+            }
+            else if (*curr == ' ') {
+                buff += "<space>";
+                ++curr;
+            }
+            // else '\0'
+
+            p = curr;
+        }
     }
 
+public:
     void start_session_log()
     {
         auto& log_path = this->ini.get<cfg::session_log::log_path>();
@@ -732,17 +766,33 @@ public:
 
         // LOG(LOG_INFO, "connect=%s check=%s", this->connected?"Y":"N", check()?"Y":"N");
 
-        // AuthCHANNEL CHECK
-        // if an answer has been received, send it to
-        // rdp serveur via mod (should be rdp module)
-        // TODO Check if this->mod is RDP MODULE
-        if (mm.connected && this->ini.get<cfg::mod_rdp::auth_channel>()[0]) {
-            // Get sesman answer to AUTHCHANNEL_TARGET
-            if (!this->ini.get<cfg::context::auth_channel_answer>().empty()) {
-                // If set, transmit to auth_channel channel
-                mm.get_mod()->send_auth_channel_data(this->ini.get<cfg::context::auth_channel_answer>().c_str());
-                // Erase the context variable
-                this->ini.get_ref<cfg::context::auth_channel_answer>().clear();
+        if (mm.connected) {
+            // AuthCHANNEL CHECK
+            // if an answer has been received, send it to
+            // rdp serveur via mod (should be rdp module)
+            // TODO Check if this->mod is RDP MODULE
+            if (this->ini.get<cfg::mod_rdp::auth_channel>()[0]) {
+                // Get sesman answer to AUTHCHANNEL_TARGET
+                if (!this->ini.get<cfg::context::auth_channel_answer>().empty()) {
+                    // If set, transmit to auth_channel channel
+                    mm.get_mod()->send_auth_channel_data(this->ini.get<cfg::context::auth_channel_answer>().c_str());
+                    // Erase the context variable
+                    this->ini.get_ref<cfg::context::auth_channel_answer>().clear();
+                }
+            }
+
+            // CheckoutCHANNEL CHECK
+            // if an answer has been received, send it to
+            // rdp serveur via mod (should be rdp module)
+            // TODO Check if this->mod is RDP MODULE
+            if (this->ini.get<cfg::mod_rdp::checkout_channel>()[0]) {
+                // Get sesman answer to AUTHCHANNEL_TARGET
+                if (!this->ini.get<cfg::context::pm_response>().empty()) {
+                    // If set, transmit to auth_channel channel
+                    mm.get_mod()->send_checkout_channel_data(this->ini.get<cfg::context::pm_response>().c_str());
+                    // Erase the context variable
+                    this->ini.get_ref<cfg::context::pm_response>().clear();
+                }
             }
         }
 
@@ -754,7 +804,7 @@ private:
     {
         static constexpr size_t buf_len = 65535;
         char buf[buf_len];
-        char key_name_buf[64];
+        char key_name_buf[128];
         bool has_next_buffer = true;
         std::string data_multipacket;
         char * p;
@@ -771,9 +821,10 @@ private:
             this->safe_read_packet();
         }
 
-        char const * key(bool always_internal_copy) {
+        array_view_const_char key(bool always_internal_copy)
+        {
             auto m = std::find(this->p, this->e, '\n');
-            if (m == e) {
+            if (m == this->e) {
                 size_t key_buf_len = this->e - this->p;
                 if (key_buf_len) {
                     if (key_buf_len > sizeof(this->key_name_buf)) {
@@ -796,22 +847,23 @@ private:
                         LOG(LOG_ERR, "Error: ACL key length too big (got %" PRIdPTR " max 64o)", m - this->p);
                         throw Error(ERR_ACL_MESSAGE_TOO_BIG);
                     }
-                    *m = 0;
-                    ++m;
-                    memcpy(this->key_name_buf, this->p, m - this->p);
-                    this->p = m;
-                    return this->key_name_buf;
+                    always_internal_copy = true;
                 }
             }
-            if (always_internal_copy) {
-                *m = 0;
-                ++m;
-                memcpy(this->key_name_buf, this->p, m - this->p);
-                this->p = m;
-                return this->key_name_buf;
-            }
+
+            std::size_t const len = m - this->p;
             *m = 0;
-            return std::exchange(this->p, m+1);
+            ++m;
+            if (always_internal_copy) {
+                if (len > sizeof(this->key_name_buf)) {
+                    LOG(LOG_ERR, "Error: ACL key length too big (got %zu max 64o)", len);
+                    throw Error(ERR_ACL_MESSAGE_TOO_BIG);
+                }
+                memcpy(this->key_name_buf, this->p, len);
+                this->p = m;
+                return {this->key_name_buf, len};
+            }
+            return {std::exchange(this->p, m), len};
         }
 
         bool is_set_value() {
@@ -914,32 +966,23 @@ public:
     void in_items()
     {
         Reader reader(this->auth_trans, this->verbose);
+        array_view_const_char key;
 
-        while (auto key = reader.key(bool(this->verbose & Verbose::variable))) {
+        while (!(key = reader.key(bool(this->verbose & Verbose::variable))).empty()) {
             auto authid = authid_from_string(key);
             if (auto field = this->ini.get_acl_field(authid)) {
                 if (reader.is_set_value()) {
                     if (field.set(reader.get_val()) && bool(this->verbose & Verbose::variable)) {
-                        const char * val         = field.c_str();
-                        const char * display_val = val;
-                        if (cfg::crypto::key0::index == authid ||
-                            cfg::crypto::key1::index == authid ||
-                            cfg::context::password::index == authid ||
-                            cfg::context::target_password::index == authid ||
-                            cfg::globals::target_application_password::index == authid ||
-                            cfg::context::auth_command_rail_exec_password::index == authid ||
-                            (cfg::context::auth_channel_answer::index == authid &&
-                            strcasestr(val, "password") != nullptr)
-                        ) {
-                            display_val = ::get_printable_password(val, this->ini.get<cfg::debug::password>());
-                        }
-                        LOG(LOG_INFO, "receiving '%s'='%s'", key, display_val);
+                        array_view_const_char val         = field.to_string_view();
+                        array_view_const_char display_val = field.is_loggable()
+                            ? val : ::get_printable_password(val, this->ini.get<cfg::debug::password>());
+                        LOG(LOG_INFO, "receiving '%.*s'='%.*s'", int(key.size()), key.data(), int(display_val.size()), display_val.data());
                     }
                 }
                 else if (reader.consume_ask()) {
                     field.ask();
                     if (bool(this->verbose & Verbose::variable)) {
-                        LOG(LOG_INFO, "receiving ASK '%s'", key);
+                        LOG(LOG_INFO, "receiving ASK '%.*s'", int(key.size()), key.data());
                     }
                 }
                 else {
@@ -950,8 +993,8 @@ public:
             }
             else {
                 auto val = reader.get_val();
-                LOG(LOG_WARNING, "Unexpected receving '%s' - '%.*s'",
-                    key, int(val.size()), val.data());
+                LOG(LOG_WARNING, "Unexpected receving '%.*s' - '%.*s'",
+                    int(key.size()), key.data(), int(val.size()), val.data());
             }
         }
     }
@@ -1006,16 +1049,16 @@ private:
             this->buf.data[this->buf.sz++] = c;
         }
 
-        void push(char const * s) {
-            while (*s) {
-                while (this->buf.sz != buf_len && *s) {
-                    this->buf.data[this->buf.sz++] = *s;
-                    ++s;
-                }
-                if (*s) {
+        void push(array_view_const_char av) {
+            do {
+                auto n = std::min<std::size_t>(av.size(), this->buf_len - this->buf.sz);
+                memcpy(this->buf.data + this->buf.sz, av.data(), n);
+                this->buf.sz += n;
+                av = av.array_from_offset(n);
+                if (!av.empty()) {
                     this->new_buffer();
                 }
-            }
+            } while(!av.empty());
         }
 
         void send_buffer() {
@@ -1053,27 +1096,24 @@ public:
                 Buffers buffers(this->auth_trans, this->verbose);
 
                 for (auto field : this->ini.get_fields_changed()) {
-                    char const * key = string_from_authid(field.authid());
+                    array_view_const_char key = string_from_authid(field.authid());
                     buffers.push(key);
                     buffers.push('\n');
                     if (field.is_asked()) {
-                        buffers.push("ASK\n");
+                        buffers.push("ASK\n"_av);
                         if (bool(this->verbose & Verbose::variable)) {
-                            LOG(LOG_INFO, "sending %s=ASK", key);
+                            LOG(LOG_INFO, "sending %.*s=ASK", int(key.size()), key.data());
                         }
                     }
                     else {
-                        char const * val = field.c_str();
+                        auto val = field.to_string_view();
                         buffers.push('!');
                         buffers.push(val);
                         buffers.push('\n');
-                        const char * display_val = val;
-                        if ((strncasecmp("password", key, 8) == 0)
-                         || (strncasecmp("target_password", key, 15) == 0)) {
-                            display_val = get_printable_password(val, password_printing_mode);
-                        }
+                        array_view_const_char display_val = field.is_loggable()
+                          ? val : get_printable_password(val, password_printing_mode);
                         if (bool(this->verbose & Verbose::variable)) {
-                            LOG(LOG_INFO, "sending %s=%s", key, display_val);
+                            LOG(LOG_INFO, "sending %.*s=%.*s", int(key.size()), key.data(), int(display_val.size()), display_val.data());
                         }
                     }
                 }
@@ -1090,3 +1130,23 @@ public:
         }
     }
 };
+
+
+struct Acl
+{
+    SocketTransport auth_trans;
+    AclSerializer   acl_serial;
+
+    Acl(Inifile & ini, unique_fd client_sck, time_t now,
+        CryptoContext & cctx, Random & rnd, Fstat & fstat)
+    : auth_trans(
+        "Authentifier", std::move(client_sck),
+        ini.get<cfg::globals::authfile>().c_str(), 0,
+        std::chrono::seconds(1),
+        to_verbose_flags(ini.get<cfg::debug::auth>()))
+    , acl_serial(
+        ini, now, this->auth_trans, cctx, rnd, fstat,
+        to_verbose_flags(ini.get<cfg::debug::auth>()))
+    {}
+};
+

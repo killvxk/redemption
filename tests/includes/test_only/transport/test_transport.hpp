@@ -35,11 +35,10 @@
 #include <algorithm>
 #include <cstring>
 
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 #include "transport/transport.hpp"
-#include "utils/log.hpp"
 #include "utils/stream.hpp"
-#include "utils/hexdump.hpp"
+
 
 struct RemainingError : std::runtime_error
 {
@@ -194,13 +193,6 @@ private:
         return len;
     }
 
-    void do_send(const uint8_t * const buffer, size_t len) override
-    {
-        LOG(LOG_INFO, "Sending on target (-1) %zu bytes", len);
-        hexdump_c(buffer, len);
-        LOG(LOG_INFO, "Sent dumped on target (-1) %zu bytes", len);
-    }
-
     const std::unique_ptr<uint8_t[]> data;
     const std::size_t len = 0;
     std::size_t current = 0;
@@ -215,7 +207,7 @@ struct BufTransport : Transport
 private:
     void do_send(const uint8_t * const data, size_t len) override
     {
-        this->buf.append(reinterpret_cast<char const *>(data), len);
+        this->buf.append(char_ptr_cast(data), len);
     }
 };
 
@@ -363,11 +355,13 @@ private:
         return this->gen.atomic_read(buffer, len);
     }
 
+protected:
     size_t do_partial_read(uint8_t* buffer, size_t len) override
     {
         return this->gen.partial_read(buffer, len);
     }
 
+private:
     void do_send(const uint8_t * const buffer, size_t len) override
     {
         this->check.send(buffer, len);
@@ -377,17 +371,6 @@ private:
     GeneratorTransport gen;
     std::unique_ptr<uint8_t[]> public_key;
     std::size_t public_key_length;
-};
-
-
-class LogTransport : public Transport
-{
-    void do_send(const uint8_t * const buffer, size_t len) override
-    {
-        LOG(LOG_INFO, "Sending on target (-1) %zu bytes", len);
-        hexdump_c(buffer, len);
-        LOG(LOG_INFO, "Sent dumped on target (-1) %zu bytes", len);
-    }
 };
 
 

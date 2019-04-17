@@ -22,7 +22,7 @@
 */
 
 #define RED_TEST_MODULE TestCapabilityShare
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "core/RDP/capabilities/cap_share.hpp"
 
@@ -40,7 +40,7 @@ RED_AUTO_TEST_CASE(TestCapabilityShareEmit)
     StaticOutStream<1024> out_stream;
     share_caps.emit(out_stream);
 
-    InStream stream(out_stream.get_data(), out_stream.get_offset());
+    InStream stream(out_stream.get_bytes());
 
     ShareCaps share_caps2;
 

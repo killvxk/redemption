@@ -309,7 +309,14 @@ public:
 public:
     void resize(uint16_t width, uint16_t height) override;
 
-    void update_config(bool enable_rt_display);
+    enum class RTDisplayResult : char
+    {
+        Disabled,
+        Enabled,
+        Unchanged,
+    };
+
+    RTDisplayResult set_rt_display(bool enable_rt_display);
 
     void set_row(size_t rownum, const uint8_t * data, size_t data_length) override;
 
@@ -363,6 +370,8 @@ protected:
     void draw_impl(const RDP::RAIL::NewOrExistingWindow & cmd);
 
     void draw_impl(const RDP::RAIL::DeletedWindow & cmd);
+
+    void draw_impl(const RDP::RAIL::NonMonitoredDesktop & cmd);
 
     struct WindowRecord {
         uint32_t window_id;

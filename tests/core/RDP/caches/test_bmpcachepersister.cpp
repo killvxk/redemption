@@ -19,7 +19,7 @@
 */
 
 #define RED_TEST_MODULE TestBmpCachePersister
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "core/RDP/caches/bmpcachepersister.hpp"
@@ -32,7 +32,7 @@ RED_AUTO_TEST_CASE(TestBmpCachePersister)
     bool     use_waiting_list = false;
     uint32_t verbose          = 1;
 
-    BmpCache bmp_cache( BmpCache::Recorder, bpp, 3, use_waiting_list
+    BmpCache bmp_cache( BmpCache::Recorder, BitsPerPixel{bpp}, 3, use_waiting_list
                       , BmpCache::CacheOption(120,  nbbytes(bpp) * 16 * 16, false)
                       , BmpCache::CacheOption(120,  nbbytes(bpp) * 32 * 32, false)
                       , BmpCache::CacheOption(2553, nbbytes(bpp) * 64 * 64, true)
@@ -117,7 +117,7 @@ RED_AUTO_TEST_CASE(TestBmpCachePersister)
 /* 0030 */ 0x41, 0x0d, 0x00, 0x19, 0xf3, 0x03, 0x08, 0xf7,                          // A.......
     };
     BGRPalette   palette = make_bgr_palette_from_bgrx_array(raw_palette_0);
-    {Bitmap bmp(8, 8, &palette, 64, 64, raw_bitmap_0, sizeof(raw_bitmap_0), true);
+    {Bitmap bmp(BitsPerPixel{8}, BitsPerPixel{8}, &palette, 64, 64, raw_bitmap_0, sizeof(raw_bitmap_0), true);
     result = bmp_cache.cache_bitmap(bmp);
     }
 
@@ -201,7 +201,7 @@ RED_AUTO_TEST_CASE(TestBmpCachePersister)
 /* 0090 */ 0xd5, 0x22, 0x00, 0x82, 0xc3, 0xc7, 0x8f, 0xc7, 0xe3, 0xc1, 0x98, 0x31, 0xf0, 0x00, 0x08,     // .".........1...
     };
     palette = make_bgr_palette_from_bgrx_array(raw_palette_1);
-    {Bitmap bmp(8, 8, &palette, 64, 64, raw_bitmap_1, sizeof(raw_bitmap_1), true);
+    {Bitmap bmp(BitsPerPixel{8}, BitsPerPixel{8}, &palette, 64, 64, raw_bitmap_1, sizeof(raw_bitmap_1), true);
     result = bmp_cache.cache_bitmap(bmp);
     }
 
@@ -279,7 +279,7 @@ RED_AUTO_TEST_CASE(TestBmpCachePersister)
 /* 0030 */ 0x40, 0x08, 0xf7,                                         // @..
     };
     palette = make_bgr_palette_from_bgrx_array(raw_palette_2);
-    {Bitmap bmp(8, 8, &palette, 64, 64, raw_bitmap_2, sizeof(raw_bitmap_2), true);
+    {Bitmap bmp(BitsPerPixel{8}, BitsPerPixel{8}, &palette, 64, 64, raw_bitmap_2, sizeof(raw_bitmap_2), true);
     result = bmp_cache.cache_bitmap(bmp);
     }
     // result is to use !
@@ -298,7 +298,7 @@ RED_AUTO_TEST_CASE(TestBmpCachePersister1)
     bool     use_waiting_list = false;
     uint32_t verbose          = 1;
 
-    BmpCache bmp_cache( BmpCache::Recorder, bpp, 3, use_waiting_list
+    BmpCache bmp_cache( BmpCache::Recorder, BitsPerPixel{bpp}, 3, use_waiting_list
                       , BmpCache::CacheOption(120,  nbbytes(bpp) * 16 * 16, false)
                       , BmpCache::CacheOption(120,  nbbytes(bpp) * 32 * 32, false)
                       , BmpCache::CacheOption(2553, nbbytes(bpp) * 64 * 64, true)
@@ -323,14 +323,14 @@ RED_AUTO_TEST_CASE(TestBmpCachePersister1)
     uint16_t first_entry_index = 0;
     bmp_cache_persister.process_key_list(cache_id, persistent_list, number_of_entries, first_entry_index);
 
-    RED_CHECK((bmp_cache.get_cache(cache_id)[0].sig.sig_32[0] == 0x99E1C40C) && (bmp_cache.get_cache(cache_id)[0].sig.sig_32[1] == 0x17C187AF));
-    RED_CHECK((bmp_cache.get_cache(cache_id)[1].sig.sig_32[0] == 0x03E8896E) && (bmp_cache.get_cache(cache_id)[1].sig.sig_32[1] == 0x5C267FC8));
-
-    RED_CHECK(!bmp_cache.get_cache(cache_id)[2]);
-
-    RED_CHECK((bmp_cache.get_cache(cache_id)[3].sig.sig_32[0] == 0x63D8DC64) && (bmp_cache.get_cache(cache_id)[3].sig.sig_32[1] == 0x0A888EF6));
-
-    RED_CHECK(!bmp_cache.get_cache(cache_id)[4]);
+    RED_CHECK(bmp_cache.get_cache(cache_id)[0].sig.sig_32[0] == 0x99E1C40C);
+    RED_CHECK(bmp_cache.get_cache(cache_id)[0].sig.sig_32[1] == 0x17C187AF);
+    RED_CHECK(bmp_cache.get_cache(cache_id)[1].sig.sig_32[0] == 0x03E8896E);
+    RED_CHECK(bmp_cache.get_cache(cache_id)[1].sig.sig_32[1] == 0x5C267FC8);
+    RED_REQUIRE(!bmp_cache.get_cache(cache_id)[2]);
+    RED_CHECK(bmp_cache.get_cache(cache_id)[3].sig.sig_32[0] == 0x63D8DC64);
+    RED_CHECK(bmp_cache.get_cache(cache_id)[3].sig.sig_32[1] == 0x0A888EF6);
+    RED_REQUIRE(!bmp_cache.get_cache(cache_id)[4]);
 }
 
 RED_AUTO_TEST_CASE(TestBmpCachePersister2)
@@ -339,7 +339,7 @@ RED_AUTO_TEST_CASE(TestBmpCachePersister2)
     bool     use_waiting_list = false;
     uint32_t verbose          = 1;
 
-    BmpCache bmp_cache( BmpCache::Recorder, bpp, 3, use_waiting_list
+    BmpCache bmp_cache( BmpCache::Recorder, BitsPerPixel{bpp}, 3, use_waiting_list
                       , BmpCache::CacheOption(120,  nbbytes(bpp) * 16 * 16, false)
                       , BmpCache::CacheOption(120,  nbbytes(bpp) * 32 * 32, false)
                       , BmpCache::CacheOption(2553, nbbytes(bpp) * 64 * 64, true)
@@ -354,9 +354,11 @@ RED_AUTO_TEST_CASE(TestBmpCachePersister2)
     BmpCachePersister::load_all_from_disk(bmp_cache, t, "fixtures/persistent_disk_bitmap_cache.hpp", to_verbose_flags(verbose));
 
     uint8_t cache_id = 2;
-    RED_CHECK((bmp_cache.get_cache(cache_id)[0].sig.sig_32[0] == 0x99E1C40C) && (bmp_cache.get_cache(cache_id)[0].sig.sig_32[1] == 0x17C187AF));
-    RED_CHECK((bmp_cache.get_cache(cache_id)[1].sig.sig_32[0] == 0x03E8896E) && (bmp_cache.get_cache(cache_id)[1].sig.sig_32[1] == 0x5C267FC8));
-    RED_CHECK((bmp_cache.get_cache(cache_id)[2].sig.sig_32[0] == 0x63D8DC64) && (bmp_cache.get_cache(cache_id)[2].sig.sig_32[1] == 0x0A888EF6));
-
+    RED_CHECK(bmp_cache.get_cache(cache_id)[0].sig.sig_32[0] == 0x99E1C40C);
+    RED_CHECK(bmp_cache.get_cache(cache_id)[0].sig.sig_32[1] == 0x17C187AF);
+    RED_CHECK(bmp_cache.get_cache(cache_id)[1].sig.sig_32[0] == 0x03E8896E);
+    RED_CHECK(bmp_cache.get_cache(cache_id)[1].sig.sig_32[1] == 0x5C267FC8);
+    RED_CHECK(bmp_cache.get_cache(cache_id)[2].sig.sig_32[0] == 0x63D8DC64);
+    RED_CHECK(bmp_cache.get_cache(cache_id)[2].sig.sig_32[1] == 0x0A888EF6);
     RED_CHECK(!bmp_cache.get_cache(cache_id)[3]);
 }

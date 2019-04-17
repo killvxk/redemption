@@ -20,7 +20,7 @@
 
 #include "core/session_reactor.hpp"
 #include "mod/internal/rail_module_host_mod.hpp"
-#include "mod/internal/client_execute.hpp"
+#include "RAIL/client_execute.hpp"
 #include "configs/config.hpp"
 #include "core/front_api.hpp"
 
@@ -29,15 +29,13 @@ RailModuleHostMod::RailModuleHostMod(
     SessionReactor& session_reactor,
     FrontAPI& front, uint16_t width, uint16_t height,
     Rect const widget_rect, std::unique_ptr<mod_api> managed_mod,
-    ClientExecute& client_execute,
-    const GCC::UserData::CSMonitor& cs_monitor,
-    bool can_resize_hosted_desktop)
-: LocallyIntegrableMod(session_reactor, front, width, height, vars.get<cfg::font>(),
-                       client_execute, vars.get<cfg::theme>())
+    ClientExecute& client_execute, Font const& font, Theme const& theme,
+    const GCC::UserData::CSMonitor& cs_monitor, bool can_resize_hosted_desktop)
+: LocallyIntegrableMod(session_reactor, front, width, height, font, client_execute, theme)
 , rail_module_host(front, widget_rect.x, widget_rect.y,
                    widget_rect.cx, widget_rect.cy,
                    this->screen, this, std::move(managed_mod),
-                   vars.get<cfg::font>(), cs_monitor, width, height)
+                   font, cs_monitor, width, height)
 , vars(vars)
 , can_resize_hosted_desktop(can_resize_hosted_desktop)
 , client_execute(client_execute)
@@ -104,6 +102,13 @@ void RailModuleHostMod::send_auth_channel_data(const char * string_data)
     mod.send_auth_channel_data(string_data);
 }
 
+void RailModuleHostMod::send_checkout_channel_data(const char * string_data)
+{
+    mod_api& mod = this->rail_module_host.get_managed_mod();
+
+    mod.send_checkout_channel_data(string_data);
+}
+
 // mod_api
 
 void RailModuleHostMod::draw_event(time_t now, gdi::GraphicApi& gapi)
@@ -113,11 +118,9 @@ void RailModuleHostMod::draw_event(time_t now, gdi::GraphicApi& gapi)
     return mod.draw_event(now, gapi);
 }
 
-bool RailModuleHostMod::is_up_and_running()
+bool RailModuleHostMod::is_up_and_running() const
 {
-    mod_api& mod = this->rail_module_host.get_managed_mod();
-
-    return mod.is_up_and_running();
+    return this->rail_module_host.get_managed_mod().is_up_and_running();
 }
 
 void RailModuleHostMod::move_size_widget(int16_t left, int16_t top, uint16_t width,

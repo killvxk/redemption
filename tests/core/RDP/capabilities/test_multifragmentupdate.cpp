@@ -20,8 +20,9 @@
    Unit test to RDP MultiFragmentUpdate object
    Using lib boost functions for testing
 */
+#define RED_TEST_MODULE CapabilityMultiFragmentUpdateEmit
 
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "core/RDP/capabilities/multifragmentupdate.hpp"
@@ -38,7 +39,7 @@ RED_AUTO_TEST_CASE(TestCapabilityMultiFragmentUpdateEmit)
     StaticOutStream<1024> out_stream;
     multifragmentupdate_caps.emit(out_stream);
 
-    InStream stream(out_stream.get_data(), out_stream.get_offset());
+    InStream stream(out_stream.get_bytes());
 
     MultiFragmentUpdateCaps multifragmentupdate_caps2;
 

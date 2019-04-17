@@ -36,7 +36,11 @@
 #include "utils/genrandom.hpp"
 #include "utils/redirection_info.hpp"
 #include "utils/sugar/unique_fd.hpp"
-#include "utils/sugar/strutils.hpp"
+#include "utils/sugar/multisz.hpp"
+#include "utils/sugar/algostring.hpp"
+#include "utils/strutils.hpp"
+
+#include "utils/difftimeval.hpp"
 
 #include <cstring>
 
@@ -145,9 +149,18 @@ RdpNegociation::RDPServerNotifier::RDPServerNotifier(
 void RdpNegociation::RDPServerNotifier::server_access_allowed()
 {
     if (is_syslog_notification_enabled(this->server_access_allowed_message)) {
-        this->log5_server_cert(
+        ArcsightLogInfo arc_info;
+        arc_info.name = "CERTIFICATE_CHECK";
+        arc_info.signatureID = ArcsightLogInfo::CERTIFICATE_CHECK;
+        arc_info.ApplicationProtocol = "rdp";
+        arc_info.WallixBastionStatus = "SUCCESS";
+        arc_info.message = "Connexion to server allowed";
+        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+        this->log6_server_cert(
             "CERTIFICATE_CHECK_SUCCESS",
-            "Connexion to server allowed"
+            "Connexion to server allowed",
+            arc_info
         );
     }
 }
@@ -155,9 +168,18 @@ void RdpNegociation::RDPServerNotifier::server_access_allowed()
 void RdpNegociation::RDPServerNotifier::server_cert_create()
 {
     if (is_syslog_notification_enabled(this->server_cert_create_message)) {
-        this->log5_server_cert(
+        ArcsightLogInfo arc_info;
+        arc_info.name = "SERVER_CERTIFICATE_NEW";
+        arc_info.signatureID = ArcsightLogInfo::SERVER_CERTIFICATE_NEW;
+        arc_info.ApplicationProtocol = "rdp";
+        //arc_info.WallixBastionStatus = "";
+        arc_info.message = "New X.509 certificate created";
+        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+        this->log6_server_cert(
             "SERVER_CERTIFICATE_NEW",
-            "New X.509 certificate created"
+            "New X.509 certificate created",
+            arc_info
         );
     }
 }
@@ -165,9 +187,18 @@ void RdpNegociation::RDPServerNotifier::server_cert_create()
 void RdpNegociation::RDPServerNotifier::server_cert_success()
 {
     if (is_syslog_notification_enabled(this->server_cert_success_message)) {
-        this->log5_server_cert(
+        ArcsightLogInfo arc_info;
+        arc_info.name = "SERVER_CERTIFICATE_MATCH";
+        arc_info.signatureID = ArcsightLogInfo::SERVER_CERTIFICATE_MATCH;
+        arc_info.ApplicationProtocol = "rdp";
+        arc_info.WallixBastionStatus = "SUCCESS";
+        arc_info.message = "X.509 server certificate match";
+        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+        this->log6_server_cert(
             "SERVER_CERTIFICATE_MATCH_SUCCESS",
-            "X.509 server certificate match"
+            "X.509 server certificate match",
+            arc_info
         );
     }
 }
@@ -175,9 +206,18 @@ void RdpNegociation::RDPServerNotifier::server_cert_success()
 void RdpNegociation::RDPServerNotifier::server_cert_failure()
 {
     if (is_syslog_notification_enabled(this->server_cert_failure_message)) {
-        this->log5_server_cert(
+        ArcsightLogInfo arc_info;
+        arc_info.name = "SERVER_CERTIFICATE_MATCH";
+        arc_info.signatureID = ArcsightLogInfo::SERVER_CERTIFICATE_MATCH;
+        arc_info.ApplicationProtocol = "rdp";
+        arc_info.WallixBastionStatus = "FAILURE";
+        arc_info.message = "X.509 server certificate match failure";
+        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+        this->log6_server_cert(
             "SERVER_CERTIFICATE_MATCH_FAILURE",
-            "X.509 server certificate match failure"
+            "X.509 server certificate match failure",
+            arc_info
         );
     }
 }
@@ -185,30 +225,31 @@ void RdpNegociation::RDPServerNotifier::server_cert_failure()
 void RdpNegociation::RDPServerNotifier::server_cert_error(const char * str_error)
 {
     if (is_syslog_notification_enabled(this->server_cert_error_message)) {
-        this->log5_server_cert(
-            "SERVER_CERTIFICATE_ERROR",
-            "X.509 server certificate internal error: " + std::string(str_error)
-        );
+        ArcsightLogInfo arc_info;
+        arc_info.name = "SERVER_CERTIFICATE";
+        arc_info.signatureID = ArcsightLogInfo::SERVER_CERTIFICATE;
+        arc_info.ApplicationProtocol = "rdp";
+        arc_info.WallixBastionStatus = "ERROR";
+        arc_info.message = str_concat("X.509 server certificate internal error: ", str_error);
+        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+        this->log6_server_cert("SERVER_CERTIFICATE_ERROR", arc_info.message, arc_info);
     }
 }
 
-void RdpNegociation::RDPServerNotifier::log5_server_cert(charp_or_string type, charp_or_string description)
+void RdpNegociation::RDPServerNotifier::log6_server_cert(charp_or_string type, charp_or_string description, const ArcsightLogInfo & arc_info)
 {
     this->message.assign(type.data, {{"description", description.data}});
 
-    this->report_message.log5(this->message.str());
+    // TODO system time
+    this->report_message.log6(this->message.str(), arc_info, tvtime());
 
     if (bool(this->verbose & RDPVerbose::basic_trace)) {
         LOG(LOG_INFO, "%s", this->message.str());
     }
 
-    {
-        std::string message(type.data.data(), type.data.size());
-        message += "=";
-        message.append(description.data.data(), description.data.size());
-
-        this->front.session_update(message);
-    }
+    std::string message = str_concat(type.data, '=', description.data);
+    this->front.session_update(message);
 }
 
 
@@ -244,7 +285,7 @@ RdpNegociation::RdpNegociation(
     , cbAutoReconnectCookie(info.cbAutoReconnectCookie)
     , keylayout(info.keylayout)
     , console_session(info.console_session)
-    , front_bpp(info.bpp)
+    , front_bpp(info.screen_info.bpp)
     , performanceFlags(
         info.rdp5_performanceflags
         & (~(mod_rdp_params.adjust_performance_flags_for_recording
@@ -290,6 +331,7 @@ RdpNegociation::RdpNegociation(
         static_cast<RdpNego::Verbose>(mod_rdp_params.verbose)
         )
     , trans(trans)
+    , password_printing_mode(mod_rdp_params.password_printing_mode)
     , enable_session_probe(mod_rdp_params.enable_session_probe)
     , rdp_compression(mod_rdp_params.rdp_compression)
     , session_probe_use_clipboard_based_launcher(
@@ -299,7 +341,6 @@ RdpNegociation::RdpNegociation(
         || !info.alternate_shell[0] || info.remote_program)
         )
     , remote_program(mod_rdp_params.remote_program)
-    , password_printing_mode(mod_rdp_params.password_printing_mode)
     , bogus_sc_net_size(mod_rdp_params.bogus_sc_net_size)
     , allow_using_multiple_monitors(mod_rdp_params.allow_using_multiple_monitors)
     , cs_monitor(info.cs_monitor)
@@ -309,8 +350,9 @@ RdpNegociation::RdpNegociation(
     , has_managed_drive(has_managed_drive)
 	, send_channel_index(0)
 {
-    this->negociation_result.front_width = info.width - (info.width % 4);
-    this->negociation_result.front_height = info.height;
+    this->negociation_result.front_width = safe_int(info.screen_info.width);
+    this->negociation_result.front_width -= this->negociation_result.front_width % 4;
+    this->negociation_result.front_height = safe_int(info.screen_info.height);
 
     if (this->cbAutoReconnectCookie) {
         ::memcpy(this->autoReconnectCookie, info.autoReconnectCookie, sizeof(this->autoReconnectCookie));
@@ -391,8 +433,8 @@ RdpNegociation::RdpNegociation(
 
 void RdpNegociation::set_program(char const* program, char const* directory) noexcept
 {
-    strcpy(this->program, program);
-    strcpy(this->directory, directory);
+    utils::strlcpy(this->program, program);
+    utils::strlcpy(this->directory, directory);
 }
 
 void RdpNegociation::start_negociation()
@@ -515,10 +557,9 @@ bool RdpNegociation::basic_settings_exchange(InStream & x224_data)
                             this->server_public_key_len = sc_sec1.proprietaryCertificate.RSAPK.keylen - SEC_PADDING_SIZE;
 
                         }
+                        #ifndef __EMSCRIPTEN__
                         else {
-                            #ifndef __EMSCRIPTEN__
-
-//                                            LOG(LOG_INFO, "================= SC_SECURITY CERT_CHAIN_X509");
+                            // LOG(LOG_INFO, "================= SC_SECURITY CERT_CHAIN_X509");
                             uint32_t const certcount = sc_sec1.x509.certCount;
                             if (certcount < 2){
                                 LOG(LOG_ERR, "Server didn't send enough X509 certificates");
@@ -618,8 +659,8 @@ bool RdpNegociation::basic_settings_exchange(InStream & x224_data)
                             reverseit(modulus, len_n);
                             RSA_free(server_public_key);
 
-                            #endif // __EMSCRIPTEN__
                         }
+                        #endif // __EMSCRIPTEN__
 
                         /* Generate a client random, and determine encryption keys */
                         this->gen.random(this->client_random, SEC_RANDOM_SIZE);
@@ -816,10 +857,11 @@ void RdpNegociation::send_connectInitialPDUwithGccConferenceCreateRequest()
             cs_core.desktopWidth  = (single_monitor ? this->negociation_result.front_width : primary_monitor_rect.cx + 1);
             cs_core.desktopHeight = (single_monitor ? this->negociation_result.front_height : primary_monitor_rect.cy + 1);
             //cs_core.highColorDepth = this->front_bpp;
-            cs_core.highColorDepth = ((this->front_bpp == 32)
-                ? uint16_t(GCC::UserData::HIGH_COLOR_24BPP) : this->front_bpp);
+            cs_core.highColorDepth = ((this->front_bpp == BitsPerPixel{32})
+                ? uint16_t(GCC::UserData::HIGH_COLOR_24BPP)
+                : safe_cast<uint16_t>(this->front_bpp));
             cs_core.keyboardLayout = this->keylayout;
-            if (this->front_bpp == 32) {
+            if (this->front_bpp == BitsPerPixel{32}) {
                 cs_core.supportedColorDepths = 15;
                 cs_core.earlyCapabilityFlags |= GCC::UserData::RNS_UD_CS_WANT_32BPP_SESSION;
             }
@@ -845,7 +887,6 @@ void RdpNegociation::send_connectInitialPDUwithGccConferenceCreateRequest()
             // ------------------------------------------------------------
 
             GCC::UserData::CSCluster cs_cluster;
-            // TODO CGR: values used for setting console_session looks crazy. It's old code and actual validity of these values should be checked. It should only be about REDIRECTED_SESSIONID_FIELD_VALID and shouldn't touch redirection version. Shouldn't it ?
             {
                 LOG(LOG_INFO, "CS_Cluster: Server Redirection Supported");
                 if (!this->nego.tls){
@@ -864,22 +905,9 @@ void RdpNegociation::send_connectInitialPDUwithGccConferenceCreateRequest()
                 if (this->console_session) {
                     cs_cluster.flags |= GCC::UserData::CSCluster::REDIRECTED_SESSIONID_FIELD_VALID;
                     cs_cluster.redirectedSessionID = 0;
+                    LOG(LOG_INFO, "Redirection of Console (SessionId=0)");
                 }
             }
-            // if (!this->nego.tls){
-            //     if (this->console_session){
-            //         cs_cluster.flags = GCC::UserData::CSCluster::REDIRECTED_SESSIONID_FIELD_VALID | (3 << 2) ; // REDIRECTION V4
-            //     }
-            //     else {
-            //         cs_cluster.flags = GCC::UserData::CSCluster::REDIRECTION_SUPPORTED            | (2 << 2) ; // REDIRECTION V3
-            //     }
-            //     }
-            // else {
-            //     cs_cluster.flags = GCC::UserData::CSCluster::REDIRECTION_SUPPORTED * ((3 << 2)|1);  // REDIRECTION V4
-            //     if (this->console_session){
-            //         cs_cluster.flags |= GCC::UserData::CSCluster::REDIRECTED_SESSIONID_FIELD_VALID ;
-            //     }
-            // }
             if (bool(this->verbose & RDPVerbose::security)) {
                 cs_cluster.log("Sending to server");
             }
@@ -1041,7 +1069,7 @@ void RdpNegociation::send_connectInitialPDUwithGccConferenceCreateRequest()
                     cs_net.channelCount++;
                 }
 
-                if (bool(this->verbose & RDPVerbose::security)) {
+                if (bool(this->verbose & RDPVerbose::channels)) {
                     cs_net.log("Sending to server");
                 }
                 cs_net.emit(stream);

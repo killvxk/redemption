@@ -23,7 +23,8 @@
 
 #include "mod/rdp/channels/virtual_channel_data_sender.hpp"
 #include "utils/asynchronous_task_manager.hpp"
-#include "mod/rdp/rdp_log.hpp"
+#include "utils/uninit_checked.hpp"
+#include "mod/rdp/rdp_verbose.hpp"
 #include "core/report_message_api.hpp"
 
 #include <memory>
@@ -33,10 +34,21 @@ using data_size_type = int_fast32_t;
 
 class BaseVirtualChannel
 {
+private:
     VirtualChannelDataSender* to_client_sender;
     VirtualChannelDataSender* to_server_sender;
 
 protected:
+    VirtualChannelDataSender* to_client_sender_ptr() const noexcept
+    {
+        return this->to_client_sender;
+    }
+
+    VirtualChannelDataSender* to_server_sender_ptr() const noexcept
+    {
+        return this->to_server_sender;
+    }
+
     ReportMessageApi & report_message;
     const RDPVerbose verbose;
 
@@ -49,8 +61,8 @@ public:
     struct Params
     {
         ReportMessageApi & report_message;
-        data_size_type  exchanged_data_limit;
-        RDPVerbose verbose;
+        uninit_checked<data_size_type> exchanged_data_limit;
+        uninit_checked<RDPVerbose> verbose;
 
         explicit Params(ReportMessageApi & report_message)
           : report_message(report_message)
@@ -101,8 +113,8 @@ public:
         uint32_t chunk_data_length,
         std::unique_ptr<AsynchronousTask> & out_asynchronous_task) = 0;
 
-protected:
-    inline void send_message_to_client(uint32_t total_length,
+public:
+    virtual inline void send_message_to_client(uint32_t total_length,
         uint32_t flags, const uint8_t* chunk_data, uint32_t chunk_data_length)
     {
         if (this->to_client_sender)
@@ -112,8 +124,7 @@ protected:
         }
     }
 
-public:
-    inline void send_message_to_server(uint32_t total_length,
+    virtual inline void send_message_to_server(uint32_t total_length,
         uint32_t flags, const uint8_t* chunk_data, uint32_t chunk_data_length)
     {
         if (this->to_server_sender)

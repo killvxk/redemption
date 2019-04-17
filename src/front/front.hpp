@@ -93,7 +93,7 @@
 #include "utils/stream.hpp"
 #include "utils/sugar/cast.hpp"
 #include "utils/sugar/not_null_ptr.hpp"
-#include "utils/sugar/underlying_cast.hpp"
+#include "utils/strutils.hpp"
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -158,7 +158,7 @@ private:
               , int & shareid
               , int & encryptionLevel
               , CryptContext & encrypt
-              , const uint8_t bpp
+              , const BitsPerPixel bpp
               , BmpCache & bmp_cache
               , GlyphCache & gly_cache
               , PointerCache & pointer_cache
@@ -211,13 +211,13 @@ private:
 
                 size_t const serializer_max_data_block_size = this->get_max_data_block_size();
 
-                if (static_cast<size_t>(new_bmp.cx() * new_bmp.cy() * new_bmp.bpp()) > serializer_max_data_block_size) { /*NOLINT*/
+                if (static_cast<size_t>(new_bmp.cx() * new_bmp.cy() * underlying_cast(new_bmp.bpp())) > serializer_max_data_block_size) { /*NOLINT*/
                     const uint16_t max_image_width
                       = std::min<uint16_t>(
-                            ((serializer_max_data_block_size / nbbytes(new_bmp.bpp())) & ~3),
+                            ((serializer_max_data_block_size / nb_bytes_per_pixel(new_bmp.bpp())) & ~3),
                             new_bmp.cx()
                         );
-                    const uint16_t max_image_height = serializer_max_data_block_size / (max_image_width * nbbytes(new_bmp.bpp()));
+                    const uint16_t max_image_height = serializer_max_data_block_size / (max_image_width * nb_bytes_per_pixel(new_bmp.bpp()));
 
                     contiguous_sub_rect_f(
                         CxCy{new_bmp.cx(), new_bmp.cy()},
@@ -239,7 +239,7 @@ private:
                             sub_image_data.width = subrect.cx;
                             sub_image_data.height = subrect.cy;
 
-                            sub_image_data.bits_per_pixel = sub_image.bpp();
+                            sub_image_data.bits_per_pixel = safe_int(sub_image.bpp());
                             sub_image_data.flags = BITMAP_COMPRESSION | NO_BITMAP_COMPRESSION_HDR; /*NOLINT*/
                             sub_image_data.bitmap_length = bmp_stream.get_offset();
 
@@ -253,7 +253,7 @@ private:
 
                     RDPBitmapData target_bitmap_data = bitmap_data;
 
-                    target_bitmap_data.bits_per_pixel = new_bmp.bpp();
+                    target_bitmap_data.bits_per_pixel = safe_int(new_bmp.bpp());
                     target_bitmap_data.flags = BITMAP_COMPRESSION | NO_BITMAP_COMPRESSION_HDR; /*NOLINT*/
                     target_bitmap_data.bitmap_length = bmp_stream.get_offset();
 
@@ -283,7 +283,7 @@ private:
         )
         : bmp_cache(
             BmpCache::Front
-          , client_info.bpp
+          , client_info.screen_info.bpp
           , client_info.number_of_cache
           , ((client_info.cache_flags & ALLOW_CACHE_WAITING_LIST_FLAG) && ini.get<cfg::client::cache_waiting_list>()),
             BmpCache::CacheOption(
@@ -317,7 +317,8 @@ private:
                 // Generates the name of file.
                 char cache_filename[2048];
                 ::snprintf(cache_filename, sizeof(cache_filename) - 1, "%s/client/PDBC-%s-%d",
-                    app_path(AppPath::Persistent), ini.get<cfg::globals::host>().c_str(), this->bmp_cache.bpp);
+                    app_path(AppPath::Persistent), ini.get<cfg::globals::host>().c_str(),
+                    underlying_cast(this->bmp_cache.bpp));
                 cache_filename[sizeof(cache_filename) - 1] = '\0';
 
                 int fd = ::open(cache_filename, O_RDONLY);
@@ -355,7 +356,7 @@ private:
           , shareid
           , encryptionLevel
           , encrypt
-          , client_info.bpp
+          , client_info.screen_info.bpp
           , this->bmp_cache
           , this->glyph_cache
           , this->pointer_cache
@@ -428,7 +429,7 @@ private:
             return this->get_graphics().bmp_cache_persister.get();
         }
 
-        uint8_t bpp() const
+        BitsPerPixel bpp() const
         {
             return this->get_bmp_cache().bpp;
         }
@@ -525,11 +526,12 @@ public:
 protected:
     CHANNELS::ChannelDefArray channel_list;
 
+    // TODO private !!!
 public:
-    bool up_and_running;
+    bool up_and_running = false;
 
 private:
-    int share_id;
+    int share_id = 65538;
     int encryptionLevel; /* 1, 2, 3 = low, medium, high */
 
 public:
@@ -538,13 +540,13 @@ public:
 private:
     Transport & trans;
 
-    uint16_t userid;
+    uint16_t userid = 0;
     uint8_t pub_mod[512];
     uint8_t pri_exp[512];
     uint8_t server_random[32];
     CryptContext encrypt, decrypt;
 
-    int order_level;
+    int order_level = 0;
 
 private:
     Inifile & ini;
@@ -554,11 +556,8 @@ private:
 
     BGRPalette mod_palette_rgb {BGRPalette::classic_332()};
 
-public:
-    uint8_t mod_bpp;
-
-private:
-    uint8_t capture_bpp;
+    BitsPerPixel mod_bpp {0};
+    BitsPerPixel capture_bpp {0};
 
     enum {
         CONNECTION_INITIATION,
@@ -571,7 +570,7 @@ private:
         WAITING_FOR_LOGON_INFO,
         WAITING_FOR_ANSWER_TO_LICENCE,
         ACTIVATE_AND_PROCESS_DATA
-    } state;
+    } state = CONNECTION_INITIATION;
 
     Random & gen;
     Fstat fstat;
@@ -594,8 +593,9 @@ private:
 
     size_t max_data_block_size = MAX_DATA_BLOCK_SIZE;
 
-    bool focus_on_password_textbox = false;
-    bool consent_ui_is_visible     = false;
+    bool focus_on_password_textbox         = false;
+    bool focus_on_unidentified_input_field = false;
+    bool consent_ui_is_visible             = false;
 
     bool session_probe_started_ = false;
 
@@ -609,6 +609,7 @@ private:
     SessionReactor::TimerPtr handshake_timeout;
     SessionReactor::CallbackEventPtr incoming_event;
     SessionReactor::TimerPtr capture_timer;
+     SessionReactor::TimerPtr flow_control_timer;
 
 public:
     bool ignore_rdesktop_bogus_clip = false;
@@ -657,6 +658,8 @@ public:
 
     BGRPalette const & get_palette() const { return this->mod_palette_rgb; }
 
+    const std::chrono::milliseconds rdp_keepalive_connection_interval;
+
 public:
     Front( SessionReactor& session_reactor
          , Transport & trans
@@ -670,20 +673,12 @@ public:
          , std::string server_capabilities_filename = {}
          )
     : nomouse(ini.get<cfg::globals::nomouse>())
-    , capture(nullptr)
     , verbose(static_cast<Verbose>(ini.get<cfg::debug::front>()))
     , keymap(bool(this->verbose & Verbose::keymap) ? 1 : 0)
-    , up_and_running(false)
-    , share_id(65538)
     , encryptionLevel(underlying_cast(ini.get<cfg::globals::encryptionLevel>()) + 1)
     , trans(trans)
-    , userid(0)
-    , order_level(0)
     , ini(ini)
     , cctx(cctx)
-    , mod_bpp(0)
-    , capture_bpp(0)
-    , state(CONNECTION_INITIATION)
     , gen(gen)
     , fastpath_support(fp_support)
     , client_fastpath_input_event_support(fp_support)
@@ -695,6 +690,10 @@ public:
     , report_message(report_message)
     , auth_info_sent(false)
     , session_reactor(session_reactor)
+    , rdp_keepalive_connection_interval(
+            (ini.get<cfg::globals::rdp_keepalive_connection_interval>().count() &&
+             (ini.get<cfg::globals::rdp_keepalive_connection_interval>() < std::chrono::milliseconds(1000))) ? std::chrono::milliseconds(1000) : ini.get<cfg::globals::rdp_keepalive_connection_interval>()
+          )
     {
         if (this->ini.get<cfg::globals::handshake_timeout>().count()) {
             this->handshake_timeout = session_reactor.create_timer()
@@ -766,6 +765,27 @@ public:
             this->encrypt.encryptionMethod = 2; /* 128 bits */
         break;
         }
+
+        if (this->rdp_keepalive_connection_interval.count()) {
+            this->flow_control_timer = this->session_reactor.create_timer()
+            .set_delay(std::chrono::milliseconds(0))
+            .on_action([this](auto ctx){
+                if (this->up_and_running) {
+                    this->send_data_indication_ex_impl(
+                        GCC::MCS_GLOBAL_CHANNEL,
+                        [&](StreamSize<256>, OutStream & stream) {
+                            ShareFlow_Send(stream, FLOW_TEST_PDU, 0, 0, this->userid + GCC::MCS_USERCHANNEL_BASE);
+                            if (bool(this->verbose & Verbose::global_channel)) {
+                                LOG(LOG_INFO, "Front::process_flow_control_event: Sec clear payload to send:");
+                                hexdump_d(stream.get_data(), stream.get_offset());
+                            }
+                        }
+                    );
+                }
+
+                return ctx.ready_to(this->rdp_keepalive_connection_interval);
+            });
+        }
     }
 
     ~Front() override {
@@ -776,21 +796,21 @@ public:
         }
     }
 
-    ResizeResult server_resize(int width, int height, int bpp) override
+    ResizeResult server_resize(int width, int height, BitsPerPixel bpp) override
     {
         ResizeResult res = ResizeResult::no_need;
 
         this->mod_bpp = bpp;
 
-        if (bpp == 8) {
+        if (bpp == BitsPerPixel{8}) {
             this->palette_sent = false;
             for (bool & b : this->palette_memblt_sent) {
                 b = false;
             }
         }
 
-        if (this->client_info.width != width
-         || this->client_info.height != height) {
+        if (this->client_info.screen_info.width != width
+         || this->client_info.screen_info.height != height) {
             if (!this->client_info.remote_program) {
                 /* older client can't resize */
                 if (client_info.build <= 419) {
@@ -799,13 +819,13 @@ public:
                     res = ResizeResult::fail;
                 }
                 else {
-                    LOG(LOG_INFO, "Front::server_resize: Resizing client to : %d x %d x %d", width, height, this->client_info.bpp);
+                    LOG(LOG_INFO, "Front::server_resize: Resizing client to : %d x %d x %d", width, height, this->client_info.screen_info.bpp);
 
-                    this->client_info.width = width;
-                    this->client_info.height = height;
+                    this->client_info.screen_info.width = width;
+                    this->client_info.screen_info.height = height;
 
-                    this->ini.set_acl<cfg::context::opt_width>(this->client_info.width);
-                    this->ini.set_acl<cfg::context::opt_height>(this->client_info.height);
+                    this->ini.set_acl<cfg::context::opt_width>(this->client_info.screen_info.width);
+                    this->ini.set_acl<cfg::context::opt_height>(this->client_info.screen_info.height);
 
                     // TODO Why are we not calling this->flush() instead ? Looks dubious.
                     // send buffered orders
@@ -841,7 +861,7 @@ public:
                 this->incoming_event = this->session_reactor
                 .create_callback_event(std::ref(*this))
                 .on_action(jln::one_shot([](Callback& cb, Front& front){
-                    cb.refresh(Rect(0, 0, front.client_info.width, front.client_info.height));
+                    cb.refresh(Rect(0, 0, front.client_info.screen_info.width, front.client_info.screen_info.height));
                 }));
                 res = ResizeResult::remoteapp;
             }
@@ -895,7 +915,6 @@ public:
         }
 
         LOG(LOG_INFO, "---<>  Front::can_be_start_capture  <>---");
-        struct timeval now = tvtime();
 
         if (bool(this->verbose & Verbose::basic_trace)) {
             LOG(LOG_INFO, "Front::can_be_start_capture: movie_path    = %s\n", ini.get<cfg::globals::movie_path>());
@@ -905,10 +924,10 @@ public:
             LOG(LOG_INFO, "Front::can_be_start_capture: target_user   = %s\n", ini.get<cfg::globals::target_user>());
         }
 
-        this->capture_bpp = ((ini.get<cfg::video::wrm_color_depth_selection_strategy>() == ColorDepthSelectionStrategy::depth16) ? 16 : 24);
+        this->capture_bpp = ((ini.get<cfg::video::wrm_color_depth_selection_strategy>() == ColorDepthSelectionStrategy::depth16) ? BitsPerPixel{16} : BitsPerPixel{24});
         // TODO remove this after unifying capture interface
         VideoParams video_params = video_params_from_ini(
-            this->client_info.width, this->client_info.height,
+            this->client_info.screen_info.width, this->client_info.screen_info.height,
             std::chrono::seconds::zero(), ini);
 
         const char * record_tmp_path = ini.get<cfg::video::record_tmp_path>().c_str();
@@ -955,9 +974,13 @@ public:
         char basename[1024];
         char extension[128];
 
-        strcpy(path, app_path(AppPath::Wrm)); // default value, actual one should come from movie_path
-        strcat(path, "/");
-        strcpy(basename, movie_path);
+        // default value, actual one should come from movie_path
+        auto const wrm_path_len = utils::strlcpy(path, app_path(AppPath::Wrm));
+        if (wrm_path_len + 2 < std::size(path)) {
+            path[wrm_path_len] = '/';
+            path[wrm_path_len+1] = 0;
+        }
+        utils::strlcpy(basename, movie_path);
         extension[0] = 0; // extension is currently ignored
 
         if (!canonical_path(movie_path, path, sizeof(path), basename, sizeof(basename), extension, sizeof(extension))
@@ -978,8 +1001,8 @@ public:
         const bool capture_png = bool(capture_flags & CaptureFlags::png) && (png_params.png_limit > 0);
 
         DrawableParams const drawable_params{
-            this->client_info.width,
-            this->client_info.height,
+            this->client_info.screen_info.width,
+            this->client_info.screen_info.height,
             nullptr
         };
 
@@ -1003,7 +1026,7 @@ public:
         );
 
         CaptureParams capture_params{
-            now,
+            this->session_reactor.get_current_time(),
             basename,
             record_tmp_path,
             record_path.c_str(),
@@ -1082,10 +1105,11 @@ public:
         return false;
     }
 
-    void update_config(bool enable_rt_display) {
-        if (this->capture) {
-            this->capture->update_config(enable_rt_display);
-        }
+    Capture::RTDisplayResult set_rt_display(bool enable_rt_display)
+    {
+        return this->capture
+            ? this->capture->set_rt_display(enable_rt_display)
+            : Capture::RTDisplayResult::Unchanged;
     }
 
     static int get_appropriate_compression_type(int client_supported_type, int front_supported_type)
@@ -1315,7 +1339,7 @@ public:
 
                     StaticOutStream<256> stream;
                     X224::CC_TPDU_Send x224(stream, rdp_neg_type, rdp_neg_flags, rdp_neg_code);
-                    this->trans.send(stream.get_data(), stream.get_offset());
+                    this->trans.send(stream.get_bytes());
                 }
 
                 if (this->tls_client_active) {
@@ -1387,8 +1411,8 @@ public:
                                 cs_core.log("Front::incoming: Received from Client");
                             }
 
-                            this->client_info.width     = cs_core.desktopWidth;
-                            this->client_info.height    = cs_core.desktopHeight;
+                            this->client_info.screen_info.width     = cs_core.desktopWidth;
+                            this->client_info.screen_info.height    = cs_core.desktopHeight;
                             this->client_info.keylayout = cs_core.keyboardLayout;
                             this->client_info.build     = cs_core.clientBuild;
                             for (size_t i = 0; i < 15 ; i++) {
@@ -1396,34 +1420,36 @@ public:
                             }
                             this->client_info.hostname[15] = 0;
                             //LOG(LOG_INFO, "hostname=\"%s\"", this->client_info.hostname);
-                            this->client_info.bpp = 8;
+                            this->client_info.screen_info.bpp = BitsPerPixel{8};
                             switch (cs_core.postBeta2ColorDepth) {
+                                // TODO use a enum
                             case 0xca01:
                                 /*
                                 this->client_info.bpp =
                                     (cs_core.highColorDepth <= 24)?cs_core.highColorDepth:24;
                                 */
-                                this->client_info.bpp = (
+                                this->client_info.screen_info.bpp = (
                                           (cs_core.earlyCapabilityFlags & GCC::UserData::RNS_UD_CS_WANT_32BPP_SESSION)
-                                        ? 32
-                                        : cs_core.highColorDepth
+                                        ? BitsPerPixel{32}
+                                        : BitsPerPixel{checked_int(cs_core.highColorDepth)}
                                     );
                             break;
                             case 0xca02:
-                                this->client_info.bpp = 15;
+                                this->client_info.screen_info.bpp = BitsPerPixel{15};
                             break;
                             case 0xca03:
-                                this->client_info.bpp = 16;
+                                this->client_info.screen_info.bpp = BitsPerPixel{16};
                             break;
                             case 0xca04:
-                                this->client_info.bpp = 24;
+                                this->client_info.screen_info.bpp = BitsPerPixel{24};
                             break;
                             default:
                             break;
                             }
                             if (bool(this->ini.get<cfg::client::max_color_depth>())) {
-                                this->client_info.bpp = std::min(
-                                    this->client_info.bpp, static_cast<int>(this->ini.get<cfg::client::max_color_depth>()));
+                                this->client_info.screen_info.bpp = std::min(
+                                    this->client_info.screen_info.bpp,
+                                    BitsPerPixel{checked_int(this->ini.get<cfg::client::max_color_depth>())});
                             }
                             this->client_support_monitor_layout_pdu =
                                 (cs_core.earlyCapabilityFlags &
@@ -1466,7 +1492,8 @@ public:
                             GCC::UserData::CSCluster cs_cluster;
                             cs_cluster.recv(f.payload);
                             this->client_info.console_session =
-                                (0 != (cs_cluster.flags & GCC::UserData::CSCluster::REDIRECTED_SESSIONID_FIELD_VALID));
+                                (0 != (cs_cluster.flags & GCC::UserData::CSCluster::REDIRECTED_SESSIONID_FIELD_VALID))
+                                && (0 == cs_cluster.redirectedSessionID);
                             if (bool(this->verbose & Verbose::basic_trace)) {
                                 cs_cluster.log("Front::incoming: Receiving from Client");
                             }
@@ -1489,8 +1516,8 @@ public:
                             }
 
                             if (this->ini.get<cfg::globals::allow_using_multiple_monitors>()) {
-                                this->client_info.width     = client_monitors_rect.cx + 1;
-                                this->client_info.height    = client_monitors_rect.cy + 1;
+                                this->client_info.screen_info.width  = client_monitors_rect.cx + 1;
+                                this->client_info.screen_info.height = client_monitors_rect.cy + 1;
                             }
                         }
                         break;
@@ -2019,7 +2046,7 @@ public:
 
                             if (bool(this->verbose & Verbose::global_channel)) {
                                 LOG(LOG_INFO, "Front::incoming: Sec clear payload to send:");
-                                hexdump_d(stream.get_data(), stream.get_offset());
+                                hexdump_av_d(stream.get_bytes());
                             }
 
                             StaticOutStream<8> tmp_sec_header;
@@ -2263,7 +2290,7 @@ public:
             // between client-side plug-ins and server-side applications).
             {
                 if (buf.current_pdu_is_fast_path()) {
-                    FastPath::ClientInputEventPDU_Recv cfpie(new_x224_stream, this->decrypt, const_cast<uint8_t*>(new_x224_stream.get_data()));
+                    FastPath::ClientInputEventPDU_Recv cfpie(new_x224_stream, this->decrypt);
 
                     int num_events = cfpie.numEvents;
                     for (uint8_t i = 0; i < num_events; i++) {
@@ -2681,6 +2708,12 @@ private:
         this->update_keyboard_input_mask_state();
     }
 
+    void set_focus_on_unidentified_input_field(bool set) override {
+        this->focus_on_unidentified_input_field = set;
+
+        this->update_keyboard_input_mask_state();
+    }
+
     void set_consent_ui_visible(bool set) override {
         this->consent_ui_is_visible = set;
 
@@ -2689,8 +2722,7 @@ private:
 
     void session_update(array_view_const_char message) override {
         if (this->capture) {
-            timeval now = tvtime();
-            this->capture->session_update(now, message);
+            this->capture->session_update(this->session_reactor.get_current_time(), message);
         }
     }
 
@@ -2759,9 +2791,9 @@ private:
                 caps_count++;
 
                 BitmapCaps bitmap_caps;
-                bitmap_caps.preferredBitsPerPixel = this->client_info.bpp;
-                bitmap_caps.desktopWidth = this->client_info.width;
-                bitmap_caps.desktopHeight = this->client_info.height;
+                bitmap_caps.preferredBitsPerPixel = safe_int(this->client_info.screen_info.bpp);
+                bitmap_caps.desktopWidth = this->client_info.screen_info.width;
+                bitmap_caps.desktopHeight = this->client_info.screen_info.height;
                 bitmap_caps.drawingFlags = DRAW_ALLOW_SKIP_ALPHA;
                 if (!this->server_capabilities_filename.empty()) {
                     bitmap_caps_load(bitmap_caps, this->server_capabilities_filename);
@@ -3017,10 +3049,10 @@ private:
 */
                     // Fixed bug in rdesktop
                     // Desktop size in Client Core Data != Desktop size in Bitmap Capability Set
-                    if (!this->client_info.width || !this->client_info.height)
+                    if (!this->client_info.screen_info.width || !this->client_info.screen_info.height)
                     {
-                        this->client_info.width  = this->client_info.bitmap_caps.desktopWidth;
-                        this->client_info.height = this->client_info.bitmap_caps.desktopHeight;
+                        this->client_info.screen_info.width  = this->client_info.bitmap_caps.desktopWidth;
+                        this->client_info.screen_info.height = this->client_info.bitmap_caps.desktopHeight;
                     }
                 }
                 break;
@@ -3156,7 +3188,7 @@ private:
 
                     // TODO We only use the first 3 caches (those existing in Rev1), we should have 2 more caches for rev2
                     this->client_info.number_of_cache = this->client_info.bmp_cache_2_caps.numCellCaches;
-                    int Bpp = nbbytes(this->client_info.bpp);
+                    int Bpp = nb_bytes_per_pixel(this->client_info.screen_info.bpp);
                     if (this->client_info.bmp_cache_2_caps.numCellCaches > 0) {
                         this->client_info.cache1_entries    = (this->client_info.bmp_cache_2_caps.bitmapCache0CellInfo & 0x7fffffff);
                         this->client_info.cache1_persistent = (this->client_info.bmp_cache_2_caps.bitmapCache0CellInfo & 0x80000000);
@@ -3955,7 +3987,7 @@ private:
                 this->send_fontmap();
                 this->send_data_update_sync();
 
-                if (this->client_info.bpp == 8) {
+                if (this->client_info.screen_info.bpp == BitsPerPixel{8}) {
                     RDPColCache cmd(0, BGRPalette::classic_332());
                     this->orders.graphics_update_pdu().draw(cmd);
                 }
@@ -3975,9 +4007,9 @@ private:
                 this->handshake_timeout.reset();
                 cb.rdp_input_up_and_running();
                 // TODO we should use accessors to set that, also not sure it's the right place to set it
-                this->ini.set_acl<cfg::context::opt_width>(this->client_info.width);
-                this->ini.set_acl<cfg::context::opt_height>(this->client_info.height);
-                this->ini.set_acl<cfg::context::opt_bpp>(this->client_info.bpp);
+                this->ini.set_acl<cfg::context::opt_width>(this->client_info.screen_info.width);
+                this->ini.set_acl<cfg::context::opt_height>(this->client_info.screen_info.height);
+                this->ini.set_acl<cfg::context::opt_bpp>(safe_int(this->client_info.screen_info.bpp));
 
                 if (!this->auth_info_sent) {
                     char         username_a_domain[516];
@@ -4005,7 +4037,7 @@ private:
                     this->auth_info_sent = true;
                 }
 
-                if (8 != this->mod_bpp) {
+                if (BitsPerPixel{8} != this->mod_bpp) {
                     this->send_palette();
                 }
 
@@ -4157,7 +4189,7 @@ private:
                 ShareControl_Send(stream, PDUTYPE_DEACTIVATEALLPDU, this->userid + GCC::MCS_USERCHANNEL_BASE, 0);
                 if (bool(this->verbose & Verbose::global_channel)) {
                     LOG(LOG_INFO, "Front::send_deactive: Sec clear payload to send:");
-                    hexdump_d(stream.get_data(), stream.get_offset());
+                    hexdump_av_d(stream.get_bytes());
                 }
             }
         );
@@ -4183,7 +4215,7 @@ protected:
     }
 
     void draw_impl(RDPScrBlt const & cmd, Rect clip) {
-        Rect drect = clip.intersect(this->client_info.width, this->client_info.height).intersect(clip_from_cmd(cmd));
+        Rect drect = clip.intersect(this->client_info.screen_info.width, this->client_info.screen_info.height).intersect(clip_from_cmd(cmd));
         if (!drect.isempty()) {
             const signed int deltax = static_cast<int16_t>(cmd.srcx) - cmd.rect.x;
             const signed int deltay = static_cast<int16_t>(cmd.srcy) - cmd.rect.y;
@@ -4206,7 +4238,8 @@ protected:
                 srcy = 0;
             }
 
-            Rect srect = Rect(srcx, srcy, drect.cx, drect.cy).intersect(this->client_info.width, this->client_info.height);
+            Rect srect = Rect(srcx, srcy, drect.cx, drect.cy).intersect(
+                this->client_info.screen_info.width, this->client_info.screen_info.height);
 
             drect.cx = srect.cx;
             drect.cy = srect.cy;
@@ -4233,7 +4266,7 @@ protected:
 
                 bitmap_data.width = bitmap.cx();
                 bitmap_data.height = bitmap.cy();
-                bitmap_data.bits_per_pixel = bitmap.bpp();
+                bitmap_data.bits_per_pixel = safe_int(bitmap.bpp());
                 bitmap_data.flags = 0;
 
                 bitmap_data.bitmap_length = bitmap.bmp_size();
@@ -4382,10 +4415,10 @@ protected:
                             rdpbd.bitmap_length  = rect.cx * rect.cy * 3;
 
                             const Rect tile(0, 0, rect.cx, rect.cy);
-                            Bitmap bmp(glyphBitmap.data(), fc.width, fc.height, 24, tile);
+                            Bitmap bmp(glyphBitmap.data(), fc.width, fc.height, BitsPerPixel{24}, tile);
 
                             StaticOutStream<65535> bmp_stream;
-                            bmp.compress(this->client_info.bpp, bmp_stream);
+                            bmp.compress(this->client_info.screen_info.bpp, bmp_stream);
 
                             rdpbd.width          = bmp.cx();
                             rdpbd.height         = bmp.cy();
@@ -4461,28 +4494,25 @@ protected:
             Rect image_rect = dest_rect;
             image_rect.cx = align4(dest_rect.cx);
 
-            uint8_t image_bpp = (this->capture_bpp ? this->capture_bpp : this->client_info.bpp);
+            BitsPerPixel image_bpp = (bool(this->capture_bpp) ? this->capture_bpp : this->client_info.screen_info.bpp);
 
-            size_t const serializer_max_data_block_size = [this]{
-                Graphics::PrivateGraphicsUpdatePDU& graphics_update_pdu_ = this->orders.graphics_update_pdu();
-                return graphics_update_pdu_.get_max_data_block_size();
-            }();
+            size_t const serializer_max_data_block_size
+              = this->orders.graphics_update_pdu().get_max_data_block_size();
 
-
-            const uint16_t max_image_width =
-                std::min<uint16_t>(
-                        ((serializer_max_data_block_size / nbbytes(image_bpp)) & ~3),
-                        image_rect.cx
-                    );
-            const uint16_t max_image_height = serializer_max_data_block_size / (max_image_width * nbbytes(image_bpp));
+            const uint16_t max_image_width
+              = std::min<uint16_t>(
+                    ((serializer_max_data_block_size / nb_bytes_per_pixel(image_bpp)) & ~3),
+                    image_rect.cx
+                );
+            const uint16_t max_image_height = serializer_max_data_block_size / (max_image_width * nb_bytes_per_pixel(image_bpp));
 
             BGRColor order_color = color_decode(cmd.color, color_ctx);
             RDPColor image_color = color_encode(order_color, image_bpp);
-            uint32_t pixel_color = ((nbbytes(image_bpp) <= 2) ? image_color.as_bgr().to_u32() : BGRColor(image_color.as_rgb()).to_u32());
+            uint32_t pixel_color = ((nb_bytes_per_pixel(image_bpp) <= 2) ? image_color.as_bgr().to_u32() : BGRColor(image_color.as_rgb()).to_u32());
 
             std::vector<Bitmap> image_collection;
 
-            auto get_image = [&image_collection](uint16_t width, uint16_t height, uint8_t bpp, uint32_t color) -> Bitmap const & {
+            auto get_image = [&image_collection](uint16_t width, uint16_t height, BitsPerPixel bpp, uint32_t color) -> Bitmap const & {
                     std::vector<Bitmap>::iterator iter = std::find_if(image_collection.begin(), image_collection.end(),
                         [width, height](Bitmap const & bitmap) {
                                 return ((bitmap.cx() == width) && (bitmap.cy() == height));
@@ -4491,7 +4521,7 @@ protected:
                         return *iter;
                     }
 
-                    unsigned int const Bpp = nbbytes(bpp);
+                    unsigned int const Bpp = nb_bytes_per_pixel(bpp);
 
                     image_collection.emplace_back();
 
@@ -4536,7 +4566,7 @@ protected:
                     sub_image_data.width = sub_image_width;
                     sub_image_data.height = sub_image_height;
 
-                    sub_image_data.bits_per_pixel = sub_image.bpp();
+                    sub_image_data.bits_per_pixel = safe_int(sub_image.bpp());
                     sub_image_data.flags = BITMAP_COMPRESSION | NO_BITMAP_COMPRESSION_HDR; /*NOLINT*/
                     sub_image_data.bitmap_length = sub_image.data_compressed().size();
 
@@ -4604,12 +4634,12 @@ private:
         const Bitmap tiled_bmp(bitmap, src_tile);
         RDPMem3Blt cmd2(0, dst_tile, cmd.rop, 0, 0, cmd.back_color, cmd.fore_color, cmd.brush, 0);
 
-        if (this->client_info.bpp != this->mod_bpp) {
+        if (this->client_info.screen_info.bpp != this->mod_bpp) {
             const BGRColor back_color24 = color_decode(cmd.back_color, this->mod_bpp, this->mod_palette_rgb);
             const BGRColor fore_color24 = color_decode(cmd.fore_color, this->mod_bpp, this->mod_palette_rgb);
 
-            cmd2.back_color = color_encode(back_color24, this->client_info.bpp);
-            cmd2.fore_color = color_encode(fore_color24, this->client_info.bpp);
+            cmd2.back_color = color_encode(back_color24, this->client_info.screen_info.bpp);
+            cmd2.fore_color = color_encode(fore_color24, this->client_info.screen_info.bpp);
         }
 
         // this may change the brush add send it to to remote cache
@@ -4626,7 +4656,7 @@ private:
         }
 
         const uint8_t palette_id = 0;
-        if (this->client_info.bpp == 8) {
+        if (this->client_info.screen_info.bpp == BitsPerPixel{8}) {
             if (!this->palette_memblt_sent[palette_id]) {
                 RDPColCache cmd(palette_id, bitmap.palette());
                 this->orders.graphics_update_pdu().draw(cmd);
@@ -4642,7 +4672,7 @@ private:
 
         // check if target bitmap can be fully stored inside one front cache entry
         // if so no need to tile it.
-        uint32_t front_bitmap_size = ::nbbytes(this->client_info.bpp) * align4(dst_cx) * dst_cy;
+        uint32_t front_bitmap_size = nb_bytes_per_pixel(this->client_info.screen_info.bpp) * align4(dst_cx) * dst_cy;
         // even if cache seems to be large enough, cache entries cant be used
         // for values whose width is larger or equal to 256 after alignment
         // hence, we check for this case. There does not seem to exist any
@@ -4666,7 +4696,7 @@ private:
         }
         else {
             // if not we have to split it
-            const uint16_t TILE_CX = ((::nbbytes(this->client_info.bpp) * 64 * 64 < serializer_max_data_block_size) ? 64 : 32);
+            const uint16_t TILE_CX = ((nb_bytes_per_pixel(this->client_info.screen_info.bpp) * 64 * 64 < serializer_max_data_block_size) ? 64 : 32);
             const uint16_t TILE_CY = TILE_CX;
 
             contiguous_sub_rect_f(CxCy{dst_cx, dst_cy}, SubCxCy{TILE_CX, TILE_CY}, [&](Rect r){
@@ -4734,7 +4764,7 @@ private:
     bool palette_sent = false;
 
     void send_palette() {
-        if (8 != this->client_info.bpp || this->palette_sent) {
+        if (BitsPerPixel{8} != this->client_info.screen_info.bpp || this->palette_sent) {
             return ;
         }
 
@@ -4801,14 +4831,18 @@ private:
         //LOG(LOG_INFO, "Decoded keyboard input data:");
         //hexdump_d(decoded_data.get_data(), decoded_data.size());
 
-        bool const send_to_mod = this->capture
-        ? (  0 == decoded_keys.count
-         || (1 == decoded_keys.count
-            && this->capture->kbd_input(tvtime(), decoded_keys.uchars[0]))
-         || (2 == decoded_keys.count
-            && this->capture->kbd_input(tvtime(), decoded_keys.uchars[0])
-            && this->capture->kbd_input(tvtime(), decoded_keys.uchars[1]))
-        ) : true;
+        bool const send_to_mod = [&]{
+            if (!this->capture || 0 == decoded_keys.count) {
+                return true;
+            }
+            auto const timeval = this->session_reactor.get_current_time();
+            return (1 == decoded_keys.count
+                    && this->capture->kbd_input(timeval, decoded_keys.uchars[0]))
+                || (2 == decoded_keys.count
+                    && this->capture->kbd_input(timeval, decoded_keys.uchars[0])
+                    && this->capture->kbd_input(timeval, decoded_keys.uchars[1]));
+            ;
+        }();
 
         if (this->up_and_running) {
             if (tsk_switch_shortcuts && this->ini.get<cfg::client::disable_tsk_switch_shortcuts>()) {
@@ -4843,6 +4877,8 @@ private:
         if (this->capture) {
             this->capture->enable_kbd_input_mask(
                     this->focus_on_password_textbox ||
+                    ((keyboard_input_masking_level == ::KeyboardInputMaskingLevel::password_and_unidentified) &&
+                     this->focus_on_unidentified_input_field) ||
                     this->consent_ui_is_visible || mask_unidentified_data
                 );
         }

@@ -130,7 +130,7 @@ protected:
 
         auto const key = this->trans.get_public_key();
         this->PublicKey.init(key.size());
-        this->PublicKey.copy(key.data(), key.size());
+        this->PublicKey.copy(key);
     }
 
     void credssp_send()
@@ -140,7 +140,7 @@ protected:
         }
         StaticOutStream<65536> ts_request_emit;
         this->ts_request.emit(ts_request_emit);
-        this->trans.send(ts_request_emit.get_data(), ts_request_emit.get_offset());
+        this->trans.send(ts_request_emit.get_bytes());
     }
 
 protected:
@@ -164,7 +164,7 @@ private:
     void SetHostnameFromUtf8(const uint8_t * pszTargetName) {
         size_t length = (pszTargetName && *pszTargetName) ? strlen(char_ptr_cast(pszTargetName)) : 0;
         this->ServicePrincipalName.init(length + 1);
-        this->ServicePrincipalName.copy(pszTargetName, length);
+        this->ServicePrincipalName.copy({pszTargetName, length});
         this->ServicePrincipalName.get_data()[length] = 0;
     }
 
@@ -286,8 +286,7 @@ protected:
         }
 
         return this->table->EncryptMessage(
-            public_key,
-            static_cast<SecBuffer&>(this->ts_request.pubKeyAuth), this->send_seq_num++);
+            public_key, this->ts_request.pubKeyAuth, this->send_seq_num++);
     }
 
     SEC_STATUS credssp_decrypt_public_key_echo() {
@@ -295,7 +294,7 @@ protected:
             LOG(LOG_INFO, "rdpCredsspClient::decrypt_public_key_echo");
         }
 
-        SecBuffer Buffer;
+        Array Buffer;
 
         SEC_STATUS const status = this->table->DecryptMessage(
             this->ts_request.pubKeyAuth.av(), Buffer, this->recv_seq_num++);
@@ -418,7 +417,7 @@ public:
 
         return this->table->EncryptMessage(
             {ts_credentials_send.get_data(), ts_credentials_send.get_offset()},
-            static_cast<SecBuffer&>(this->ts_request.authInfo), this->send_seq_num++);
+            this->ts_request.authInfo, this->send_seq_num++);
     }
 
 private:
@@ -455,7 +454,7 @@ private:
     struct ClientAuthenticateData
     {
         enum : uint8_t { Start, Loop, Final } state = Start;
-        SecBuffer input_buffer;
+        Array input_buffer;
     };
     ClientAuthenticateData client_auth_data;
 
@@ -472,9 +471,9 @@ private:
         //  = ISC_REQ_MUTUAL_AUTH | ISC_REQ_CONFIDENTIALITY | ISC_REQ_USE_SESSION_KEY;
 
         SEC_STATUS status = this->table->InitializeSecurityContext(
-            char_ptr_cast(this->ServicePrincipalName.get_data()),
+            bytes_view(this->ServicePrincipalName.av()).as_chars(),
             this->client_auth_data.input_buffer.av(),
-            /*output*/static_cast<SecBuffer&>(this->ts_request.negoTokens));
+            /*output*/this->ts_request.negoTokens);
         if ((status != SEC_I_COMPLETE_AND_CONTINUE) &&
             (status != SEC_I_COMPLETE_NEEDED) &&
             (status != SEC_E_OK) &&
@@ -656,7 +655,7 @@ public:
             return SEC_E_INVALID_TOKEN;
         }
 
-        SecBuffer Buffer;
+        Array Buffer;
 
         const SEC_STATUS status = this->table->DecryptMessage(
             this->ts_request.authInfo.av(), Buffer, this->recv_seq_num++);
@@ -740,7 +739,7 @@ public:
         //     | ASC_REQ_EXTENDED_ERROR;
         SEC_STATUS status = this->table->AcceptSecurityContext(
             this->ts_request.negoTokens.av(),
-            /*output*/static_cast<SecBuffer&>(this->ts_request.negoTokens));
+            /*output*/this->ts_request.negoTokens);
         this->state_accept_security_context = status;
         if (status == SEC_I_LOCAL_LOGON) {
             return Res::Ok;

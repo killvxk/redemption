@@ -24,6 +24,9 @@
 #include "core/error.hpp"
 #include "utils/utf.hpp"
 #include "utils/sugar/buf_maker.hpp"
+#include "utils/sugar/cast.hpp"
+
+#include <cstring>
 
 
 // TODO: CGR. This array here should be replaced by a plain std::vector<uint8_t>
@@ -75,15 +78,14 @@ public:
         this->avbuf = this->buf_maker.dyn_array(v);
     }
 
-    void copy(const uint8_t * source, size_t size, uint32_t offset = 0) {
-        assert(this->size() >= size + offset);
-        if (size) {
-            memcpy(this->avbuf.data() + offset, source, size);
+    void copy(const_bytes_view source, uint32_t offset = 0) {
+        assert(this->size() >= source.size() + offset);
+        if (source.size()) {
+            memcpy(this->avbuf.data() + offset, source.data(), source.size());
         }
     }
 };
 
-struct SecBuffer : Array {};
 
 enum SecIdFlag {
     SEC_WINNT_AUTH_IDENTITY_ANSI = 0x1,
@@ -163,7 +165,7 @@ private:
         if (data) {
             size_t user_len = UTF8Len(data);
             arr.init(user_len * 2);
-            UTF8toUTF16(data, arr.get_data(), user_len * 2);
+            UTF8toUTF16({data, strlen(char_ptr_cast(data))}, arr.get_data(), user_len * 2);
         }
         else {
             arr.init(0);
@@ -369,25 +371,25 @@ struct SecurityFunctionTable
 
     // GSS_Init_sec_context
     // INITIALIZE_SECURITY_CONTEXT_FN InitializeSecurityContext;
-    virtual SEC_STATUS InitializeSecurityContext(char* pszTargetName,
+    virtual SEC_STATUS InitializeSecurityContext(array_view_const_char pszTargetName,
                                                  array_view_const_u8 input_buffer,
-                                                 SecBuffer& output_buffer) = 0;
+                                                 Array& output_buffer) = 0;
 
     // GSS_Accept_sec_context
     // ACCEPT_SECURITY_CONTEXT AcceptSecurityContext;
     virtual SEC_STATUS AcceptSecurityContext(array_view_const_u8 input_buffer,
-                                             SecBuffer& output_buffer) = 0;
+                                             Array& output_buffer) = 0;
 
     // GSS_Wrap
     // ENCRYPT_MESSAGE EncryptMessage;
     virtual SEC_STATUS EncryptMessage(array_view_const_u8 data_in,
-                                      SecBuffer& data_out,
+                                      Array& data_out,
                                       unsigned long messageSeqNo) = 0;
 
     // GSS_Unwrap
     // DECRYPT_MESSAGE DecryptMessage;
     virtual SEC_STATUS DecryptMessage(array_view_const_u8 data_in,
-                                      SecBuffer& data_out,
+                                      Array& data_out,
                                       unsigned long messageSeqNo) = 0;
 };
 
@@ -403,9 +405,9 @@ struct UnimplementedSecurityFunctionTable : SecurityFunctionTable
     }
 
     SEC_STATUS InitializeSecurityContext(
-        char* /*pszTargetName*/,
+        array_view_const_char /*pszTargetName*/,
         array_view_const_u8 /*input_buffer*/,
-        SecBuffer& /*output_buffer*/
+        Array& /*output_buffer*/
     ) override
     {
         return SEC_E_UNSUPPORTED_FUNCTION;
@@ -413,14 +415,14 @@ struct UnimplementedSecurityFunctionTable : SecurityFunctionTable
 
     SEC_STATUS AcceptSecurityContext(
         array_view_const_u8 /*input_buffer*/,
-        SecBuffer& /*output_buffer*/
+        Array& /*output_buffer*/
     ) override
     {
         return SEC_E_UNSUPPORTED_FUNCTION;
     }
 
     SEC_STATUS EncryptMessage(
-        array_view_const_u8 /*data_in*/, SecBuffer& /*data_out*/,
+        array_view_const_u8 /*data_in*/, Array& /*data_out*/,
         unsigned long /*messageSeqNo*/
     ) override
     {
@@ -428,7 +430,7 @@ struct UnimplementedSecurityFunctionTable : SecurityFunctionTable
     }
 
     SEC_STATUS DecryptMessage(
-        array_view_const_u8 /*data_in*/, SecBuffer& /*data_out*/,
+        array_view_const_u8 /*data_in*/, Array& /*data_out*/,
         unsigned long /*messageSeqNo*/
     ) override
     {

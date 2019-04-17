@@ -20,8 +20,9 @@
    Unit test to RDP LargePointer object
    Using lib boost functions for testing
 */
+#define RED_TEST_MODULE CapabilityLargePointerEmit
 
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "core/RDP/capabilities/largepointer.hpp"
@@ -38,7 +39,7 @@ RED_AUTO_TEST_CASE(TestCapabilityLargePointerEmit)
     StaticOutStream<1024> out_stream;
     largepointer_caps.emit(out_stream);
 
-    InStream stream(out_stream.get_data(), out_stream.get_offset());
+    InStream stream(out_stream.get_bytes());
 
     LargePointerCaps largepointer_caps2;
 

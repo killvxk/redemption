@@ -375,7 +375,7 @@ private:
                         this->_keyboardMods -= ALT_MOD;
                     }
                 }
-                this->flag = this->flag | KBD_FLAGS_EXTENDED;
+                //this->flag = this->flag | KBD_FLAGS_EXTENDED;
                 this->layout_Work_Update();
                 break;
 

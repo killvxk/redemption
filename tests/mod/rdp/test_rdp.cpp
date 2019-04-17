@@ -22,17 +22,19 @@
 */
 
 #define RED_TEST_MODULE TestRdp
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
+#include "acl/auth_api.hpp"
 #include "configs/config.hpp"
-#include "test_only/transport/test_transport.hpp"
-#include "test_only/session_reactor_executor.hpp"
 #include "core/client_info.hpp"
-#include "mod/rdp/rdp.hpp"
-
-#include "test_only/lcg_random.hpp"
-
+#include "core/report_message_api.hpp"
+#include "mod/rdp/new_mod_rdp.hpp"
+#include "utils/theme.hpp"
 #include "test_only/front/fake_front.hpp"
+#include "test_only/lcg_random.hpp"
+#include "test_only/session_reactor_executor.hpp"
+#include "test_only/transport/test_transport.hpp"
+#include "test_only/core/font.hpp"
 
 /*
 RED_AUTO_TEST_CASE(TestModRDPXPServer)
@@ -70,14 +72,15 @@ RED_AUTO_TEST_CASE(TestModRDPXPServer)
 
     Inifile ini;
 
+    std::array<uint8_t, 28> server_auto_reconnect_packet {};
     ModRDPParams mod_rdp_params( "xavier"
                                 , "SecureLinux"
                                 , "10.10.47.175"
                                 , "10.10.9.161"
                                 , 7
-                                , ini.get<cfg::font>()
-                                , ini.get<cfg::theme>()
-                                , ini.get_ref<cfg::context::server_auto_reconnect_packet>()
+                                , global_font()
+                                , theme
+                                , server_auto_reconnect_packet
                                 , ini.get_ref<cfg::context::close_box_extra_message>()
                                 , RDPVerbose{}
                                 );
@@ -100,8 +103,10 @@ RED_AUTO_TEST_CASE(TestModRDPXPServer)
     LCGTime timeobj;
     NullAuthentifier authentifier;
     NullReportMessage report_message;
-    mod_rdp mod(t, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(),
-        gen, timeobj, mod_rdp_params, authentifier, report_message, ini);
+    SessionReactor session_reactor;
+    auto mod = new_mod_rdp(t, session_reactor, front, info,
+        ini.get_ref<cfg::mod_rdp::redir_info>(), gen, timeobj,
+        mod_rdp_params, authentifier, report_message, ini, nullptr);
 
     if (verbose > 2){
         LOG(LOG_INFO, "========= CREATION OF MOD DONE ====================\n\n");
@@ -109,13 +114,10 @@ RED_AUTO_TEST_CASE(TestModRDPXPServer)
     RED_CHECK_EQUAL(front.info.width, 800);
     RED_CHECK_EQUAL(front.info.height, 600);
 
-    uint32_t count = 0;
-    BackEvent_t res = BACK_EVENT_NONE;
-    while (res == BACK_EVENT_NONE){
-        LOG(LOG_INFO, "=======================> count=%u", count);
-
-        if (count++ >= 25) break;
-        mod.draw_event(time(nullptr), front);
+    execute_negociate_mod(session_reactor, *mod, front);
+    for (int count = 0; count < 25; ++count) {
+        LOG(LOG_INFO, "===================> count = %d", count);
+        execute_graphics_event(session_reactor, front);
     }
 
     // front.dump_png("trace_xp_");
@@ -128,9 +130,9 @@ RED_AUTO_TEST_CASE(TestModRDPWin2008Server)
     info.keylayout = 0x04C;
     info.console_session = 0;
     info.brush_cache_code = 0;
-    info.bpp = 24;
-    info.width = 800;
-    info.height = 600;
+    info.screen_info.bpp = BitsPerPixel{24};
+    info.screen_info.width = 800;
+    info.screen_info.height = 600;
     info.rdp5_performanceflags = PERF_DISABLE_WALLPAPER;
 
     snprintf(info.hostname,sizeof(info.hostname),"test");
@@ -138,9 +140,7 @@ RED_AUTO_TEST_CASE(TestModRDPWin2008Server)
     memset(info.order_caps.orderSupport, 0xFF, sizeof(info.order_caps.orderSupport));
     info.order_caps.orderSupportExFlags = 0xFFFF;
 
-    int verbose = 511;
-
-    FakeFront front(info, verbose);
+    FakeFront front(info.screen_info);
 
     // const char * name = "RDP W2008 Target";
     // int client_sck = ip_connect("10.10.47.36", 3389, 3, 1000);
@@ -156,11 +156,8 @@ RED_AUTO_TEST_CASE(TestModRDPWin2008Server)
     #include "fixtures/dump_w2008.hpp"
     TestTransport t(indata, sizeof(indata)-1, outdata, sizeof(outdata)-1);
 
-    if (verbose > 2){
-        LOG(LOG_INFO, "--------- CREATION OF MOD ------------------------");
-    }
-
     Inifile ini;
+    Theme theme;
 
     std::array<uint8_t, 28> server_auto_reconnect_packet {};
     ModRDPParams mod_rdp_params( "administrateur"
@@ -168,8 +165,8 @@ RED_AUTO_TEST_CASE(TestModRDPWin2008Server)
                                , "10.10.47.36"
                                , "10.10.43.33"
                                , 2
-                               , ini.get<cfg::font>()
-                               , ini.get<cfg::theme>()
+                               , global_font()
+                               , theme
                                , server_auto_reconnect_packet
                                , ini.get_ref<cfg::context::close_box_extra_message>()
                                , RDPVerbose{}
@@ -197,18 +194,15 @@ RED_AUTO_TEST_CASE(TestModRDPWin2008Server)
     NullAuthentifier authentifier;
     NullReportMessage report_message;
     SessionReactor session_reactor;
-    mod_rdp mod(t, session_reactor, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(),
-        gen, timeobj, mod_rdp_params, authentifier, report_message, ini);
+    auto mod = new_mod_rdp(t, session_reactor, front, info,
+        ini.get_ref<cfg::mod_rdp::redir_info>(), gen, timeobj,
+        mod_rdp_params, authentifier, report_message, ini, nullptr);
 
-    if (verbose > 2){
-        LOG(LOG_INFO, "========= CREATION OF MOD DONE ====================\n\n");
-    }
-    RED_CHECK_EQUAL(front.info.width, 800);
-    RED_CHECK_EQUAL(front.info.height, 600);
+    RED_CHECK_EQUAL(info.screen_info.width, 800);
+    RED_CHECK_EQUAL(info.screen_info.height, 600);
 
-    execute_negociate_mod(session_reactor, mod, front);
+    execute_negociate_mod(session_reactor, *mod, front);
     for (int count = 0; count < 38; ++count) {
-        LOG(LOG_INFO, "===================> count = %d", count);
         execute_graphics_event(session_reactor, front);
     }
 
@@ -251,14 +245,15 @@ RED_AUTO_TEST_CASE(TestModRDPW2003Server)
 
     Inifile ini;
 
+    std::array<uint8_t, 28> server_auto_reconnect_packet {};
     ModRDPParams mod_rdp_params( "administrateur"
                                , "SecureLinux"
                                , "10.10.47.205"
                                , "0.0.0.0"
                                , 2
-                               , ini.get<cfg::font>()
-                               , ini.get<cfg::theme>()
-                               , ini.get_ref<cfg::context::server_auto_reconnect_packet>()
+                               , global_font()
+                               , theme
+                               , server_auto_reconnect_packet
                                , ini.get_ref<cfg::context::close_box_extra_message>()
                                , RDPVerbose{}
                                );
@@ -281,8 +276,10 @@ RED_AUTO_TEST_CASE(TestModRDPW2003Server)
     LCGTime timeobj;
     NullAuthentifier authentifier;
     NullReportMessage report_message;
-    mod_rdp mod(t, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(),
-        gen, timeobj, mod_rdp_params, authentifier, report_message, ini);
+    SessionReactor session_reactor;
+    auto mod = new_mod_rdp(t, session_reactor, front, info,
+        ini.get_ref<cfg::mod_rdp::redir_info>(), gen, timeobj,
+        mod_rdp_params, authentifier, report_message, ini, nullptr);
 
     if (verbose > 2){
         LOG(LOG_INFO, "========= CREATION OF MOD DONE ====================\n\n");
@@ -290,12 +287,10 @@ RED_AUTO_TEST_CASE(TestModRDPW2003Server)
     RED_CHECK_EQUAL(front.info.width, 800);
     RED_CHECK_EQUAL(front.info.height, 600);
 
-    uint32_t count = 0;
-    BackEvent_t res = BACK_EVENT_NONE;
-    while (res == BACK_EVENT_NONE){
-        LOG(LOG_INFO, "=======================> count=%u", count);
-        if (count++ >= 25) break;
-        mod.draw_event(time(nullptr), front);
+    execute_negociate_mod(session_reactor, *mod, front);
+    for (int count = 0; count < 25; ++count) {
+        LOG(LOG_INFO, "===================> count = %d", count);
+        execute_graphics_event(session_reactor, front);
     }
 
     // front.dump_png("trace_w2003_");
@@ -337,14 +332,15 @@ RED_AUTO_TEST_CASE(TestModRDPW2000Server)
 
     Inifile ini;
 
+    std::array<uint8_t, 28> server_auto_reconnect_packet {};
     ModRDPParams mod_rdp_params( "administrateur"
                                , "SecureLinux"
                                , "10.10.47.39"
                                , "0.0.0.0"
                                , 2
-                               , ini.get<cfg::font>()
-                               , ini.get<cfg::theme>()
-                               , ini.get_ref<cfg::context::server_auto_reconnect_packet>()
+                               , global_font()
+                               , theme
+                               , server_auto_reconnect_packet
                                , ini.get_ref<cfg::context::close_box_extra_message>()
                                , RDPVerbose{}
                                );
@@ -367,9 +363,10 @@ RED_AUTO_TEST_CASE(TestModRDPW2000Server)
     LCGTime timeobj;
     NullAuthentifier authentifier;
     NullReportMessage report_message;
-    mod_rdp mod_(t, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(),
-        gen, timeobj, mod_rdp_params, authentifier, report_message, ini);
-    mod_api * mod = &mod_;
+    SessionReactor session_reactor;
+    auto mod = new_mod_rdp(t, session_reactor, front, info,
+        ini.get_ref<cfg::mod_rdp::redir_info>(), gen, timeobj,
+        mod_rdp_params, authentifier, report_message, ini, nullptr);
 
     if (verbose > 2){
         LOG(LOG_INFO, "========= CREATION OF MOD DONE ====================\n\n");
@@ -377,12 +374,10 @@ RED_AUTO_TEST_CASE(TestModRDPW2000Server)
     RED_CHECK_EQUAL(front.info.width, 800);
     RED_CHECK_EQUAL(front.info.height, 600);
 
-    uint32_t count = 0;
-    BackEvent_t res = BACK_EVENT_NONE;
-    while (res == BACK_EVENT_NONE){
-        LOG(LOG_INFO, "=======================> count=%u", count);
-        if (count++ >= 25) break;
-        mod->draw_event(time(nullptr), front);
+    execute_negociate_mod(session_reactor, *mod, front);
+    for (int count = 0; count < 25; ++count) {
+        LOG(LOG_INFO, "===================> count = %d", count);
+        execute_graphics_event(session_reactor, front);
     }
 
     // front.dump_png("trace_w2000_");

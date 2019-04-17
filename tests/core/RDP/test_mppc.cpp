@@ -23,7 +23,7 @@
 */
 
 #define RED_TEST_MODULE TestMPPC
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "core/RDP/mppc.hpp"
@@ -53,8 +53,8 @@ RED_AUTO_TEST_CASE(TestMPPC_enc)
     // Load decompressed_rd5_data
     #include "fixtures/test_mppc_TestMPPC_enc.hpp"
 
-    const uint8_t * rdata;
-    uint32_t        rlen;
+    const uint8_t * rdata = nullptr;
+    uint32_t        rlen = 0;
 
     /* setup decoder */
     rdp_mppc_unified_dec rmppc_d;
@@ -65,8 +65,8 @@ RED_AUTO_TEST_CASE(TestMPPC_enc)
 
     int data_len = sizeof(decompressed_rd5_data);
 
-    uint8_t  compressionFlags;
-    uint16_t datalen;
+    uint8_t  compressionFlags = 0;
+    uint16_t datalen          = 0;
 
     enc.compress(decompressed_rd5_data, data_len, compressionFlags, datalen,
         rdp_mppc_enc::MAX_COMPRESSED_DATA_SIZE_UNUSED);
@@ -109,12 +109,13 @@ RED_AUTO_TEST_CASE(TestHashTableManager)
     const unsigned int length_of_data_to_sign = 3;
     const unsigned int max_undo_element       = 8;
 
-    typedef uint16_t                                     offset_type;
-    typedef rdp_mppc_enc_hash_table_manager<offset_type> hash_table_manager;
-    typedef hash_table_manager::hash_type                hash_type;
+    typedef uint16_t offset_type;
+    typedef rdp_mppc_enc_hash_table_manager<offset_type,
+                                            length_of_data_to_sign,
+                                            max_undo_element> hash_table_manager;
+    typedef hash_table_manager::hash_type   hash_type;
 
-    hash_table_manager hash_tab_mgr(
-        length_of_data_to_sign, max_undo_element);
+    hash_table_manager hash_tab_mgr;
 
     uint8_t data[] = "0123456789ABCDEF";
 

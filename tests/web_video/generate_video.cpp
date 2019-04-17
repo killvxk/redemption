@@ -21,7 +21,6 @@
 #include "capture/capture_params.hpp"
 #include "capture/full_video_params.hpp"
 #include "capture/video_capture.hpp"
-#include "core/RDP/RDPDrawable.hpp"
 #include "utils/fileutils.hpp"
 #include "utils/set_exception_handler_pretty_message.hpp"
 
@@ -29,16 +28,16 @@
 
 int main(int ac, char ** av)
 {
-    if (ac && av[1][0] == '-' && av[1][1] == 'h' && !av[1][2]) {
+    if (ac <= 1 || (av[1][0] == '-' && av[1][1] == 'h' && !av[1][2])) {
         std::cout << av[0] << " [outfile = ./test.mp4]\n";
         return 0;
     }
 
     set_exception_handler_pretty_message();
 
-    char path[1024];
-    char basename[1024];
-    char extension[8]; // and codec
+    char path[1024]; path[0] = 0;
+    char basename[1024]; basename[0] = 0;
+    char extension[8]; extension[0] = 0; // and codec
     char const * const filename = ac ? av[1] : "./test.mp4";
 
     canonical_path(

@@ -20,10 +20,16 @@
 */
 
 #define RED_TEST_MODULE TestRDPDrawable
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "core/RDP/RDPDrawable.hpp"
 #include "core/RDP/caches/glyphcache.hpp"
+#include "core/RDP/orders/RDPOrdersPrimaryOpaqueRect.hpp"
+#include "core/RDP/orders/RDPOrdersPrimaryGlyphIndex.hpp"
+#include "core/RDP/orders/RDPOrdersPrimaryPolyline.hpp"
+#include "core/RDP/orders/RDPOrdersPrimaryMultiOpaqueRect.hpp"
+#include "core/RDP/orders/RDPOrdersPrimaryMemBlt.hpp"
+#include "core/RDP/orders/RDPOrdersPrimaryMultiDstBlt.hpp"
 #include "test_only/check_sig.hpp"
 #include "test_only/transport/test_transport.hpp"
 #include "transport/out_file_transport.hpp"
@@ -32,6 +38,7 @@
 #include "utils/drawable.hpp"
 #include "utils/fileutils.hpp"
 #include "utils/png.hpp"
+#include "utils/bitmap.hpp"
 #include "utils/rect.hpp"
 #include "utils/stream.hpp"
 #include "utils/sugar/cast.hpp"
@@ -71,7 +78,7 @@ inline void process_glyphcache(GlyphCache & gly_cache, InStream & stream) {
     }
 }
 
-RED_AUTO_TEST_CASE(TestDrawGlyphIndex)
+RED_AUTO_TEST_CASE(TestGraphicGlyphIndex)
 {
     uint16_t width = 1024;
     uint16_t height = 768;
@@ -223,7 +230,7 @@ RED_AUTO_TEST_CASE(TestMultiDstBlt)
         deltaRectangles.out_sint16_le(10);
     }
 
-    InStream deltaRectangles_in(deltaRectangles.get_data(), deltaRectangles.get_offset());
+    InStream deltaRectangles_in(deltaRectangles.get_bytes());
 
     gd.draw(RDPMultiDstBlt(100, 100, 200, 200, 0x55, 20, deltaRectangles_in), screen_rect);
 
@@ -258,7 +265,7 @@ RED_AUTO_TEST_CASE(TestMultiOpaqueRect)
         deltaRectangles.out_sint16_le(10);
     }
 
-    InStream deltaRectangles_in(deltaRectangles.get_data(), deltaRectangles.get_offset());
+    InStream deltaRectangles_in(deltaRectangles.get_bytes());
 
     gd.draw(RDPMultiOpaqueRect(100, 100, 200, 200, encode_color24()(BLACK), 20, deltaRectangles_in), screen_rect, color_cxt);
 
@@ -827,15 +834,15 @@ RED_AUTO_TEST_CASE(TestBogusBitmap)
     }
     ;
 
-    Bitmap bloc64x64(16, 16, nullptr, 64, 64, source64x64, sizeof(source64x64), true );
+    Bitmap bloc64x64(BitsPerPixel{16}, BitsPerPixel{16}, nullptr, 64, 64, source64x64, sizeof(source64x64), true );
     drawable.draw(RDPMemBlt(0, Rect(100, 100, bloc64x64.cx(), bloc64x64.cy()), 0xCC, 0, 0, 0), scr, bloc64x64);
 
-    Bitmap good16(24, bloc64x64);
+    Bitmap good16(BitsPerPixel{24}, bloc64x64);
     drawable.draw(RDPMemBlt(0, Rect(200, 200, good16.cx(), good16.cy()), 0xCC, 0, 0, 0), scr, good16);
 
     StaticOutStream<8192> stream;
-    good16.compress(24, stream);
-    Bitmap bogus(24, 24, nullptr, 64, 64, stream.get_data(), stream.get_offset(), true);
+    good16.compress(BitsPerPixel{24}, stream);
+    Bitmap bogus(BitsPerPixel{24}, BitsPerPixel{24}, nullptr, 64, 64, stream.get_data(), stream.get_offset(), true);
     drawable.draw(RDPMemBlt(0, Rect(300, 100, bogus.cx(), bogus.cy()), 0xCC, 0, 0, 0), scr, bogus);
 
 //     dump_png24("/tmp/test_bmp.png", drawable, true);
@@ -887,7 +894,7 @@ RED_AUTO_TEST_CASE(TestBogusBitmap2)
            "\xc3\xef\x1a"
     ;
 
-    Bitmap bloc32x1(16, 16, nullptr, 32, 1, source32x1, sizeof(source32x1)-1, true);
+    Bitmap bloc32x1(BitsPerPixel{16}, BitsPerPixel{16}, nullptr, 32, 1, source32x1, sizeof(source32x1)-1, true);
     drawable.draw(RDPMemBlt(0, Rect(100, 100, bloc32x1.cx(), bloc32x1.cy()), 0xCC, 0, 0, 0), scr, bloc32x1);
 
     dump_png24(trans, drawable, true);

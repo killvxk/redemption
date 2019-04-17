@@ -21,6 +21,7 @@
 #pragma once
 
 #include "transport/out_file_transport.hpp"
+#include "utils/strutils.hpp"
 
 #include <cstring>
 
@@ -59,15 +60,12 @@ public:
     , last_filename(nullptr)
     , last_num(-1u)
     {
-        if (strlen(prefix) > sizeof(this->path) - 1
-         || strlen(filename) > sizeof(this->filename) - 1
-         || strlen(extension) > sizeof(this->extension) - 1) {
+        if (!utils::strbcpy(this->path, prefix)
+         || !utils::strbcpy(this->filename, filename)
+         || !utils::strbcpy(this->extension, extension)) {
+            LOG(LOG_ERR, "Filename too long");
             throw Error(ERR_TRANSPORT);
         }
-
-        strcpy(this->path, prefix);
-        strcpy(this->filename, filename);
-        strcpy(this->extension, extension);
 
         this->filename_gen[0] = 0;
     }

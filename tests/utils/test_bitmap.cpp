@@ -22,7 +22,8 @@
 */
 
 #define RED_TEST_MODULE TestBitmap
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
+#include "test_only/test_framework/data_test_case.hpp"
 
 #include "test_only/transport/test_transport.hpp"
 #include "utils/bitmap.hpp"
@@ -33,6 +34,8 @@
 #include "utils/sugar/cast.hpp"
 #include "test_only/check_sig.hpp"
 
+#include <array>
+
 
 RED_AUTO_TEST_CASE(TestBitmapCompress)
 {
@@ -41,7 +44,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
     // test COPY
     {
         RED_CHECK_EQUAL(1, 1);
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t data[4*4] = {
             0x01, 0x02, 0x03, 0x04,
             0x06, 0x07, 0x08, 0x09,
@@ -68,7 +71,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
     // test COPY 16 bits
     {
-        int bpp = 16;
+        BitsPerPixel bpp{16};
         uint8_t data[4*4*2] = {
             0x01, 0, 0x02, 0, 0x03, 0, 0x04, 0,
             0x05, 0, 0x06, 0, 0x07, 0, 0x08, 0,
@@ -91,14 +94,14 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
         RED_CHECK(0 == memcmp(out.get_data(), expected, sizeof(expected)));
 
         // empty set to 0,0,0,0,0,0,...
-        Bitmap bmp2(16, 16, nullptr, 4, 4, out.get_data(), out.get_offset(), true);
+        Bitmap bmp2(BitsPerPixel{16}, BitsPerPixel{16}, nullptr, 4, 4, out.get_data(), out.get_offset(), true);
         RED_CHECK_EQUAL(bmp2.bmp_size(), sizeof(data));
         RED_CHECK(0 == memcmp(bmp2.data(), data, sizeof(data)));
     }
 
     // test COLOR
     {
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t data[4*4] = {
             0x01, 0x02, 0x03, 0x04,
             0x01, 0x01, 0x01, 0x01,
@@ -124,7 +127,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
     // test COLOR then COPY
     {
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t data[4*4] = {
             0x01, 0x01, 0x01, 0x01,
             0x01, 0x01, 0x01, 0x01,
@@ -152,7 +155,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
     // test interleaved COLOR and COPY
     {
         RED_CHECK_EQUAL(1, 1);
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t data[4*4] = {
             0x01, 0x02, 0x03, 0x04,
             0x01, 0x01, 0x01, 0x01,
@@ -181,7 +184,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
     // test BICOLOR
     {
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t data[24] = {
             0x01, 0x02, 0x01, 0x02, 0x01, 0x02, 0x01, 0x02,
             0x01, 0x02, 0x01, 0x02, 0x01, 0x02, 0x01, 0x02,
@@ -205,7 +208,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
     // test FILL
     {
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t data[4*4] = {
             0x02, 0x03, 0x04, 0x05,
             0x02, 0x03, 0x04, 0x05,
@@ -230,7 +233,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
     // test MIX
     {
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t data[4*4] = {
             0x02, 0x03, 0x04, 0x05,
             0xFD, 0xFC, 0xFB, 0xFA,
@@ -256,7 +259,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
     // test FOM
     {
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t data[4*4] = {
             0x02, 0x03, 0x04, 0x05,
             0xFD, 0x03, 0xFB, 0x05,
@@ -282,7 +285,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
     // test FOM 2
     {
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t data[4*4] = {
             0x02, 0x03, 0x04, 0x05,
             0xFD, 0x03, 0xFB, 0x05,
@@ -305,7 +308,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
     }
 
     {
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t compressed[] = {
             0x40, 0x08, 0x33,                               // 9 FOM 9
             0x0f, 0x66, 0xbb,                               // 15 FILL
@@ -320,7 +323,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
 
     {
-        int bpp = 16;
+        BitsPerPixel bpp{16};
         uint8_t raw[] = {
             0x10, 0xe5, 0xef, 0x1a, 0x10, 0xe5, 0xef, 0x1a, 0x10, 0xe5, 0xef, 0x1a, 0x10, 0xe5, 0xef, 0x1a,
             0x10, 0xe5, 0xef, 0x1a, 0x10, 0xe5, 0xef, 0x1a, 0x10, 0xe5, 0xef, 0x1a, 0x10, 0xe5, 0xef, 0x1a,
@@ -521,7 +524,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
         };
 
         RED_CHECK(1);
-        Bitmap bmp2(16, 16, &palette332, 548, 1, compressed, sizeof(compressed), true);
+        Bitmap bmp2(BitsPerPixel{16}, BitsPerPixel{16}, &palette332, 548, 1, compressed, sizeof(compressed), true);
 
         RED_CHECK_EQUAL(bmp2.bmp_size(), sizeof(raw));
         RED_CHECK(0 == memcmp(bmp2.data(), raw, sizeof(raw)));
@@ -531,7 +534,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
     // functional test , 24 bits, various orders with SET variants
     {
-        int bpp = 24;
+        BitsPerPixel bpp{24};
         uint8_t raw[2*16*3] = {
         0x0c, 0x0c, 0xea,  0x0c, 0x0c, 0xea,  0x0c, 0x0c, 0xea,  0x0c, 0x0c, 0xea,
         0x07, 0x07, 0x8e,  0x00, 0x00, 0x00,  0x00, 0x00, 0x00,  0x00, 0x00, 0x00,
@@ -574,7 +577,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
 
     {
-        int bpp = 16;
+        BitsPerPixel bpp{16};
         uint8_t compressed[] = {
             // FOM SET 16px Mix 0x0842 MASK 0x00, 00
             0xd0, 0x0F, 0x08, 0x42, 0x0F, 0x0F,
@@ -597,7 +600,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
 
     {
-        int bpp = 16;
+        BitsPerPixel bpp{16};
         uint8_t compressed[] = {
             // 1_COPY 31_FILL 1_MIX 31_FILL
             // the mix is magically inserted because we have 2 back to back FILL
@@ -635,7 +638,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
     // Test for magic mix pixel on first line
     {
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t compressed[] = {
             0x02, 0x02
         };
@@ -652,7 +655,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
     // No magic pixel between first line and followings
     {
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t compressed[] = {
             0x04, 0x04
         };
@@ -671,7 +674,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
     // No magic pixel between first line and followings
     // Magic pixel after first line
     {
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t compressed[] = {
             0x04, 0x04, 0x04
         };
@@ -691,7 +694,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
     // No magic pixel between first line and followings
     // Magic pixel after first line, not necessarilly at beginning of a line
     {
-        int bpp = 8;
+        BitsPerPixel bpp{8};
         uint8_t compressed[] = {
             0x04, 0x06, 0x02
         };
@@ -709,7 +712,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 
 
     {
-        int bpp = 16;
+        BitsPerPixel bpp{16};
         uint8_t compressed[] = {
             // FOM (24 * 8) pix
             0x58, 0x01, 0x01, 0x01, 0x0d, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
@@ -766,7 +769,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
 //    }
 
     {
-        int bpp = 16;
+        BitsPerPixel bpp{16};
         RED_CHECK(1);
 
         uint8_t uncompressed[] = {
@@ -1358,7 +1361,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
     }
 
     {
-        int bpp = 24;
+        BitsPerPixel bpp{24};
         uint8_t data[64*64*3] = {
             /* line 63 */
             0xFF, 0x00, 0x00,  0xFF, 0x00, 0x00,  0xFF, 0x00, 0x00,  0xFF, 0x00, 0x00,
@@ -2533,7 +2536,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
     }
 
     {
-        uint8_t bpp = 8;
+        BitsPerPixel bpp{8};
 
         uint8_t compressed[] ={
 // DUMP OUPUT: cx=192 cy=18 line_width=192 bmp_size=3456
@@ -3034,7 +3037,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
    }
 
     {
-        int bpp = 24;
+        BitsPerPixel bpp{24};
         RED_CHECK(1);
 
         uint8_t uncompressed[3072] = {
@@ -3324,88 +3327,36 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
     }
 }
 
-
-RED_AUTO_TEST_CASE(TestRDP60BitmapCompression) {
+RED_DATA_TEST_CASE(TestRDP60BitmapCompression, (std::array{
+    FIXTURES_PATH "/color_image.bmp",
+    FIXTURES_PATH "/logo-redemption.bmp"
+    FIXTURES_PATH "/color_image.png",
+    FIXTURES_PATH "/logo-redemption.png",
+    FIXTURES_PATH "/color_image_40x30.png",
+    FIXTURES_PATH "/color_image_160x120.png",
+    FIXTURES_PATH "/red_box.png",
+    FIXTURES_PATH "/wablogoblue_220x76.png",
+    FIXTURES_PATH "/red_box_20x20.png"
+}), filename)
+{
     BGRPalette const & palette332 = BGRPalette::classic_332();
 
-
-    const char * filename = FIXTURES_PATH "/color_image_160x120.png";
-
     Bitmap bmp = bitmap_from_file(filename);
 
-    StaticOutStream<65536> compressed_bitmap_data;
-    bmp.compress(32, compressed_bitmap_data);
+    auto sz = std::max(std::size_t{65536}, 2u * bmp.bmp_size());
+    auto uptr = std::make_unique<uint8_t[]>(sz);
 
-    Bitmap bmp2(32, 24, &palette332, bmp.cx(), bmp.cy(), compressed_bitmap_data.get_data(), compressed_bitmap_data.get_offset(), true);
+    OutStream compressed_bitmap_data(uptr.get(), sz);
+
+    bmp.compress(BitsPerPixel{32}, compressed_bitmap_data);
+
+    Bitmap bmp2(BitsPerPixel{32}, BitsPerPixel{24}, &palette332, bmp.cx(), bmp.cy(), compressed_bitmap_data.get_data(), compressed_bitmap_data.get_offset(), true);
 
     RED_CHECK_EQUAL(0, memcmp(bmp.data(), bmp2.data(), bmp.bmp_size()));
 }
 
-RED_AUTO_TEST_CASE(TestRDP60BitmapCompression1) {
-    BGRPalette const & palette332 = BGRPalette::classic_332();
-
-
-    const char * filename = FIXTURES_PATH "/color_image_40x30.png";
-
-    Bitmap bmp = bitmap_from_file(filename);
-
-    StaticOutStream<65536> compressed_bitmap_data;
-    bmp.compress(32, compressed_bitmap_data);
-
-    Bitmap bmp2(32, 24, &palette332, bmp.cx(), bmp.cy(), compressed_bitmap_data.get_data(), compressed_bitmap_data.get_offset(), true);
-
-    RED_CHECK_EQUAL(0, memcmp(bmp.data(), bmp2.data(), bmp.bmp_size()));
-}
-
-RED_AUTO_TEST_CASE(TestRDP60BitmapCompression2) {
-    BGRPalette const & palette332 = BGRPalette::classic_332();
-
-
-    const char * filename = FIXTURES_PATH "/red_box.png";
-
-    Bitmap bmp = bitmap_from_file(filename);
-
-    StaticOutStream<65536> compressed_bitmap_data;
-    bmp.compress(32, compressed_bitmap_data);
-
-    Bitmap bmp2(32, 24, &palette332, bmp.cx(), bmp.cy(), compressed_bitmap_data.get_data(), compressed_bitmap_data.get_offset(), true);
-
-    RED_CHECK_EQUAL(0, memcmp(bmp.data(), bmp2.data(), bmp.bmp_size()));
-}
-
-RED_AUTO_TEST_CASE(TestRDP60BitmapCompression3) {
-    BGRPalette const & palette332 = BGRPalette::classic_332();
-
-
-    const char * filename = FIXTURES_PATH "/wablogoblue_220x76.png";
-
-    Bitmap bmp = bitmap_from_file(filename);
-
-    StaticOutStream<65536> compressed_bitmap_data;
-    bmp.compress(32, compressed_bitmap_data);
-
-    Bitmap bmp2(32, 24, &palette332, bmp.cx(), bmp.cy(), compressed_bitmap_data.get_data(), compressed_bitmap_data.get_offset(), true);
-
-    RED_CHECK_EQUAL(0, memcmp(bmp.data(), bmp2.data(), bmp.bmp_size()));
-}
-
-
-RED_AUTO_TEST_CASE(TestRDP60BitmapCompression4) {
-    const BGRPalette & palette332 = BGRPalette::classic_332();
-
-    const char * filename = FIXTURES_PATH "/red_box_20x20.png";
-
-    Bitmap bmp = bitmap_from_file(filename);
-
-    StaticOutStream<65536> compressed_bitmap_data;
-    bmp.compress(32, compressed_bitmap_data);
-
-    Bitmap bmp2(32, 24, &palette332, bmp.cx(), bmp.cy(), compressed_bitmap_data.get_data(), compressed_bitmap_data.get_offset(), true);
-
-    RED_CHECK_EQUAL(0, memcmp(bmp.data(), bmp2.data(), bmp.bmp_size()));
-}
-
-RED_AUTO_TEST_CASE(TestRDP60BitmapDecompression) {
+RED_AUTO_TEST_CASE(TestRDP60BitmapDecompression)
+{
     uint8_t bitmap_data[]     = {
 /* 0000 */ 0x10, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2,  // ................
 /* 0010 */ 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0x81, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2, 0xf2,  // ................
@@ -3449,7 +3400,7 @@ RED_AUTO_TEST_CASE(TestRDP60BitmapDecompression) {
     uint32_t bitmap_data_size = 601;
     uint16_t cx               = 1152;
     uint16_t cy               = 6;
-    uint8_t  bpp              = 32;
+    BitsPerPixel bpp {32};
 
     RED_CHECK_EQUAL(sizeof(bitmap_data), bitmap_data_size);
 
@@ -3494,7 +3445,7 @@ RED_AUTO_TEST_CASE(TestRDP60BitmapDecompression1) {
     uint32_t bitmap_data_size = 505;
     uint16_t cx               = 1280;
     uint16_t cy               = 6;
-    uint8_t  bpp              = 32;
+    BitsPerPixel bpp{32};
 
     RED_CHECK_EQUAL(sizeof(bitmap_data), bitmap_data_size);
 
@@ -3508,7 +3459,7 @@ RED_AUTO_TEST_CASE(TestRDP60BitmapDecompression1) {
 
 
 RED_AUTO_TEST_CASE(TestBogusRLEDecompression1) {
-    uint8_t bpp = 16;
+    BitsPerPixel bpp{16};
     const BGRPalette & palette332 = BGRPalette::classic_332();
 
     // x=591; y=138; w=368; h=10; dw=367; dh=10; bpp=16; cf=1; sz=756
@@ -3592,7 +3543,7 @@ RED_AUTO_TEST_CASE(TestConvertBitmap)
 {
     BGRPalette palette332(BGRPalette::classic_332());
 
-    const uint8_t source_bpp = 16;
+    const BitsPerPixel source_bpp{16};
     const uint16_t cx = 2;
     const uint16_t cy = 3;
     const uint8_t data[] = {
@@ -3601,22 +3552,22 @@ RED_AUTO_TEST_CASE(TestConvertBitmap)
         0xFF, 0xFF,   0xFF, 0xFF,
     };
 
-    Bitmap bmp16(16, source_bpp, &palette332, cx, cy, data, cx * nbbytes(source_bpp) * cy, false);
+    Bitmap bmp16(BitsPerPixel{16}, source_bpp, &palette332, cx, cy, data, cx * nb_bytes_per_pixel(source_bpp) * cy, false);
     RED_CHECK_EQUAL(24, bmp16.bmp_size());
 
     // TODO Check that: cx is now forced to be a multiple of 4 when creating bitmap, previous behaviour was only forcing line size to be aligned as a multiple of 4 (RDP constraint). See it has not effect on provided data and not other unwanted effect
     RED_CHECK_EQUAL(8, bmp16.line_size());
     RED_CHECK_EQUAL(4, bmp16.cx());
     RED_CHECK_EQUAL(cy, bmp16.cy());
-    RED_CHECK_EQUAL(16, bmp16.bpp());
+    RED_CHECK_EQUAL(BitsPerPixel{16}, bmp16.bpp());
 
-    uint16_t target_bpp = 24;
+    BitsPerPixel target_bpp{24};
     Bitmap bmp24(target_bpp, bmp16);
     RED_CHECK_EQUAL(36, bmp24.bmp_size());
     RED_CHECK_EQUAL(12, bmp24.line_size());
     RED_CHECK_EQUAL(4, bmp24.cx());
     RED_CHECK_EQUAL(cy, bmp24.cy());
-    RED_CHECK_EQUAL(24, bmp24.bpp());
+    RED_CHECK_EQUAL(BitsPerPixel{24}, bmp24.bpp());
 
     const uint8_t * outbuf = bmp24.data();
 
@@ -3693,31 +3644,31 @@ RED_AUTO_TEST_CASE(TestConvertBitmap2)
         0xc4, 0xad, 0xf8,   0x61, 0x6f, 0x32,   0xd6, 0x13, 0x61,   0xee, 0xb2, 0x7b,   0x81, 0x0f, 0x66
     };
 
-    Bitmap bmp24(24, 24, &palette332, 4, 5, raw24, sizeof(raw24));
+    Bitmap bmp24(BitsPerPixel{24}, BitsPerPixel{24}, &palette332, 4, 5, raw24, sizeof(raw24));
 
 
 
-    RED_CHECK_EQUAL(bmp24.bpp(), 24);
+    RED_CHECK_EQUAL(bmp24.bpp(), BitsPerPixel{24});
 
-    Bitmap bmp_24_to_24(24, bmp24);
-    Bitmap bmp_24_to_16(16, bmp24);
-    Bitmap bmp_24_to_15(15, bmp24);
-    Bitmap bmp_24_to_8(8, bmp24);
+    Bitmap bmp_24_to_24(BitsPerPixel{24}, bmp24);
+    Bitmap bmp_24_to_16(BitsPerPixel{16}, bmp24);
+    Bitmap bmp_24_to_15(BitsPerPixel{15}, bmp24);
+    Bitmap bmp_24_to_8(BitsPerPixel{8}, bmp24);
 
-    Bitmap bmp_16_to_24(24, bmp_24_to_16);
-    Bitmap bmp_16_to_16(16, bmp_24_to_16);
-    Bitmap bmp_16_to_15(15, bmp_24_to_16);
-    Bitmap bmp_16_to_8(8, bmp_24_to_16);
+    Bitmap bmp_16_to_24(BitsPerPixel{24}, bmp_24_to_16);
+    Bitmap bmp_16_to_16(BitsPerPixel{16}, bmp_24_to_16);
+    Bitmap bmp_16_to_15(BitsPerPixel{15}, bmp_24_to_16);
+    Bitmap bmp_16_to_8(BitsPerPixel{8}, bmp_24_to_16);
 
-    Bitmap bmp_15_to_24(24, bmp_24_to_15);
-    Bitmap bmp_15_to_16(16, bmp_24_to_15);
-    Bitmap bmp_15_to_15(15, bmp_24_to_15);
-    Bitmap bmp_15_to_8(8, bmp_24_to_15);
+    Bitmap bmp_15_to_24(BitsPerPixel{24}, bmp_24_to_15);
+    Bitmap bmp_15_to_16(BitsPerPixel{16}, bmp_24_to_15);
+    Bitmap bmp_15_to_15(BitsPerPixel{15}, bmp_24_to_15);
+    Bitmap bmp_15_to_8(BitsPerPixel{8}, bmp_24_to_15);
 
-    Bitmap bmp_8_to_24(24, bmp_24_to_8);
-    Bitmap bmp_8_to_16(16, bmp_24_to_8);
-    Bitmap bmp_8_to_15(15, bmp_24_to_8);
-    Bitmap bmp_8_to_8(8, bmp_24_to_8);
+    Bitmap bmp_8_to_24(BitsPerPixel{24}, bmp_24_to_8);
+    Bitmap bmp_8_to_16(BitsPerPixel{16}, bmp_24_to_8);
+    Bitmap bmp_8_to_15(BitsPerPixel{15}, bmp_24_to_8);
+    Bitmap bmp_8_to_8(BitsPerPixel{8}, bmp_24_to_8);
 
     RED_CHECK_SIG(bmp_24_to_24, "\xaa\x33\x05\x87\x63\x66\xc0\x9d\x89\x78\x00\xe7\x9b\x8f\x09\x2e\xbf\x06\x64\x74");
     RED_CHECK_SIG(bmp_24_to_16, "\xfd\x08\xc9\x9c\x81\x9f\xea\x1c\xc0\x95\xba\x62\x89\xb5\xbc\x2b\x09\x46\x6d\xb6");
@@ -3760,10 +3711,9 @@ RED_AUTO_TEST_CASE(TestConvertBitmap2)
     //dump_png("/tmp/rawdisk/8_8.png", bmp_8_to_8);
 }
 
-static int rle_bin_to_run_order(uint16_t image_width, uint8_t image_bpp, const uint8_t*image_data_p,
-        size_t image_data_size) {
-    LOG(LOG_INFO, "ImageWidth=%u ImageBPP=%u", image_width, image_bpp);
-
+static int rle_bin_to_run_order(
+    BitsPerPixel image_bpp, const uint8_t* image_data_p, size_t image_data_size
+) {
     const uint8_t* image_data_current_p = image_data_p;
     const uint8_t* image_data_end_p = image_data_p + image_data_size;
 
@@ -3804,8 +3754,6 @@ static int rle_bin_to_run_order(uint16_t image_width, uint8_t image_bpp, const u
 
     auto get_run_order = [&image_data_current_p]() -> RunOrder {
         uint8_t image_data_current = *(image_data_current_p++);
-        LOG(LOG_INFO, "image_data_current=0x%X", image_data_current);
-
         switch (image_data_current & 0xF0) {
             case 0xF0:
                 switch (image_data_current) {
@@ -3817,7 +3765,6 @@ static int rle_bin_to_run_order(uint16_t image_width, uint8_t image_bpp, const u
                     case CodeIdentifier::MEGA_MEGA_SET_FG_RUN:      // 0xF6
                     case CodeIdentifier::MEGA_MEGA_SET_FGBG_IMAGE:  // 0xF7
                     case CodeIdentifier::MEGA_MEGA_DITHERED_RUN:    // 0xF8
-                        LOG(LOG_INFO, "0x%02X 0x%02X", *image_data_current_p, *(image_data_current_p + 1));
                         return {
                                 true,
                                 static_cast<CodeIdentifier>(image_data_current),
@@ -3844,8 +3791,7 @@ static int rle_bin_to_run_order(uint16_t image_width, uint8_t image_bpp, const u
                             };
 
                     default:
-                        LOG(LOG_ERR, "rle_bin_to_run_order: Unknown Run Order(1) 0x%X", image_data_current);
-
+                        RED_CHECK(false);
                         return {
                                 false,
                                 static_cast<CodeIdentifier>(image_data_current),
@@ -3914,8 +3860,7 @@ static int rle_bin_to_run_order(uint16_t image_width, uint8_t image_bpp, const u
                     };
 
             default:
-                LOG(LOG_ERR, "rle_bin_to_run_order: Unknown Run Order(2) 0x%X", static_cast<unsigned>(image_data_current & 0xF0));
-
+                RED_CHECK(false);
                 return {
                         true,
                         static_cast<CodeIdentifier>(image_data_current),
@@ -3934,31 +3879,24 @@ static int rle_bin_to_run_order(uint16_t image_width, uint8_t image_bpp, const u
         switch (run_order.code_identifier)
         {
             case CodeIdentifier::REGULAR_COLOR_IMAGE:
-                LOG(LOG_INFO, "REGULAR_COLOR_IMAGE RunLength=%u", run_order.length);
-
-                image_data_current_p += nbbytes(image_bpp) * run_order.length;
+                image_data_current_p += nb_bytes_per_pixel(image_bpp) * run_order.length;
             break;
 
             case CodeIdentifier::REGULAR_FG_RUN:
-                LOG(LOG_INFO, "REGULAR_FG_RUN RunLength=%u", run_order.length);
             break;
 
             case CodeIdentifier::LITE_SET_FG_FG_RUN:
-                LOG(LOG_INFO, "LITE_SET_FG_FG_RUN RunLength=%u", run_order.length);
-
-                image_data_current_p += nbbytes(image_bpp);
+                image_data_current_p += nb_bytes_per_pixel(image_bpp);
             break;
 
             case CodeIdentifier::LITE_SET_FG_FGBG_IMAGE:
-                LOG(LOG_INFO, "LITE_SET_FG_FGBG_IMAGE RunLength=%u", run_order.length);
             break;
 
             case CodeIdentifier::MEGA_MEGA_BG_RUN:
-                LOG(LOG_INFO, "MEGA_MEGA_BG_RUN RunLength=%u", run_order.length);
             break;
 
             default:
-                LOG(LOG_ERR, "rle_bin_to_run_order: Unknown Run Order 0x%X (A)", run_order.code_identifier);
+                RED_CHECK(false);
                 break;
         }
     }
@@ -5403,7 +5341,7 @@ RED_AUTO_TEST_CASE(TestBitmapCompress2)
 /* 5970 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,                          // ............
     };
 
-    Bitmap ori_bmp(24, 24, nullptr, 332, 23, ori_bmp_data, 22908);
+    Bitmap ori_bmp(BitsPerPixel{24}, BitsPerPixel{24}, nullptr, 332, 23, ori_bmp_data, 22908);
 
     // {
     //     Drawable gd(1024, 768);
@@ -5416,17 +5354,17 @@ RED_AUTO_TEST_CASE(TestBitmapCompress2)
     // }
 
     StaticOutStream<65535> ori_bmp_comp_stream;
-    ori_bmp.compress(24, ori_bmp_comp_stream);
+    ori_bmp.compress(BitsPerPixel{24}, ori_bmp_comp_stream);
 
     {
         auto data_compressed = ori_bmp.data_compressed();
-        hexdump_d(data_compressed.data(), data_compressed.size());
+        // hexdump_d(data_compressed.data(), data_compressed.size());
 
-        rle_bin_to_run_order(ori_bmp.cx(), ori_bmp.bpp(), data_compressed.data(), data_compressed.size());
+        rle_bin_to_run_order(ori_bmp.bpp(), data_compressed.data(), data_compressed.size());
     }
 
     auto ori_bmp_data_compressed = ori_bmp.data_compressed();
-    Bitmap test_bmp(24, 24, nullptr, 332, 23, ori_bmp_data_compressed.data(), ori_bmp_data_compressed.size(), true);
+    Bitmap test_bmp(BitsPerPixel{24}, BitsPerPixel{24}, nullptr, 332, 23, ori_bmp_data_compressed.data(), ori_bmp_data_compressed.size(), true);
 
     // {
     //     Drawable gd(1024, 768);
@@ -5467,4 +5405,101 @@ RED_AUTO_TEST_CASE(TestBitmapConv)
     RED_CHECK_SIG(gd, "\x8d\xa7\x35\x7d\x14\x71\xe7\xc9\x8e\xfa\xf5\xaa\xbc\x22\x75\xaf\x40\xcf\x81\x65");
 
     // dump_png24("testbitmapconv.png", gd);
+}
+
+RED_AUTO_TEST_CASE(TestRM18446Bitmap)
+{
+    uint8_t raw_palette[] = {
+/* 0000 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0010 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0020 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0030 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0040 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0050 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0060 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0070 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0080 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0090 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 00a0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 00b0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 00c0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 00d0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 00e0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 00f0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0100 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0110 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0120 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0130 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0140 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0150 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0160 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0170 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0180 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0190 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 01a0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 01b0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 01c0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 01d0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 01e0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 01f0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0200 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0210 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0220 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0230 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0240 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0250 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0260 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0270 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0280 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0290 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 02a0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 02b0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 02c0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 02d0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 02e0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 02f0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0300 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0310 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0320 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0330 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0340 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0350 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0360 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0370 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0380 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 0390 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 03a0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 03b0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 03c0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 03d0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 03e0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+/* 03f0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
+    };
+    uint8_t raw_bitmap[] = {
+/* 0000 */ "\x0c\x96\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x51\x8c\x8e\x73" // ............Q..s
+/* 0010 */ "\x8e\x73\x8e\x73\x8e\x73\x8e\x73\x8e\x73\x6d\x6b\x6d\x6b\x6d\x6b" // .s.s.s.s.smkmkmk
+/* 0020 */ "\x6d\x6b\x30\x84\x30\x84\x30\x84\x00\x00\xd3\x9c\xf7\xbd\x6c\xba" // mk0.0.0.......l.
+/* 0030 */ "\xd6\x9f\xf7\xbd\x30\x84\xd3\x9c\xba\xd6\x92\x94\xcf\x7b\x92\x94" // ....0........{..
+/* 0040 */ "\xcf\x7b\xcf\x7b\xcf\x7b\xcf\x7b\xcf\x7b\xcf\x7b\x92\x94\xcf\x7b" // .{.{.{.{.{.{...{
+/* 0050 */ "\x92\x94\xba\xd6\x30\x84\xd3\x9c\xba\xd6\x92\x94\x7d\xef\x92\x94" // ....0.......}...
+/* 0060 */ "\x7d\xef\x7d\xef\x7d\xef\x7d\xef\x7d\xef\x7d\xef\x92\x94\x7d\xef" // }.}.}.}.}.}...}.
+/* 0070 */ "\x06\x81\xcf\x7b\xe5\xcf\x7b\x92\x94\x05\x81\x7d\xef\xe5\x7d\xef" // ...{..{....}..}.
+/* 0080 */ "\x92\x94\x05\x6b\x92\x94\x03\x81\xf7\xbd\xcc\x28\x42\x86\xf7\xbd" // ...k.......(B...
+/* 0090 */ "\x51\x8c\x00\x00\xd3\x9c\x30\x84\x51\x8c\xc9\x69\x4a\x87\x92\x94" // Q.....0.Q..iJ...
+/* 00a0 */ "\xd3\x9c\x00\x00\x00\x00\x00\x00\x92\x94\x14\xa5\x6f\x00\x00\x89" // ............o...
+/* 00b0 */ "\xd3\x9c\x14\xa5\x00\x00\x00\x00\x00\x00\x14\xa5\x14\xa5\x14\xa5" // ................
+/* 00c0 */ "\x14\xa5\x68\x00\x00\x89\x92\x94\xd3\x9c\x14\xa5\xd3\x9c\x92\x94" // ..h.............
+/* 00d0 */ "\x92\x94\x92\x94\x92\x94\xd3\x9c\x68\x00\x00\x89\x51\x8c\x92\x94" // ........h...Q...
+/* 00e0 */ "\x51\x8c\xb6\xb5\x00\x00\x00\x00\x00\x00\x51\x8c\x14\xa5\x6f\x00" // Q.........Q...o.
+/* 00f0 */ "\x00\x81\x51\x8c\x0e\x84\x00\x00\x00\x00\x00\x00\x00\x00\xbd\x02" // ..Q.............
+    };
+
+    const BGRPalette palette = make_bgr_palette_from_bgrx_array(raw_palette);
+
+    size_t adjusted_size = 0;
+
+    Bitmap bmp(BitsPerPixel{16}, BitsPerPixel{16}, &palette, 16, 16, raw_bitmap, sizeof(raw_bitmap), true, &adjusted_size);
+
+
+    RED_CHECK_EQUAL(254, adjusted_size);
 }

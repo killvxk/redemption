@@ -37,6 +37,8 @@
 #include <cassert>
 #include <cstring> // for memcpy, memset
 
+#include <sys/time.h> // timeval
+
 
 // using a template for default size of stream would make sense instead of always using the large buffer below
 enum {
@@ -83,6 +85,9 @@ public:
         return InStream(*this);
     }
 
+    const_bytes_view get_bytes() const noexcept {
+        return {this->get_data(), this->get_offset()};
+    }
 
     uint8_t const * get_data() const {
         return this->begin;
@@ -416,6 +421,10 @@ public:
         return  n <= this->tailroom();
     }
 
+    bytes_view get_bytes() const noexcept {
+        return {this->get_data(), this->get_offset()};
+    }
+
     uint8_t * get_data() const {
         return this->begin;
     }
@@ -733,7 +742,7 @@ public:
 
     void out_unistr(const uint8_t * text)
     {
-        const size_t len = UTF8toUTF16(text, this->p, this->tailroom());
+        const size_t len = UTF8toUTF16({text, strlen(char_ptr_cast(text))}, this->p, this->tailroom());
         this->p += len;
         this->out_clear_bytes(2);
     }
@@ -835,16 +844,6 @@ public:
         ER_CLASS_PRIV           = 0xC0  // 1 1
     };
 };
-
-inline array_view_const_u8 stream_to_avu8(OutStream & stream) noexcept
-{
-    return make_array_view(stream.get_data(), stream.get_offset());
-}
-
-inline array_view_const_char stream_to_avchar(OutStream & stream) noexcept
-{
-    return make_array_view(char_ptr_cast(stream.get_data()), stream.get_offset());
-}
 
 
 template<std::size_t N, class StreamBase>

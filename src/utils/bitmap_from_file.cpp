@@ -39,37 +39,46 @@
 #include "utils/sugar/unique_fd.hpp"
 #include "cxx/cxx.hpp"
 
-#include <png.h>
+#ifndef __EMSCRIPTEN__
+# include <png.h>
+#endif
 
 #include <cerrno>
 
 
 using std::size_t; /*NOLINT*/
 
-inline bool read_all(int fd, void * data_, std::size_t len)
+namespace
 {
-    unsigned char * data = static_cast<unsigned char *>(data_);
-    while (len) {
-        ssize_t const ret = ::read(fd, data, len);
-        if (ret <= 0) {
-            if (errno == EINTR) {
-                continue;
+    bool read_all(int fd, void * data_, std::size_t len)
+    {
+        unsigned char * data = static_cast<unsigned char *>(data_);
+        while (len) {
+            ssize_t const ret = ::read(fd, data, len);
+            if (ret <= 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                return false;
             }
-            return false;
+            len -= ret;
+            data += ret;
         }
-        len -= ret;
-        data += ret;
+        return true;
     }
-    return true;
-}
 
-
-inline Bitmap bitmap_from_bmp_without_sig(int fd, const char * filename);
-inline Bitmap bitmap_from_png_without_sig(int fd, const char * filename);
+    Bitmap bitmap_from_bmp_without_sig(int fd, const char * filename);
+#ifndef __EMSCRIPTEN__
+    Bitmap bitmap_from_png_without_sig(int fd, const char * filename);
+#endif
+} // namespace
 
 
 Bitmap bitmap_from_file_impl(const char * filename)
 {
+#ifdef __EMSCRIPTEN__
+    using png_byte = uint8_t;
+#endif
     png_byte type1[8];
 
     unique_fd file{filename, O_RDONLY};
@@ -93,10 +102,12 @@ Bitmap bitmap_from_file_impl(const char * filename)
         LOG(LOG_ERR, "Bitmap: error bitmap file [%s] read error", filename);
         return Bitmap{};
     }
+#ifndef __EMSCRIPTEN__
     if (png_sig_cmp(type1, 0, 8) == 0) {
         //LOG(LOG_INFO, "Bitmap: image file [%s] is PNG file\n", filename);
         return bitmap_from_png_without_sig(file.fd(), filename);
     }
+#endif
 
     LOG(LOG_ERR, "Bitmap: error bitmap file [%s] not BMP or PNG file\n", filename);
     return Bitmap{};
@@ -112,7 +123,9 @@ Bitmap bitmap_from_file(const char * filename)
     return load_error_bitmap();
 }
 
-
+namespace
+{
+#ifndef __EMSCRIPTEN__
 Bitmap bitmap_from_png_without_sig(int fd, const char * /*filename*/)
 {
     Bitmap bitmap;
@@ -207,7 +220,7 @@ Bitmap bitmap_from_png_without_sig(int fd, const char * /*filename*/)
 
     return bitmap;
 }
-
+#endif
 
 Bitmap bitmap_from_bmp_without_sig(int fd, const char * filename)
 {
@@ -331,7 +344,8 @@ Bitmap bitmap_from_bmp_without_sig(int fd, const char * filename)
 
     auto initializer_data = [&header, &bitmap](auto init_pixel_at) {
         Bitmap::PrivateData::Data & data
-          = Bitmap::PrivateData::initialize(bitmap, 24, header.image_width, header.image_height);
+          = Bitmap::PrivateData::initialize(
+              bitmap, BitsPerPixel{24}, header.image_width, header.image_height);
         const uint8_t Bpp = 3;
         uint8_t * dest = data.get();
         const size_t line_size = data.line_size();
@@ -391,7 +405,7 @@ Bitmap bitmap_from_bmp_without_sig(int fd, const char * filename)
 
     return bitmap;
 }
-
+} // namespace
 
 Bitmap load_error_bitmap()
 {
@@ -447,7 +461,7 @@ Bitmap load_error_bitmap()
     };
 
     Bitmap bitmap;
-    Bitmap::PrivateData::Data & data = Bitmap::PrivateData::initialize(bitmap, 24, 16, 16);
+    Bitmap::PrivateData::Data & data = Bitmap::PrivateData::initialize(bitmap, BitsPerPixel{24}, 16, 16);
     memcpy(data.get(), errorbmp, sizeof(errorbmp));
     return bitmap;
 }

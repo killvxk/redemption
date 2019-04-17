@@ -21,11 +21,13 @@
 */
 
 #define RED_TEST_MODULE TestCursor
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
+
+#include "gdi/graphic_api.hpp"
+#include "test_only/gdi/test_graphic.hpp"
 #include "test_only/check_sig.hpp"
 
 #include "utils/bitmap.hpp"
-#include "test_only/fake_graphic.hpp"
 
 #include "core/RDP/rdp_pointer.hpp"
 
@@ -461,7 +463,7 @@ RED_AUTO_TEST_CASE(TestPointerVNC_BW)
 
     // r31 rs<<11 g63 gs<<5 b31 bs<<0
 
-    Pointer vnccursor = pointer_loader_vnc(2, 12, 19, 0, 0, vncdata, vncmask, 11, 31, 5, 63, 0, 31);
+    Pointer vnccursor = pointer_loader_vnc(BytesPerPixel{2}, 12, 19, 0, 0, vncdata, vncmask, 11, 31, 5, 63, 0, 31);
 
     RED_CHECK_EQUAL(vnccursor.get_dimensions().width, 32);
     RED_CHECK_EQUAL(vnccursor.get_dimensions().height, 19);
@@ -824,7 +826,7 @@ RED_AUTO_TEST_CASE(TestPointerVNC_Color)
     std::vector<uint8_t> vncdata(data, sizeof(data) + data);
     std::vector<uint8_t> vncmask(mask, sizeof(mask) + mask);
 
-    Pointer vnccursor = pointer_loader_vnc(2, 23, 27, 0, 8, vncdata, vncmask, 11, 31, 5, 63, 0, 31);
+    Pointer vnccursor = pointer_loader_vnc(BytesPerPixel{2}, 23, 27, 0, 8, vncdata, vncmask, 11, 31, 5, 63, 0, 31);
 
     // When cursor Size is odd, then the next even width is used and mask is fixed accordingly to avoid some annoying border cases
     RED_CHECK_EQUAL(vnccursor.get_dimensions().width, 32);
@@ -855,36 +857,37 @@ RED_AUTO_TEST_CASE(TestPointerVNC_Color)
 
 }
 
-RED_AUTO_TEST_CASE(TestPointerIO)
-{
-        StaticOutStream<32+108*96> stream;
-        Pointer cursor = edit_pointer();
-
-        uint16_t width = cursor.get_dimensions().width;
-        uint16_t height = cursor.get_dimensions().height;
-
-        FakeGraphic drawable(24, width, height, 0);
-        auto const color_context = gdi::ColorCtx::depth24();
-        auto pixel_color = RDPColor::from(PINK);
-        Rect rect(0,0,width,height);
-        drawable.draw(RDPOpaqueRect(rect, pixel_color), rect, color_context);
-
-        auto av_xor = cursor.get_24bits_xor_mask();
-        Bitmap bmp(24, 24, nullptr, width, height, av_xor.data(), av_xor.size(), false);
-//        drawable.mem_blt(rect, bmp, 0, 0);
+// TEST re-enable
+// RED_AUTO_TEST_CASE(TestPointerIO)
+// {
+//         StaticOutStream<32+108*96> stream;
+//         Pointer cursor = edit_pointer();
 //
-//        drawable.save_to_png("./cursor.png");
-
-//        cursor.emit_pointer32x32(payload);
+//         uint16_t width = cursor.get_dimensions().width;
+//         uint16_t height = cursor.get_dimensions().height;
 //
-//        array_view_const_u8 av = {payload.get_data(), payload.get_offset()};
-
-//    StaticOutStream<8192> result;
+//         // TestGraphic drawable(width, height);
+//         auto const color_context = gdi::ColorCtx::depth24();
+//         auto pixel_color = RDPColor::from(PINK);
+//         Rect rect(0,0,width,height);
+//         // drawable->draw(RDPOpaqueRect(rect, pixel_color), rect, color_context);
 //
-//    cursor.emit(result);
-
-//    RED_CHECK_MEM(stream_to_avu8(result), make_array_view(data, sizeof(data)));
-}
+//         auto av_xor = cursor.get_24bits_xor_mask();
+//         // Bitmap bmp(BitsPerPixel{24}, BitsPerPixel{24}, nullptr, width, height, av_xor.data(), av_xor.size(), false);
+// //        drawable.mem_blt(rect, bmp, 0, 0);
+// //
+// //        drawable.save_to_png("./cursor.png");
+//
+// //        cursor.emit_pointer32x32(payload);
+// //
+// //        array_view_const_u8 av = {payload.get_data(), payload.get_offset()};
+//
+// //    StaticOutStream<8192> result;
+// //
+// //    cursor.emit(result);
+//
+// //    RED_CHECK_MEM(stream_to_avu8(result), make_array_view(data, sizeof(data)));
+// }
 
 RED_AUTO_TEST_CASE(TestPointer1bit)
 {
@@ -987,7 +990,7 @@ Mask For Cursor
     };
 
     InStream in_stream_cursor(buffer, sizeof(buffer));
-    Pointer cursor = pointer_loader_new(1, in_stream_cursor, BGRPalette::classic_332(), true);
+    Pointer cursor = pointer_loader_new(BitsPerPixel{1}, in_stream_cursor, BGRPalette::classic_332(), true);
 
     RED_CHECK_EQ(cursor.get_hotspot().x, 8);
     RED_CHECK_EQ(cursor.get_hotspot().y, 9);

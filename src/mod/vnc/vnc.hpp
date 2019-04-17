@@ -23,6 +23,8 @@ h
 
 #pragma once
 
+#include <cstdlib>
+
 #include "core/buf64k.hpp"
 #include "core/channel_list.hpp"
 #include "core/channel_names.hpp"
@@ -35,33 +37,45 @@ h
 #include "core/RDP/rdp_pointer.hpp"
 #include "core/report_message_api.hpp"
 #include "core/session_reactor.hpp"
+
+#include "gdi/screen_functions.hpp"
+
 #include "keyboard/keymap2.hpp"
 #include "keyboard/keymapSym.hpp"
 #include "main/version.hpp"
-#include "mod/internal/client_execute.hpp"
+#include "RAIL/client_execute.hpp"
 #include "mod/mod_api.hpp"
 #include "utils/diffiehellman.hpp"
 #include "utils/hexdump.hpp"
 #include "utils/d3des.hpp"
 #include "utils/key_qvalue_pairs.hpp"
 #include "utils/log.hpp"
+#include "utils/sugar/numerics/safe_conversions.hpp"
 #include "utils/sugar/update_lock.hpp"
-#include "utils/sugar/strutils.hpp"
 #include "utils/utf.hpp"
 #include "utils/verbose_flags.hpp"
 #include "utils/zlib.hpp"
-#include "mod/vnc/vnc_verbose.hpp"
 
-#include "mod/vnc/encoder/encoder_api.hpp"
-#include "mod/vnc/encoder/zrle.hpp"
-#include "mod/vnc/encoder/raw.hpp"
-#include "mod/vnc/encoder/rre.hpp"
 #include "mod/vnc/encoder/copyrect.hpp"
 #include "mod/vnc/encoder/cursor.hpp"
+#include "mod/vnc/encoder/encoder_api.hpp"
 #include "mod/vnc/encoder/hextile.hpp"
+#include "mod/vnc/encoder/raw.hpp"
+#include "mod/vnc/encoder/rre.hpp"
+#include "mod/vnc/encoder/zrle.hpp"
+#include "mod/vnc/newline_convert.hpp"
+#include "mod/vnc/vnc_params.hpp"
+#include "mod/vnc/vnc_verbose.hpp"
+#include "configs/config.hpp"
 
-#include <cstdlib>
 
+#ifndef __EMSCRIPTEN__
+# include "mod/vnc/vnc_metrics.hpp"
+# define IF_ENABLE_METRICS(m) do { if (this->metrics) this->metrics->m; } while (0)
+#else
+class VNCMetrics;
+# define IF_ENABLE_METRICS(m) do {} while(0)
+#endif
 
 // got extracts of VNC documentation from
 // http://tigervnc.sourceforge.net/cgi-bin/rfbproto
@@ -72,9 +86,9 @@ class mod_vnc : public mod_api
        static const uint32_t MAX_CLIPBOARD_DATA_SIZE = 1024 * 64;
 
     /* mod data */
-    char mod_name[256];
-    char username[256];
-    char password[256];
+    char mod_name[256] {0};
+    char username[256] {0};
+    char password[256] {0};
 
     FrontAPI& front;
 
@@ -102,7 +116,7 @@ public:
             StaticOutStream<12> stream;
             this->write(stream, this->mod_mouse_state | mask);
             this->write(stream, this->mod_mouse_state);
-            t.send(stream.get_data(), stream.get_offset());
+            t.send(stream.get_bytes());
         }
 
     private:
@@ -120,7 +134,7 @@ public:
         void send(Transport & t) const {
             StaticOutStream<6> stream;
             this->write(stream, this->mod_mouse_state);
-            t.send(stream.get_data(), stream.get_offset());
+            t.send(stream.get_bytes());
         }
     } mouse;
 
@@ -129,8 +143,9 @@ private:
 
     uint16_t width;
     uint16_t height;
-    uint8_t  bpp;
-    uint8_t  depth;
+    BitsPerPixel bpp {};
+    // TODO BytesPerPixel ?
+    uint8_t  depth = 0;
 
     uint8_t endianess;
     uint8_t true_color_flag;
@@ -150,7 +165,7 @@ private:
     KeymapSym  keymapSym;
 
     StaticOutStream<MAX_CLIPBOARD_DATA_SIZE> to_vnc_clipboard_data;
-    uint32_t to_vnc_clipboard_data_size;
+    uint32_t to_vnc_clipboard_data_size = 0;
     uint32_t to_vnc_clipboard_data_remaining;
 
     const bool enable_clipboard_up;   // true clipboard available, false clipboard unavailable
@@ -183,7 +198,7 @@ public:
 private:
     std::string encodings;
 
-    VncState state;
+    VncState state = WAIT_SECURITY_TYPES;
 
     bool left_ctrl_pressed = false;
 
@@ -197,6 +212,7 @@ private:
     ReportMessageApi & report_message;
     time_t beginning;
     bool server_is_apple;
+    bool remove_server_alt_state_for_char;
     int keylayout;
     ClientExecute* client_execute = nullptr;
     Zdecompressor<> zd;
@@ -205,12 +221,19 @@ private:
     SessionReactor::GraphicFdPtr fd_event;
     SessionReactor::GraphicEventPtr wait_client_up_and_running_event;
 
+    ModVncVariables vars;
+
+#ifndef __EMSCRIPTEN__
+    VNCMetrics * metrics;
+#endif
+
 public:
     mod_vnc( Transport & t
            , SessionReactor& session_reactor
            , const char * username
            , const char * password
            , FrontAPI & front
+           // TODO: front width and front height should be provided through info
            , uint16_t front_width
            , uint16_t front_height
            , int keylayout
@@ -222,32 +245,33 @@ public:
            , VncBogusClipboardInfiniteLoop bogus_clipboard_infinite_loop
            , ReportMessageApi & report_message
            , bool server_is_apple
+           , bool remove_server_alt_state_for_char
            , ClientExecute* client_execute
+           , ModVncVariables vars
            , VNCVerbose verbose
+           , [[maybe_unused]] VNCMetrics * metrics
            )
-    : mod_name{0}
-    , username{0}
-    , password{0}
-    , front(front)
+    : front(front)
     , t(t)
     , width(front_width)
     , height(front_height)
-    , bpp(0)
-    , depth(0)
     , verbose(verbose)
-    , keymapSym(static_cast<uint32_t>(verbose))
-    , to_vnc_clipboard_data_size(0)
+    , keymapSym(static_cast<uint32_t>(verbose & VNCVerbose::keymap))
     , enable_clipboard_up(clipboard_up)
     , enable_clipboard_down(clipboard_down)
     , encodings(encodings)
-    , state(WAIT_SECURITY_TYPES)
     , clipboard_server_encoding_type(clipboard_server_encoding_type)
     , bogus_clipboard_infinite_loop(bogus_clipboard_infinite_loop)
     , report_message(report_message)
     , server_is_apple(server_is_apple)
+    , remove_server_alt_state_for_char(remove_server_alt_state_for_char)
     , keylayout(keylayout)
     , client_execute(client_execute)
     , session_reactor(session_reactor)
+    , vars(vars)
+    #ifndef __EMSCRIPTEN__
+    , metrics(metrics)
+    #endif
     , frame_buffer_update_ctx(this->zd, verbose)
     , clipboard_data_ctx(verbose)
     {
@@ -576,7 +600,8 @@ public:
         out_stream.out_copy_bytes(cp_username, 256);
         out_stream.out_copy_bytes(cp_password, 64);
 
-        this->t.send(out_stream.get_data(), out_stream.get_offset());
+        this->t.send(out_stream.get_bytes());
+        IF_ENABLE_METRICS(data_from_client(out_stream.get_offset()));
         // sec result
 
         return true;
@@ -738,7 +763,7 @@ public:
             InStream stream(buf.av(sz));
             vnc.width = stream.in_uint16_be();
             vnc.height = stream.in_uint16_be();
-            vnc.bpp    = stream.in_uint8();
+            vnc.bpp    = safe_int(stream.in_uint8());
             vnc.depth  = stream.in_uint8();
             vnc.endianess = stream.in_uint8();
             vnc.true_color_flag = stream.in_uint8();
@@ -788,7 +813,13 @@ public:
         // set almost null cursor, this is the little dot cursor
         drawable.set_pointer(dot_pointer());
 
-        this->report_message.log5("type=\"SESSION_ESTABLISHED_SUCCESSFULLY\"");
+        ArcsightLogInfo arc_info;
+        arc_info.name = "SESSION_ESTABLISHED";
+        arc_info.signatureID = ArcsightLogInfo::SESSION_ESTABLISHED;
+        arc_info.ApplicationProtocol = "vnc";
+        arc_info.WallixBastionStatus = "SUCCESS";
+
+        this->report_message.log6("type=\"SESSION_ESTABLISHED_SUCCESSFULLY\"", arc_info, this->session_reactor.get_current_time());
 
         Rect const screen_rect(0, 0, this->width, this->height);
 
@@ -809,9 +840,9 @@ public:
 
         RDPECLIP::GeneralCapabilitySet general_caps(
             RDPECLIP::CB_CAPS_VERSION_1,
-            this->server_use_long_format_names?RDPECLIP::CB_USE_LONG_FORMAT_NAMES:0);
+            (this->server_use_long_format_names ? RDPECLIP::CB_USE_LONG_FORMAT_NAMES : 0));
 
-        if (bool(this->verbose & VNCVerbose::basic_trace)) {
+        if (bool(this->verbose & VNCVerbose::clipboard)) {
             if (this->server_use_long_format_names){
                 LOG(LOG_INFO, "Server use long format name");
             }
@@ -820,23 +851,24 @@ public:
             }
         }
 
-        RDPECLIP::ClipboardCapabilitiesPDU clip_cap_pdu(
-                1,
-                RDPECLIP::GeneralCapabilitySet::size()
-            );
+        RDPECLIP::ClipboardCapabilitiesPDU clip_cap_pdu(1);
+
+        RDPECLIP::CliprdrHeader clip_header(RDPECLIP::CB_CLIP_CAPS, 0,
+            clip_cap_pdu.size() + general_caps.size());
 
         StaticOutStream<1024> out_s;
 
+        clip_header.emit(out_s);
         clip_cap_pdu.emit(out_s);
         general_caps.emit(out_s);
 
         size_t length     = out_s.get_offset();
         size_t chunk_size = length;
 
-        if (bool(this->verbose & VNCVerbose::basic_trace)) {
+        if (bool(this->verbose & VNCVerbose::clipboard)) {
             LOG(LOG_INFO, "mod_vnc server clipboard PDU: msgType=%s(%d)",
-                RDPECLIP::get_msgType_name(clip_cap_pdu.header.msgType()),
-                clip_cap_pdu.header.msgType()
+                RDPECLIP::get_msgType_name(clip_header.msgType()),
+                clip_header.msgType()
                 );
         }
 
@@ -849,18 +881,20 @@ public:
                                    );
 
         RDPECLIP::ServerMonitorReadyPDU server_monitor_ready_pdu;
+        RDPECLIP::CliprdrHeader         header(RDPECLIP::CB_MONITOR_READY, RDPECLIP::CB_RESPONSE__NONE_, server_monitor_ready_pdu.size());
 
         out_s.rewind();
 
+        header.emit(out_s);
         server_monitor_ready_pdu.emit(out_s);
 
         length     = out_s.get_offset();
         chunk_size = length;
 
-        if (bool(this->verbose & VNCVerbose::basic_trace)) {
+        if (bool(this->verbose & VNCVerbose::clipboard)) {
             LOG(LOG_INFO, "mod_vnc server clipboard PDU: msgType=%s(%d)",
-                RDPECLIP::get_msgType_name(server_monitor_ready_pdu.header.msgType()),
-                server_monitor_ready_pdu.header.msgType()
+                RDPECLIP::get_msgType_name(header.msgType()),
+                header.msgType()
                 );
         }
 
@@ -881,12 +915,15 @@ public:
 
         if (device_flags & MOUSE_FLAG_MOVE) {
             this->mouse.move(this->t, x, y);
+            IF_ENABLE_METRICS(mouse_move(x, y));
         }
         else if (device_flags & MOUSE_FLAG_BUTTON1) {
             this->mouse.click(this->t, x, y, 1 << 0, device_flags & MOUSE_FLAG_DOWN);
+            IF_ENABLE_METRICS(right_click());
         }
         else if (device_flags & MOUSE_FLAG_BUTTON2) {
             this->mouse.click(this->t, x, y, 1 << 2, device_flags & MOUSE_FLAG_DOWN);
+            IF_ENABLE_METRICS(left_click());
         }
         else if (device_flags & MOUSE_FLAG_BUTTON3) {
             this->mouse.click(this->t, x, y, 1 << 1, device_flags & MOUSE_FLAG_DOWN);
@@ -915,6 +952,8 @@ public:
             LOG(LOG_INFO, "mod_vnc::rdp_input_scancode(device_flags=%ld, param1=%ld)", device_flags, param1);
         }
 
+        IF_ENABLE_METRICS(key_pressed());
+
         if (0x45 == param1) {
             this->keymapSym.toggle_num_lock(keymap->is_num_locked());
         }
@@ -934,21 +973,40 @@ public:
 
     void keyMapSym_event(int device_flags, long param1, uint8_t downflag) {
         this->keymapSym.event(device_flags, param1);
-        int key = this->keymapSym.get_sym();
+        uint32_t const key {this->keymapSym.get_sym()};
 
         if (key > 0) {
+            if (this->remove_server_alt_state_for_char && this->keymapSym.is_right_alt_pressed()
+             && (key == '#'
+              || key == '{'
+              || key == '['
+              || key == '|'
+              || key == '`'
+              || key == '\\'
+              || key == '^'
+              || key == '@'
+              || key == ']'
+              || key == '}'
+            )) {
+                this->send_keyevent(KeymapSym::VNC_KBDFLAGS_RELEASE, KeymapSym::VNC_RIGHT_ALT);
+                this->send_keyevent(downflag, key);
+                this->send_keyevent(KeymapSym::VNC_KBDFLAGS_DOWN, KeymapSym::VNC_RIGHT_ALT);
+
+            } else
             if (this->left_ctrl_pressed) {
+
                 if (key == 0xfe03) {
                     // alt gr => left ctrl is ignored
                     this->send_keyevent(downflag, key);
                 }
                 else {
-                    this->send_keyevent(1, 0xffe3);
+                    // TODO magic number
+                    this->send_keyevent(1, KeymapSym::VNC_LEFT_CTRL);
                     this->send_keyevent(downflag, key);
                 }
                 this->left_ctrl_pressed = false;
             }
-            else if (!((key == 0xffe3) && downflag)) {
+            else if (!((key == KeymapSym::VNC_LEFT_CTRL) && downflag)) {
                 this->send_keyevent(downflag, key);
             }
             else {
@@ -967,7 +1025,9 @@ public:
         stream.out_uint8(down_flag); /* down/up flag */
         stream.out_clear_bytes(2);
         stream.out_uint32_be(key);
-        this->t.send(stream.get_data(), stream.get_offset());
+        this->t.send(stream.get_bytes());
+        IF_ENABLE_METRICS(data_from_client(stream.get_offset()));
+
     }
 
     void apple_keyboard_translation(int device_flags, long param1, uint8_t downflag) {
@@ -1192,12 +1252,14 @@ protected:
         stream.out_copy_bytes(data, length);      // text
 
         this->t.send(stream.get_data(), (length + 8));
+        IF_ENABLE_METRICS(data_from_client(stream.get_offset()));
 
         this->event.set(1000);
     } // rdp_input_clip_data
 */
 
     void rdp_input_clip_data(uint8_t * data, size_t data_length) {
+
         auto client_cut_text = [this](char * str) {
             ::in_place_windows_to_linux_newline_convert(str);
             size_t const str_len = ::strlen(str);
@@ -1210,7 +1272,9 @@ protected:
             stream.out_uint32_be(str_len);          // length
             stream.out_copy_bytes(str, str_len);    // text
 
-            this->t.send(stream.get_data(), stream.get_offset());
+            this->t.send(stream.get_bytes());
+            IF_ENABLE_METRICS(data_from_client(stream.get_offset()));
+            IF_ENABLE_METRICS(clipboard_data_from_client(this->to_vnc_clipboard_data.get_offset()));
         };
 
         if (this->state == UP_AND_RUNNING) {
@@ -1295,7 +1359,8 @@ private:
         stream.out_uint16_be(r.y);
         stream.out_uint16_be(r.cx);
         stream.out_uint16_be(r.cy);
-        this->t.send(stream.get_data(), stream.get_offset());
+        this->t.send(stream.get_bytes());
+        IF_ENABLE_METRICS(data_from_client(stream.get_offset()));
     } // update_screen
 
 public:
@@ -1500,7 +1565,7 @@ protected:
                 switch (this->message_type)
                 {
                     case VNC_SC_MSG_FRAMEBUFFER_UPDATE: /* framebuffer update */
-                        vnc.frame_buffer_update_ctx.start(vnc.bpp, nbbytes(vnc.bpp));
+                        vnc.frame_buffer_update_ctx.start(vnc.bpp, to_bytes_per_pixel(vnc.bpp));
                         this->state = State::FrameBufferupdate;
                         return vnc.lib_frame_buffer_update(drawable, buf);
                     case VNC_SC_MSG_SET_COLOUR_MAP_ENTRIES: /* palette */
@@ -1548,11 +1613,17 @@ public:
 
         this->server_data_buf.read_from(this->t);
 
+        [[maybe_unused]]
+        uint64_t const data_server_before = this->server_data_buf.remaining();
+
         while (this->draw_event_impl(gd)) {
         }
 
+        uint64_t const data_server_after = this->server_data_buf.remaining();
+        IF_ENABLE_METRICS(data_from_server(data_server_before - data_server_after));
+
         if (bool(this->verbose & VNCVerbose::draw_event)) {
-            LOG(LOG_INFO, "Remaining in buffer : %u", this->server_data_buf.remaining());
+            LOG(LOG_INFO, "Remaining in buffer : %" PRIu64, data_server_after);
         }
 
         this->check_timeout();
@@ -1612,6 +1683,7 @@ private:
                 this->server_data_buf.advance(protocol_version_len);
 
                 this->t.send("RFB 003.003\n", 12);
+                IF_ENABLE_METRICS(data_from_client(12));
                 // sec type
 
                 this->state = WAIT_SECURITY_TYPES_LEVEL;
@@ -1676,6 +1748,7 @@ private:
                     LOG(LOG_INFO, "Sending Password");
                 }
                 this->t.send(random_buf, 16);
+                IF_ENABLE_METRICS(data_from_client(16));
             }
             this->state = WAIT_SECURITY_TYPES_PASSWORD_AND_SERVER_RANDOM_RESPONSE;
             REDEMPTION_CXX_FALLTHROUGH;
@@ -1760,6 +1833,7 @@ private:
 
         case SERVER_INIT:
             this->t.send("\x01", 1); // share flag
+            IF_ENABLE_METRICS(data_from_client(1));
             this->state = SERVER_INIT_RESPONSE;
             REDEMPTION_CXX_FALLTHROUGH;
 
@@ -1861,9 +1935,10 @@ private:
                     "\0\0\0"; // padding      : 3 bytes
 
                 stream.out_copy_bytes(pixel_format, 16);
-                this->t.send(stream.get_data(), stream.get_offset());
+                this->t.send(stream.get_bytes());
+                IF_ENABLE_METRICS(data_from_client(stream.get_offset()));
 
-                this->bpp = 16;
+                this->bpp = BitsPerPixel{16};
                 this->depth  = 16;
                 this->endianess = 0;
                 this->true_color_flag = 1;
@@ -1986,7 +2061,10 @@ private:
                     stream.out_uint32_be(CURSOR_PSEUDO_ENCODING);
                 }   // (-239) cursor
 
-                this->t.send(stream.get_data(), 4 + number_of_encodings * 4);
+                assert(4u + number_of_encodings * 4u == stream.get_offset());
+
+                this->t.send(stream.get_data(), 4u + number_of_encodings * 4u);
+                IF_ENABLE_METRICS(data_from_client(stream.get_offset()));
             }
 
 
@@ -2050,7 +2128,7 @@ private:
             //LOG(LOG_INFO,
             //    "usnow=%llu clipboard_last_client_data_timestamp=%llu timeval_diff=%llu",
             //    usnow, this->clipboard_last_client_data_timestamp, timeval_diff);
-            if (bool(this->verbose & VNCVerbose::basic_trace)) {
+            if (bool(this->verbose & VNCVerbose::clipboard)) {
                 LOG(LOG_INFO,
                     "mod_vnc server clipboard PDU: msgType=CB_FORMAT_DATA_REQUEST(%u) (time)",
                     RDPECLIP::CB_FORMAT_DATA_REQUEST);
@@ -2060,8 +2138,10 @@ private:
             // 04 00 00 00 04 00 00 00 0? 00 00 00
             // 00 00 00 00
             RDPECLIP::FormatDataRequestPDU format_data_request_pdu(this->clipboard_requested_format_id);
+            RDPECLIP::CliprdrHeader format_data_request_header(RDPECLIP::CB_FORMAT_DATA_REQUEST, RDPECLIP::CB_RESPONSE__NONE_, format_data_request_pdu.size());
             StaticOutStream<256>           out_s;
 
+            format_data_request_header.emit(out_s);
             format_data_request_pdu.emit(out_s);
 
             size_t length     = out_s.get_offset();
@@ -2113,7 +2193,7 @@ private:
 //            inflateEnd(&this->zstrm);
 //        }
 
-        void start(uint8_t bpp, uint8_t Bpp)
+        void start(BitsPerPixel bpp, BytesPerPixel Bpp)
         {
             this->bpp = bpp;
             this->Bpp = Bpp;
@@ -2214,29 +2294,37 @@ private:
 
                         switch (this->encoding){
                         case COPYRECT_ENCODING:  /* raw */
-                            this->encoder = new VNC::Encoder::CopyRect(this->bpp, this->Bpp, this->x, this->y, this->cx, this->cy, vnc.width, vnc.height, vnc.verbose);
-                        break;
+                            this->encoder = VNC::Encoder::copy_rect_encoder(
+                                Rect(this->x, this->y, this->cx, this->cy),
+                                vnc.width, vnc.height);
+                            break;
                         case HEXTILE_ENCODING:  /* hextile */
-                            this->encoder = new VNC::Encoder::Hextile(this->bpp, this->Bpp, this->x, this->y, this->cx, this->cy, vnc.verbose);
-                        break;
+                            this->encoder = VNC::Encoder::hextile_encoder(
+                                this->bpp, this->Bpp, Rect(this->x, this->y, this->cx, this->cy),
+                                vnc.verbose);
+                            break;
                         case CURSOR_PSEUDO_ENCODING:  /* cursor */
-                            this->encoder = new VNC::Encoder::Cursor(this->bpp, this->Bpp, this->x, this->y, this->cx, this->cy,
-                                                                     vnc.red_shift, vnc.red_max, vnc.green_shift, vnc.green_max, vnc.blue_shift, vnc.blue_max,
-                                                                     vnc.verbose);
-                        break;
+                            this->encoder = VNC::Encoder::cursor_encoder(
+                                this->Bpp, Rect(this->x, this->y, this->cx, this->cy),
+                                vnc.red_shift, vnc.red_max, vnc.green_shift, vnc.green_max,
+                                vnc.blue_shift, vnc.blue_max, vnc.verbose);
+                            break;
                         case RAW_ENCODING:  /* raw */
-                            this->encoder = new VNC::Encoder::Raw(this->bpp, this->Bpp, this->x, this->y, this->cx, this->cy, vnc.verbose);
-                        break;
+                            this->encoder = VNC::Encoder::raw_encoder(
+                                this->bpp, this->Bpp, Rect(this->x, this->y, this->cx, this->cy));
+                            break;
                         case ZRLE_ENCODING: /* ZRLE */
-                            this->encoder = new VNC::Encoder::Zrle(this->bpp, this->Bpp, Rect(this->x, this->y, this->cx, this->cy), this->zd, vnc.verbose);
-                        break;
+                            this->encoder = VNC::Encoder::zrle_encoder(
+                                this->bpp, this->Bpp, Rect(this->x, this->y, this->cx, this->cy),
+                                this->zd, vnc.verbose);
+                            break;
                         case RRE_ENCODING: /* RRE */
-                            this->encoder = new VNC::Encoder::RRE(this->bpp, this->Bpp, this->x, this->y, this->cx, this->cy, vnc.verbose);
+                            this->encoder = VNC::Encoder::rre_encoder(
+                                this->bpp, this->Bpp, Rect(this->x, this->y, this->cx, this->cy));
                             break;
                         default:
                             LOG(LOG_ERR, "unexpected VNC encoding %d", encoding);
                             throw Error(ERR_VNC_UNEXPECTED_ENCODING_IN_LIB_FRAME_BUFFER);
-                        break;
                         }
                         buf.advance(sz);
                         // Note: it is important to immediately call State::Data as in some cases there won't be
@@ -2255,13 +2343,13 @@ private:
                                 throw Error(ERR_VNC);
                             }
                         }
-                        if (encoder == nullptr){
+                        if (!bool(this->encoder)){
                             LOG(LOG_ERR, "Call to vnc::mod with null encoder");
                             throw Error(ERR_VNC);
                         }
 
                         // Pre Assertion: we have an encoder
-                        switch (encoder->consume(buf, drawable)){
+                        switch (encoder(buf, drawable)){
                             case VNC::Encoder::EncoderState::Ready:
                                 r = Result::ok(State::Data);
                                 this->last = VNC::Encoder::EncoderState::Ready;
@@ -2272,12 +2360,11 @@ private:
                                 this->last = VNC::Encoder::EncoderState::NeedMoreData;
                             break;
                             case VNC::Encoder::EncoderState::Exit:
-                            // consume returns true if encoder is finished (ready to be resetted)
-                            r = Result::ok(State::Encoding);
-                            delete encoder;
-                            encoder = nullptr;
-                            this->last = VNC::Encoder::EncoderState::NeedMoreData;
-                            break;
+                                // consume returns true if encoder is finished (ready to be resetted)
+                                r = Result::ok(State::Encoding);
+                                encoder = nullptr;
+                                this->last = VNC::Encoder::EncoderState::NeedMoreData;
+                                break;
                         }
                     }
                 }
@@ -2289,8 +2376,8 @@ private:
         }
 
     private:
-        uint8_t bpp;
-        uint8_t Bpp;
+        BitsPerPixel bpp;
+        BytesPerPixel Bpp;
 
         State state;
 
@@ -2302,7 +2389,7 @@ private:
         uint16_t cy;
         int32_t encoding;
 
-        VNC::Encoder::EncoderApi * encoder = nullptr;
+        VNC::Encoder::Encoder encoder;
 
         Zdecompressor<> & zd;
 
@@ -2455,7 +2542,9 @@ private:
         if (channel) {
             // Monitor ready PDU send to front
             RDPECLIP::ServerMonitorReadyPDU server_monitor_ready_pdu;
-            StaticOutStream<64>             out_s;
+            RDPECLIP::CliprdrHeader         header(RDPECLIP::CB_MONITOR_READY, RDPECLIP::CB_RESPONSE__NONE_, server_monitor_ready_pdu.size());
+
+            StaticOutStream<64> out_s;
 
 /*
             //- Beginning of clipboard PDU Header ----------------------------
@@ -2469,14 +2558,14 @@ private:
             out_s.mark_end();
 */
 
+            header.emit(out_s);
             server_monitor_ready_pdu.emit(out_s);
 
-            size_t length     = out_s.get_offset();
-            size_t chunk_size = length;
+            size_t chunk_size = out_s.get_offset();
 
             this->send_to_front_channel( channel_names::cliprdr
                                        , out_s.get_data()
-                                       , length
+                                       , chunk_size // total size is chunk size
                                        , chunk_size
                                        ,   CHANNELS::CHANNEL_FLAG_FIRST
                                          | CHANNELS::CHANNEL_FLAG_LAST
@@ -2676,30 +2765,39 @@ private:
         }
 
         if (this->clipboard_data_ctx.clipboard_is_enabled()) {
-            if (bool(this->verbose & VNCVerbose::basic_trace)) {
+            if (bool(this->verbose & VNCVerbose::clipboard)) {
                 LOG(LOG_INFO,
                     "mod_vnc::lib_clip_data: Sending Format List PDU (%u) to client.",
                     RDPECLIP::CB_FORMAT_LIST);
             }
 
-            RDPECLIP::FormatListPDU format_list_pdu;
-            StaticOutStream<256>    out_s;
+            // TODO: very suspicious: if data is utf8 encoded then it is not 16 bits unicode text
+            RDPECLIP::FormatListPDUEx format_list_pdu;
+            format_list_pdu.add_format_name(
+                    this->clipboard_data_ctx.clipboard_data_is_utf8_encoded() ?
+                        RDPECLIP::CF_UNICODETEXT :
+                        RDPECLIP::CF_TEXT
+                );
 
-            format_list_pdu.emit_ex(
-                out_s,
-                this->clipboard_data_ctx.clipboard_data_is_utf8_encoded()
-            );
+            const bool use_long_format_names = false;
+            const bool in_ASCII_8 = format_list_pdu.will_be_sent_in_ASCII_8(use_long_format_names);
 
-            size_t length     = out_s.get_offset();
-            size_t chunk_size = std::min<size_t>(length, CHANNELS::CHANNEL_CHUNK_LENGTH);
+            RDPECLIP::CliprdrHeader clipboard_header(RDPECLIP::CB_FORMAT_LIST,
+                RDPECLIP::CB_RESPONSE__NONE_ | (in_ASCII_8 ? RDPECLIP::CB_ASCII_NAMES : 0),
+                format_list_pdu.size(use_long_format_names));
 
-            this->send_to_front_channel(
-                channel_names::cliprdr,
-                out_s.get_data(),
-                length,
-                chunk_size,
-                CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_LAST
-            );
+            StaticOutStream<256> out_s;
+
+            clipboard_header.emit(out_s);
+            format_list_pdu.emit(out_s, use_long_format_names);
+
+            const size_t totalLength = out_s.get_offset();
+            this->send_to_front_channel(channel_names::cliprdr,
+                    out_s.get_data(),
+                    totalLength,
+                    totalLength,
+                    CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_LAST
+                );
 
             this->clipboard_owned_by_client = false;
 
@@ -2714,9 +2812,10 @@ private:
         return true;
     } // lib_clip_data
 
+private:
     void send_to_front_channel(
         CHANNELS::ChannelNameId mod_channel_name,
-        uint8_t const * data, size_t length, size_t chunk_size, int flags) override
+        uint8_t const * data, size_t length, size_t chunk_size, int flags)
     {
         if (bool(this->verbose & VNCVerbose::basic_trace)) {
             LOG(LOG_INFO, "mod_vnc::send_to_front_channel");
@@ -2726,9 +2825,11 @@ private:
             this->front.get_channel_list().get_by_name(mod_channel_name);
         if (front_channel) {
             this->front.send_to_channel(*front_channel, data, length, chunk_size, flags);
+            IF_ENABLE_METRICS(clipboard_data_from_client(chunk_size));
         }
     }
 
+public:
     void send_to_mod_channel(
         CHANNELS::ChannelNameId front_channel_name,
         InStream & chunk,
@@ -2745,7 +2846,7 @@ private:
         }
 
         if (front_channel_name == channel_names::cliprdr) {
-            this->clipboard_send_to_vnc(chunk, length, flags);
+            this->clipboard_send_to_vnc_server(chunk, length, flags);
         }
         if (bool(this->verbose & VNCVerbose::basic_trace)) {
             LOG(LOG_INFO, "mod_vnc::send_to_mod_channel done");
@@ -2753,10 +2854,51 @@ private:
     } // send_to_mod_channel
 
 private:
-    void clipboard_send_to_vnc(InStream & chunk, size_t length, uint32_t flags)
+    void send_clipboard_pdu_to_front(const OutStream & out_stream)
+    {
+        // Send clipboard as a train of consecutive PDU
+        size_t pdu_data_length           = out_stream.get_offset();
+        size_t remaining_pdu_data_length = pdu_data_length;
+        uint8_t * chunk_data = out_stream.get_data();
+
+        int send_flags =
+            (CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_SHOW_PROTOCOL);
+
+        do {
+            const size_t chunk_size = std::min<size_t>(
+                    CHANNELS::CHANNEL_CHUNK_LENGTH,
+                    remaining_pdu_data_length
+                );
+
+            remaining_pdu_data_length -= chunk_size;
+
+            if (!remaining_pdu_data_length) {
+                send_flags |= CHANNELS::CHANNEL_FLAG_LAST;
+            }
+
+            this->send_to_front_channel(channel_names::cliprdr,
+                                        chunk_data,
+                                        pdu_data_length,
+                                        chunk_size,
+                                        send_flags
+                                       );
+            if (bool(this->verbose & VNCVerbose::clipboard)) {
+                LOG(LOG_INFO,
+                    "mod_vnc server clipboard PDU: msgType=CB_FORMAT_DATA_RESPONSE(%u) - chunk_size=%zu",
+                    RDPECLIP::CB_FORMAT_DATA_RESPONSE, chunk_size);
+            }
+
+            send_flags &= ~CHANNELS::CHANNEL_FLAG_FIRST;
+
+            chunk_data += chunk_size;
+        }
+        while (remaining_pdu_data_length);
+    }
+
+    void clipboard_send_to_vnc_server(InStream & chunk, size_t length, uint32_t flags)
     {
         if (bool(this->verbose & VNCVerbose::basic_trace)) {
-            LOG( LOG_INFO, "mod_vnc::clipboard_send_to_vnc:"
+            LOG( LOG_INFO, "mod_vnc::clipboard_send_to_vnc_server:"
                            " length=%zu chunk_size=%zu flags=0x%08X"
                , length, chunk.get_capacity(), flags);
         }
@@ -2801,56 +2943,58 @@ private:
 
         // specific treatement depending on msgType
         RDPECLIP::RecvPredictor rp(chunk);
-        uint16_t msgType = rp.msgType;
+        uint16_t msgType = rp.msgType();
 
         if ((flags & CHANNELS::CHANNEL_FLAG_FIRST) == 0) {
             msgType = RDPECLIP::CB_CHUNKED_FORMAT_DATA_RESPONSE;
             // msgType read is not a msgType, it's a part of data.
         }
 
-        if (bool(this->verbose & VNCVerbose::basic_trace)) {
+        if (bool(this->verbose & VNCVerbose::clipboard)) {
             LOG(LOG_INFO, "mod_vnc client clipboard PDU: msgType=%s(%d)",
                 RDPECLIP::get_msgType_name(msgType), msgType);
         }
 
         switch (msgType) {
             case RDPECLIP::CB_FORMAT_LIST: {
+                RDPECLIP::CliprdrHeader incoming_header;
+                incoming_header.recv(chunk);
+                if (bool(this->verbose & VNCVerbose::clipboard)) {
+                    incoming_header.log(LOG_INFO);
+                }
+
                 // Client notify that a copy operation have occured.
                 // Two operations should be done :
                 //  - Always: send a RDP acknowledge (CB_FORMAT_LIST_RESPONSE)
                 //  - Only if clipboard content formats list include "UNICODETEXT:
                 // send a request for it in that format
-                RDPECLIP::FormatListPDU format_list_pdu;
+                RDPECLIP::FormatListPDUEx format_list_pdu;
+                format_list_pdu.recv(chunk, this->client_use_long_format_names,
+                    (incoming_header.msgFlags() & RDPECLIP::CB_ASCII_NAMES));
 
-                if (!this->client_use_long_format_names) {
-                    format_list_pdu.recv(chunk);
-                }
-                else {
-                    format_list_pdu.recv_long(chunk);
+                if (bool(this->verbose & VNCVerbose::clipboard)) {
+                    format_list_pdu.log(LOG_INFO);
                 }
 
                 //---- Beginning of clipboard PDU Header ----------------------------
 
-                if (bool(this->verbose & VNCVerbose::basic_trace)) {
+                if (bool(this->verbose & VNCVerbose::clipboard)) {
                     LOG(LOG_INFO, "mod_vnc server clipboard PDU: msgType=CB_FORMAT_LIST_RESPONSE(%u)",
                         RDPECLIP::CB_FORMAT_LIST_RESPONSE);
                 }
 
-                bool response_ok = true;
-
                 // Build and send the CB_FORMAT_LIST_RESPONSE (with status = OK)
                 // 03 00 01 00 00 00 00 00 00 00 00 00
-                RDPECLIP::FormatListResponsePDU format_list_response_pdu(response_ok);
-                StaticOutStream<256>            out_s;
+                RDPECLIP::CliprdrHeader clipboard_header(RDPECLIP::CB_FORMAT_LIST_RESPONSE, RDPECLIP::CB_RESPONSE_OK, 0);
+                StaticOutStream<256>    out_s;
 
-                format_list_response_pdu.emit(out_s);
+                clipboard_header.emit(out_s);
 
-                size_t length     = out_s.get_offset();
-                size_t chunk_size = length;
+                size_t chunk_size = out_s.get_offset();
 
                 this->send_to_front_channel( channel_names::cliprdr
                                            , out_s.get_data()
-                                           , length
+                                           , chunk_size // total length is chunk size
                                            , chunk_size
                                            ,   CHANNELS::CHANNEL_FLAG_FIRST
                                              | CHANNELS::CHANNEL_FLAG_LAST
@@ -2859,27 +3003,27 @@ private:
                 using std::chrono::microseconds;
                 constexpr microseconds MINIMUM_TIMEVAL(250000LL);
 
-                if (this->enable_clipboard_up
-                && (format_list_pdu.contains_data_in_text_format
-                 || format_list_pdu.contains_data_in_unicodetext_format)) {
+                const bool contains_data_in_text_format        = FormatListPDUEx_contains_data_in_format(format_list_pdu, RDPECLIP::CF_TEXT);
+                const bool contains_data_in_unicodetext_format = FormatListPDUEx_contains_data_in_format(format_list_pdu, RDPECLIP::CF_UNICODETEXT);
+
+                if (this->enable_clipboard_up &&
+                        (contains_data_in_text_format || contains_data_in_unicodetext_format)) {
                     if (this->clipboard_server_encoding_type == ClipboardEncodingType::UTF8) {
                         this->clipboard_requested_format_id =
-                            (format_list_pdu.contains_data_in_unicodetext_format ?
-                             RDPECLIP::CF_UNICODETEXT : RDPECLIP::CF_TEXT);
+                            (contains_data_in_unicodetext_format ? RDPECLIP::CF_UNICODETEXT : RDPECLIP::CF_TEXT);
                     }
                     else {
                         this->clipboard_requested_format_id =
-                            (format_list_pdu.contains_data_in_text_format ?
-                             RDPECLIP::CF_TEXT : RDPECLIP::CF_UNICODETEXT);
+                            (contains_data_in_text_format ? RDPECLIP::CF_TEXT : RDPECLIP::CF_UNICODETEXT);
                     }
 
-                    const microseconds usnow = ustime();
+                    const microseconds usnow        = ustime();
                     const microseconds timeval_diff = usnow - this->clipboard_last_client_data_timestamp;
                     //LOG(LOG_INFO,
                     //    "usnow=%llu clipboard_last_client_data_timestamp=%llu timeval_diff=%llu",
                     //    usnow, this->clipboard_last_client_data_timestamp, timeval_diff);
                     if ((timeval_diff > MINIMUM_TIMEVAL) || !this->clipboard_owned_by_client) {
-                        if (bool(this->verbose & VNCVerbose::basic_trace)) {
+                        if (bool(this->verbose & VNCVerbose::clipboard)) {
                             LOG(LOG_INFO,
                                 "mod_vnc server clipboard PDU: msgType=CB_FORMAT_DATA_REQUEST(%u)",
                                 RDPECLIP::CB_FORMAT_DATA_REQUEST);
@@ -2888,20 +3032,22 @@ private:
                         // Build and send a CB_FORMAT_DATA_REQUEST to front (for format CF_TEXT or CF_UNICODETEXT)
                         // 04 00 00 00 04 00 00 00 0? 00 00 00
                         // 00 00 00 00
+
                         RDPECLIP::FormatDataRequestPDU format_data_request_pdu(this->clipboard_requested_format_id);
+                        RDPECLIP::CliprdrHeader format_data_request_header(RDPECLIP::CB_FORMAT_DATA_REQUEST, RDPECLIP::CB_RESPONSE__NONE_, format_data_request_pdu.size());
                         out_s.rewind();
 
+                        format_data_request_header.emit(out_s);
                         format_data_request_pdu.emit(out_s);
 
-                        length     = out_s.get_offset();
-                        chunk_size = length;
+                        chunk_size = out_s.get_offset();
 
                         this->clipboard_requesting_for_data_is_delayed = false;
                         this->fd_event->disable_timeout();
 
                         this->send_to_front_channel( channel_names::cliprdr
                                                    , out_s.get_data()
-                                                   , length
+                                                   , chunk_size // total length is chunk_size
                                                    , chunk_size
                                                    , CHANNELS::CHANNEL_FLAG_FIRST
                                                    | CHANNELS::CHANNEL_FLAG_LAST
@@ -2909,7 +3055,7 @@ private:
                     }
                     else {
                         if (this->bogus_clipboard_infinite_loop == VncBogusClipboardInfiniteLoop::delayed) {
-                            if (bool(this->verbose & VNCVerbose::basic_trace)) {
+                            if (bool(this->verbose & VNCVerbose::clipboard)) {
                                 LOG(LOG_INFO,
                                     "mod_vnc server clipboard PDU: msgType=CB_FORMAT_DATA_REQUEST(%u) (delayed)",
                                     RDPECLIP::CB_FORMAT_DATA_REQUEST);
@@ -2921,42 +3067,50 @@ private:
                                 std::chrono::duration_cast<std::chrono::milliseconds>(
                                     MINIMUM_TIMEVAL - timeval_diff));
                         }
-                        else if (this->bogus_clipboard_infinite_loop
-                            != VncBogusClipboardInfiniteLoop::duplicated
-                        && (this->clipboard_general_capability_flags
-                            & RDPECLIP::CB_ALL_GENERAL_CAPABILITY_FLAGS)) {
-                            if (bool(this->verbose & VNCVerbose::basic_trace)) {
+                        else if ((this->bogus_clipboard_infinite_loop != VncBogusClipboardInfiniteLoop::duplicated) &&
+                                 ((this->clipboard_general_capability_flags & RDPECLIP::CB__MINIMUM_WINDOWS_CLIENT_GENERAL_CAPABILITY_FLAGS_) ==
+                                  RDPECLIP::CB__MINIMUM_WINDOWS_CLIENT_GENERAL_CAPABILITY_FLAGS_)) {
+                            if (bool(this->verbose & VNCVerbose::clipboard)) {
                                 LOG( LOG_INFO
-                                   , "mod_vnc::clipboard_send_to_vnc: "
+                                   , "mod_vnc::clipboard_send_to_vnc_server: "
                                      "duplicated clipboard update event "
                                      "from Windows client is ignored"
                                    );
                             }
                         }
                         else {
-                            if (bool(this->verbose & VNCVerbose::basic_trace)) {
+                            if (bool(this->verbose & VNCVerbose::clipboard)) {
                                 LOG(LOG_INFO,
                                     "mod_vnc server clipboard PDU: msgType=CB_FORMAT_LIST(%u) (preventive)",
                                     RDPECLIP::CB_FORMAT_LIST);
                             }
 
-                            RDPECLIP::FormatListPDU format_list_pdu;
-                            StaticOutStream<256>    out_s;
+                            RDPECLIP::FormatListPDUEx format_list_pdu;
+                            format_list_pdu.add_format_name(
+                                    (this->clipboard_requested_format_id == RDPECLIP::CF_UNICODETEXT) ?
+                                        RDPECLIP::CF_UNICODETEXT :
+                                        RDPECLIP::CF_TEXT
+                                );
 
-                            const bool unicodetext = (this->clipboard_requested_format_id == RDPECLIP::CF_UNICODETEXT);
+                            const bool use_long_format_names = false;
+                            const bool in_ASCII_8 = format_list_pdu.will_be_sent_in_ASCII_8(use_long_format_names);
 
-                            format_list_pdu.emit_ex(out_s, unicodetext);
+                            RDPECLIP::CliprdrHeader clipboard_header(RDPECLIP::CB_FORMAT_LIST,
+                                RDPECLIP::CB_RESPONSE__NONE_ | (in_ASCII_8 ? RDPECLIP::CB_ASCII_NAMES : 0),
+                                format_list_pdu.size(use_long_format_names));
 
-                            size_t length     = out_s.get_offset();
-                            size_t chunk_size = std::min<size_t>(length, CHANNELS::CHANNEL_CHUNK_LENGTH);
+                            StaticOutStream<256> out_s;
 
+                            clipboard_header.emit(out_s);
+                            format_list_pdu.emit(out_s, use_long_format_names);
+
+                            const size_t totalLength = out_s.get_offset();
                             this->send_to_front_channel(channel_names::cliprdr,
-                                                        out_s.get_data(),
-                                                        length,
-                                                        chunk_size,
-                                                          CHANNELS::CHANNEL_FLAG_FIRST
-                                                        | CHANNELS::CHANNEL_FLAG_LAST
-                                                       );
+                                    out_s.get_data(),
+                                    totalLength,
+                                    totalLength,
+                                    CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_LAST
+                                );
                         }
                     }
                 }
@@ -2967,7 +3121,7 @@ private:
                 const unsigned expected = 10; /* msgFlags(2) + datalen(4) + requestedFormatId(4) */
                 if (!chunk.in_check_rem(expected)) {
                     LOG( LOG_ERR
-                       , "mod_vnc::clipboard_send_to_vnc: truncated CB_FORMAT_DATA_REQUEST(%u) data, need=%u remains=%zu"
+                       , "mod_vnc::clipboard_send_to_vnc_server: truncated CB_FORMAT_DATA_REQUEST(%u) data, need=%u remains=%zu"
                        , RDPECLIP::CB_FORMAT_DATA_REQUEST, expected, chunk.in_remain());
                     throw Error(ERR_VNC);
                 }
@@ -2976,82 +3130,43 @@ private:
                 //  to VNC server. Instead, the RDP PDU is handled localy and
                 //  the clipboard PDU, if any, is likewise built localy and
                 //  sent back to front.
+                RDPECLIP::CliprdrHeader format_data_request_header;
                 RDPECLIP::FormatDataRequestPDU format_data_request_pdu;
 
                 // 04 00 00 00 04 00 00 00 0d 00 00 00 00 00 00 00
+                format_data_request_header.recv(chunk);
                 format_data_request_pdu.recv(chunk);
 
-                if (bool(this->verbose & VNCVerbose::basic_trace)) {
+                if (bool(this->verbose & VNCVerbose::clipboard)) {
                     LOG( LOG_INFO
-                       , "mod_vnc::clipboard_send_to_vnc: CB_FORMAT_DATA_REQUEST(%u) msgFlags=0x%02x datalen=%u requestedFormatId=%s(%u)"
+                       , "mod_vnc::clipboard_send_to_vnc_server: CB_FORMAT_DATA_REQUEST(%u) msgFlags=0x%02x datalen=%u requestedFormatId=%s(%u)"
                        , RDPECLIP::CB_FORMAT_DATA_REQUEST
-                       , format_data_request_pdu.header.msgFlags()
-                       , format_data_request_pdu.header.dataLen()
-                       , RDPECLIP::get_Format_name(format_data_request_pdu.requestedFormatId)
+                       , format_data_request_header.msgFlags()
+                       , format_data_request_header.dataLen()
+                       , RDPECLIP::get_FormatId_name(format_data_request_pdu.requestedFormatId)
                        , format_data_request_pdu.requestedFormatId
                        );
                 }
 
-                auto send_format_data_response = [this] (OutStream & pdu_stream) {
-                    size_t pdu_data_length           = pdu_stream.get_offset();
-                    size_t remaining_pdu_data_length = pdu_data_length;
-
-                    uint8_t * chunk_data = pdu_stream.get_data();
-
-                    int send_flags =
-                        (CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_SHOW_PROTOCOL);
-
-                    do {
-                        const size_t chunk_size = std::min<size_t>(
-                                CHANNELS::CHANNEL_CHUNK_LENGTH,
-                                remaining_pdu_data_length
-                            );
-
-                        remaining_pdu_data_length -= chunk_size;
-
-                        if (!remaining_pdu_data_length) {
-                            send_flags |= CHANNELS::CHANNEL_FLAG_LAST;
-                        }
-
-                        this->send_to_front_channel(channel_names::cliprdr,
-                                                    chunk_data,
-                                                    pdu_data_length,
-                                                    chunk_size,
-                                                    send_flags
-                                                   );
-                        if (bool(this->verbose & VNCVerbose::basic_trace)) {
-                            LOG(LOG_INFO,
-                                "mod_vnc server clipboard PDU: msgType=CB_FORMAT_DATA_RESPONSE(%u) - chunk_size=%zu",
-                                RDPECLIP::CB_FORMAT_DATA_RESPONSE, chunk_size);
-                        }
-
-                        send_flags &= ~CHANNELS::CHANNEL_FLAG_FIRST;
-
-                        chunk_data += chunk_size;
-                    }
-                    while (remaining_pdu_data_length);
-                };
-
-                if (this->bogus_clipboard_infinite_loop != VncBogusClipboardInfiniteLoop::delayed && this->clipboard_owned_by_client) {
+                if (this->bogus_clipboard_infinite_loop != VncBogusClipboardInfiniteLoop::delayed
+                && this->clipboard_owned_by_client) {
                     StreamBufMaker<65536> buf_maker;
                     OutStream out_stream = buf_maker.reserve_out_stream(
-                            8 +                                 // clipHeader(8)
+                            8 +                                       // clipHeader(8)
                             this->to_vnc_clipboard_data.get_offset()  // data
                         );
 
-                    const bool response_ok = true;
-                    const RDPECLIP::FormatDataResponsePDU format_data_response_pdu(response_ok);
+                    RDPECLIP::CliprdrHeader header(RDPECLIP::CB_FORMAT_DATA_RESPONSE, RDPECLIP::CB_RESPONSE_OK, this->to_vnc_clipboard_data.get_offset());
+                    const RDPECLIP::FormatDataResponsePDU format_data_response_pdu;
+                    header.emit(out_stream);
+                    format_data_response_pdu.emit(out_stream, this->to_vnc_clipboard_data.get_data(), this->to_vnc_clipboard_data.get_offset());
 
-                    format_data_response_pdu.emit_ex(out_stream, this->to_vnc_clipboard_data.get_offset());
-                    out_stream.out_copy_bytes(this->to_vnc_clipboard_data.get_data(), this->to_vnc_clipboard_data.get_offset());
-
-                    send_format_data_response(out_stream);
-
+                    this->send_clipboard_pdu_to_front(out_stream);
                     break;
                 }
 
-                if ((format_data_request_pdu.requestedFormatId == RDPECLIP::CF_TEXT) &&
-                    !this->clipboard_data_ctx.clipboard_data_is_utf8_encoded()) {
+                if ((format_data_request_pdu.requestedFormatId == RDPECLIP::CF_TEXT)
+                && !this->clipboard_data_ctx.clipboard_data_is_utf8_encoded()) {
                     StreamBufMaker<65536> buf_maker;
                     OutStream out_stream = buf_maker.reserve_out_stream(
                             8 +                                         // clipHeader(8)
@@ -3059,125 +3174,136 @@ private:
                             1                                           // Null character
                         );
 
-                    OutStream out_data_stream(
-                        out_stream.get_data() + 8 /* clipHeader(8) */,
-                        out_stream.get_capacity() - 8 /* clipHeader(8) */
-                    );
-
                     const size_t to_rdp_clipboard_data_length =
                         ::linux_to_windows_newline_convert(
                             ::char_ptr_cast(this->clipboard_data_ctx.clipboard_data().data()),
                             this->clipboard_data_ctx.clipboard_data().size(),
-                            ::char_ptr_cast(out_data_stream.get_data()),
-                            out_data_stream.get_capacity()
-                        );
-                    out_data_stream.out_skip_bytes(to_rdp_clipboard_data_length);
+                            ::char_ptr_cast(out_stream.get_data() + RDPECLIP::CliprdrHeader::size()),
+                            out_stream.get_capacity() - RDPECLIP::CliprdrHeader::size() -
+                                1   // Null character
+                        ) +
+                        1;  // Null character
+                    *(out_stream.get_data() + RDPECLIP::CliprdrHeader::size() + to_rdp_clipboard_data_length - 1) = '\x0';  // Null character
 
-                    const bool response_ok = true;
-                    const RDPECLIP::FormatDataResponsePDU format_data_response_pdu(response_ok);
+                    RDPECLIP::CliprdrHeader header(RDPECLIP::CB_FORMAT_DATA_RESPONSE, RDPECLIP::CB_RESPONSE_OK, to_rdp_clipboard_data_length);
+                    const RDPECLIP::FormatDataResponsePDU format_data_response_pdu;
+                    header.emit(out_stream);
+                    format_data_response_pdu.emit(out_stream, out_stream.get_data() + RDPECLIP::CliprdrHeader::size(), to_rdp_clipboard_data_length);
+                    this->send_clipboard_pdu_to_front(out_stream);
 
-                    format_data_response_pdu.emit_ex(out_stream, out_data_stream.get_offset());
-                    out_stream.out_skip_bytes(out_data_stream.get_offset());
-
-                    send_format_data_response(out_stream);
-
-                    if (bool(this->verbose & VNCVerbose::basic_trace)) {
+                    if (bool(this->verbose & VNCVerbose::clipboard)) {
                         LOG(LOG_INFO,
-                            "mod_vnc::clipboard_send_to_vnc: "
+                            "mod_vnc::clipboard_send_to_vnc_server: "
                                 "Sending Format Data Response PDU (CF_TEXT) done");
                     }
                 }
                 else if (format_data_request_pdu.requestedFormatId == RDPECLIP::CF_UNICODETEXT) {
-                    StreamBufMaker<65536> buf_maker;
-                    OutStream out_stream = buf_maker.reserve_out_stream(
+                    BufMaker<65536> buf_maker;
+                    auto uninit_buf_av = buf_maker.dyn_array(
                         8 +                                         // clipHeader(8)
                         this->clipboard_data_ctx.clipboard_data().size() * 4 +    // data
-                        1                                           // Null character
+                        2                                           // Null character
                     );
+                    auto const header_size = RDPECLIP::CliprdrHeader::size();
 
-                    OutStream out_data_stream(
-                        out_stream.get_data() + 8 /* clipHeader(8) */,
-                        out_stream.get_capacity() - 8 /* clipHeader(8) */
-                    );
+                    // [ .................... out_stream .................... ]
+                    // [ [ ... header_stream(8) ... ] [ ... data_stream ... ] ]
+                    OutStream out_stream(uninit_buf_av);
+                    OutStream data_stream(uninit_buf_av.array_from_offset(header_size));
 
-                    size_t utf16_data_length;
                     if (this->clipboard_data_ctx.clipboard_data_is_utf8_encoded()) {
-                        utf16_data_length = UTF8toUTF16_CrLf(
-                            this->clipboard_data_ctx.clipboard_data().data(),
-                            out_data_stream.get_data(),
-                            out_data_stream.get_capacity()
+                    	auto av = this->clipboard_data_ctx.clipboard_data();
+
+                        size_t utf16_data_length = UTF8toUTF16_CrLf(
+                            av,
+                            data_stream.get_data(),
+                            data_stream.get_capacity()-2
                         );
+                        data_stream.out_skip_bytes(utf16_data_length);
                     }
                     else {
-                        utf16_data_length = Latin1toUTF16(
-                            this->clipboard_data_ctx.clipboard_data().data(),
-                            this->clipboard_data_ctx.clipboard_data().size(),
-                            out_data_stream.get_data(),
-                            out_data_stream.get_capacity()
+                        size_t utf16_data_length = Latin1toUTF16(
+                            this->clipboard_data_ctx.clipboard_data(),
+                            data_stream.get_data(),
+                            data_stream.get_capacity()-2
                         );
+                        data_stream.out_skip_bytes(utf16_data_length);
                     }
+                    data_stream.out_uint16_le(0x0000);  // Null character
 
-                    out_data_stream.out_skip_bytes(utf16_data_length);
-                    out_data_stream.out_uint16_le(0x0000);  // Null character
+                    RDPECLIP::CliprdrHeader header(RDPECLIP::CB_FORMAT_DATA_RESPONSE, RDPECLIP::CB_RESPONSE_OK, data_stream.get_offset());
+                    //const RDPECLIP::FormatDataResponsePDU format_data_response_pdu;
+                    header.emit(out_stream);
+                    assert(out_stream.get_current() == data_stream.get_data());
+                    out_stream.out_skip_bytes(data_stream.get_offset());
+                    //format_data_response_pdu.emit(out_stream, data_stream.get_data(), out_stream.get_offset());
 
-                    const bool response_ok = true;
-                    const RDPECLIP::FormatDataResponsePDU format_data_response_pdu(response_ok);
-
-                    format_data_response_pdu.emit_ex(out_stream, out_data_stream.get_offset());
-                    out_stream.out_skip_bytes(out_data_stream.get_offset());
-
-                    send_format_data_response(out_stream);
+                    this->send_clipboard_pdu_to_front(out_stream);
 
                     if (bool(this->verbose & VNCVerbose::basic_trace)) {
                         LOG(LOG_INFO,
-                            "mod_vnc::clipboard_send_to_vnc: "
+                            "mod_vnc::clipboard_send_to_vnc_server: "
                                 "Sending Format Data Response PDU (CF_UNICODETEXT) done");
                     }
                 }
                 else {
                     LOG( LOG_INFO
-                       , "mod_vnc::clipboard_send_to_vnc: resquested clipboard format Id 0x%02x is not supported by VNC PROXY"
+                       , "mod_vnc::clipboard_send_to_vnc_server: resquested clipboard format Id 0x%02x is not supported by VNC PROXY"
                        , format_data_request_pdu.requestedFormatId);
                 }
             }
             break;
 
             case RDPECLIP::CB_FORMAT_DATA_RESPONSE: {
-                RDPECLIP::FormatDataResponsePDU format_data_response_pdu;
+                RDPECLIP::CliprdrHeader header(RDPECLIP::CB_FORMAT_DATA_RESPONSE, RDPECLIP::CB_RESPONSE_FAIL, 0);
+                // TODO: really we are not using format data response but reading underlying data directly
+                // we should not do that! We should reassemble consecutive data packets until data_response
+                // is reassembled, then check if it is full and should be send or not.
+//                RDPECLIP::FormatDataResponsePDU format_data_response_pdu;
 
-                format_data_response_pdu.recv(chunk);
+                header.recv(chunk);
+                if (header.msgFlags() == RDPECLIP::CB_RESPONSE_OK) {
+                    // TODO: we should be able to unify both sides of the condition
+                    // the case where we have only one PDU is the extreme case of
+                    // when we have a train of consecutive PDU
 
-                if (format_data_response_pdu.header.msgFlags() == RDPECLIP::CB_RESPONSE_OK) {
+                    // Here is where we receive the first packet, the followup will be treated
+                    // in state RDPECLIP::CB_CHUNKED_FORMAT_DATA_RESPONSE (pseudo state
+                    // when we do not have a first packet)
+
                     if ((flags & CHANNELS::CHANNEL_FLAG_LAST) != 0) {
-                        if (!chunk.in_check_rem(format_data_response_pdu.header.dataLen())) {
+                        if (!chunk.in_check_rem(header.dataLen())) {
                             LOG( LOG_ERR
-                               , "mod_vnc::clipboard_send_to_vnc: truncated CB_FORMAT_DATA_RESPONSE(%u), need=%u remains=%zu"
+                               , "mod_vnc::clipboard_send_to_vnc_server: truncated CB_FORMAT_DATA_RESPONSE(%u), need=%u remains=%zu"
                                , RDPECLIP::CB_FORMAT_DATA_RESPONSE
-                               , format_data_response_pdu.header.dataLen(), chunk.in_remain());
+                               , header.dataLen(), chunk.in_remain());
                             throw Error(ERR_VNC);
                         }
 
+//                        format_data_response_pdu.recv(chunk);
+
                         this->to_vnc_clipboard_data.rewind();
 
-                        this->to_vnc_clipboard_data.out_copy_bytes(chunk.get_current(), format_data_response_pdu.header.dataLen());
+                        this->to_vnc_clipboard_data.out_copy_bytes(
+                                    chunk.get_current(), header.dataLen());
 
                         this->rdp_input_clip_data(this->to_vnc_clipboard_data.get_data(),
-                            this->to_vnc_clipboard_data.get_offset());
-                    }
+                                                  this->to_vnc_clipboard_data.get_offset());
+                    } // CHANNELS::CHANNEL_FLAG_LAST
                     else {
                         // Virtual channel data span in multiple Virtual Channel PDUs.
 
                         if ((flags & CHANNELS::CHANNEL_FLAG_FIRST) == 0) {
-                            LOG(LOG_ERR, "mod_vnc::clipboard_send_to_vnc: flag CHANNEL_FLAG_FIRST expected");
+                            LOG(LOG_ERR, "mod_vnc::clipboard_send_to_vnc_server: flag CHANNEL_FLAG_FIRST expected");
                             throw Error(ERR_VNC);
                         }
 
                         this->to_vnc_clipboard_data_size      =
-                        this->to_vnc_clipboard_data_remaining = format_data_response_pdu.header.dataLen();
+                        this->to_vnc_clipboard_data_remaining = header.dataLen();
 
                         if (bool(this->verbose & VNCVerbose::basic_trace)) {
                             LOG( LOG_INFO
-                               , "mod_vnc::clipboard_send_to_vnc: virtual channel data span in multiple Virtual Channel PDUs: total=%u"
+                               , "mod_vnc::clipboard_send_to_vnc_server: virtual channel data span in multiple Virtual Channel PDUs: total=%u"
                                , this->to_vnc_clipboard_data_size);
                         }
 
@@ -3210,8 +3336,8 @@ private:
 
                             this->clipboard_requested_format_id = RDPECLIP::CF_TEXT;
                         }
-                    }
-                }
+                    } // else CHANNELS::CHANNEL_FLAG_LAST
+                } // RDPECLIP::CB_RESPONSE_OK
             }
             break;
 
@@ -3220,17 +3346,17 @@ private:
                 assert(this->to_vnc_clipboard_data_size);
 
                 // Virtual channel data span in multiple Virtual Channel PDUs.
-                if (bool(this->verbose & VNCVerbose::basic_trace)) {
-                    LOG(LOG_INFO, "mod_vnc::clipboard_send_to_vnc: an other trunk");
+                if (bool(this->verbose & VNCVerbose::clipboard)) {
+                    LOG(LOG_INFO, "mod_vnc::clipboard_send_to_vnc_server: an other trunk");
                 }
 
                 if ((flags & CHANNELS::CHANNEL_FLAG_FIRST) != 0) {
-                    LOG(LOG_ERR, "mod_vnc::clipboard_send_to_vnc: flag CHANNEL_FLAG_FIRST unexpected");
+                    LOG(LOG_ERR, "mod_vnc::clipboard_send_to_vnc_server: flag CHANNEL_FLAG_FIRST unexpected");
                     throw Error(ERR_VNC);
                 }
 
                 // if (bool(this->verbose & VNCVerbose::basic_trace)) {
-                //     LOG( LOG_INFO, "mod_vnc::clipboard_send_to_vnc: trunk size=%u, capacity=%u"
+                //     LOG( LOG_INFO, "mod_vnc::clipboard_send_to_vnc_server: trunk size=%u, capacity=%u"
                 //        , chunk.in_remain(), static_cast<unsigned>(this->to_vnc_clipboard_data.tailroom()));
                 // }
 
@@ -3256,13 +3382,15 @@ private:
 
             case RDPECLIP::CB_CLIP_CAPS:
             {
-                RDPECLIP::ClipboardCapabilitiesPDU clipboard_caps_pdu;
+                RDPECLIP::CliprdrHeader clipboard_header;
+                clipboard_header.recv(chunk);
 
+                RDPECLIP::ClipboardCapabilitiesPDU clipboard_caps_pdu;
                 clipboard_caps_pdu.recv(chunk);
+                assert(1 == clipboard_caps_pdu.cCapabilitiesSets());
 
                 RDPECLIP::CapabilitySetRecvFactory caps_recv_factory(chunk);
-
-                if (caps_recv_factory.capabilitySetType == RDPECLIP::CB_CAPSTYPE_GENERAL) {
+                if (caps_recv_factory.capabilitySetType() == RDPECLIP::CB_CAPSTYPE_GENERAL) {
                     RDPECLIP::GeneralCapabilitySet general_caps;
                     general_caps.recv(chunk, caps_recv_factory);
 
@@ -3271,7 +3399,7 @@ private:
                     if (general_caps.generalFlags() & RDPECLIP::CB_USE_LONG_FORMAT_NAMES) {
                         this->client_use_long_format_names = true;
                     }
-                    if (bool(this->verbose & VNCVerbose::basic_trace)) {
+                    if (bool(this->verbose & VNCVerbose::clipboard)) {
                         LOG(LOG_INFO, "Client use %s format name",
                             (this->client_use_long_format_names ? "long" : "short"));
                     }
@@ -3283,10 +3411,10 @@ private:
             }
             break;
         }
-        if (bool(this->verbose & VNCVerbose::basic_trace)) {
-            LOG(LOG_INFO, "mod_vnc::clipboard_send_to_vnc: done");
+        if (bool(this->verbose & VNCVerbose::clipboard)) {
+            LOG(LOG_INFO, "mod_vnc::clipboard_send_to_vnc_server: done");
         }
-    } // clipboard_send_to_vnc
+    } // clipboard_send_to_vnc_server
 
     // Front calls this member function when it became up and running.
 public:
@@ -3305,7 +3433,7 @@ public:
     }
 
 private:
-    bool is_up_and_running() override {
+    bool is_up_and_running() const override {
         return (UP_AND_RUNNING == this->state);
     }
 
@@ -3346,10 +3474,17 @@ public:
             {"duration", extra},
             });
 
-        this->report_message.log5(info);
+        ArcsightLogInfo arc_info;
+        arc_info.name = "SESSION_DISCONNECTION";
+        arc_info.signatureID = ArcsightLogInfo::SESSION_DISCONNECTION;
+        arc_info.ApplicationProtocol = "vnc";
+        arc_info.endTime = long(seconds);
+
+        this->report_message.log6("type=\"SESSION_DISCONNECTION\"", arc_info, this->session_reactor.get_current_time());
     }
 
     Dimension get_dim() const override
     { return Dimension(this->width, this->height); }
 };
 
+#undef IF_ENABLE_METRICS

@@ -18,20 +18,20 @@
     Author(s): Christophe Grosjean, Raphael Zhou, Clément Moroldo
 */
 
-
 #pragma once
-
-#include <string>
-#include <cinttypes>
-#include <cinttypes>
 
 #include "core/error.hpp"
 
 #include "utils/log.hpp"
 #include "utils/sugar/cast.hpp"
+#include "utils/sugar/array_view.hpp"
 #include "utils/stream.hpp"
 #include "utils/hexdump.hpp"
 #include "core/ERREF/ntstatus.hpp"
+
+#include <string>
+#include <cinttypes>
+
 
 namespace fscc {
 
@@ -334,25 +334,29 @@ enum : uint32_t {
 };
 
 static inline
-std::string get_FileAttributes_name(uint32_t fileAttribute) {
-    std::string str;
-    (fileAttribute & FILE_ATTRIBUTE_READONLY) ? str+="FILE_ATTRIBUTE_READONLY " :str;
-    (fileAttribute & FILE_ATTRIBUTE_HIDDEN) ? str+="FILE_ATTRIBUTE_HIDDEN " :str;
-    (fileAttribute & FILE_ATTRIBUTE_SYSTEM) ? str+="FILE_ATTRIBUTE_SYSTEM " :str;
-    (fileAttribute & FILE_ATTRIBUTE_DIRECTORY) ? str+="FILE_ATTRIBUTE_DIRECTORY " : str;
-    (fileAttribute & FILE_ATTRIBUTE_ARCHIVE) ? str+="FILE_ATTRIBUTE_ARCHIVE " : str;
-    (fileAttribute & FILE_ATTRIBUTE_NORMAL) ? str+="FILE_ATTRIBUTE_NORMAL " : str;
-    (fileAttribute & FILE_ATTRIBUTE_TEMPORARY) ? str+="FILE_ATTRIBUTE_TEMPORARY " :str;
-    (fileAttribute & FILE_ATTRIBUTE_SPARSE_FILE) ? str+="FILE_ATTRIBUTE_SPARSE_FILE " : str;
-    (fileAttribute & FILE_ATTRIBUTE_REPARSE_POINT) ? str+="FILE_ATTRIBUTE_REPARSE_POINT " : str;
-    (fileAttribute & FILE_ATTRIBUTE_OFFLINE) ? str+="FILE_ATTRIBUTE_OFFLINE " : str;
-    (fileAttribute & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED) ? str+="FILE_ATTRIBUTE_NOT_CONTENT_INDEXED ":str;
-    (fileAttribute & FILE_ATTRIBUTE_ENCRYPTED) ? str+="FILE_ATTRIBUTE_ENCRYPTED " : str;
-    (fileAttribute & FILE_ATTRIBUTE_COMPRESSED) ? str+="FILE_ATTRIBUTE_COMPRESSED " : str;
-    (fileAttribute & FILE_ATTRIBUTE_INTEGRITY_STREAM) ? str+="FILE_ATTRIBUTE_INTEGRITY_STREAM " : str;
-    (fileAttribute & FILE_ATTRIBUTE_NO_SCRUB_DATA) ? str+="FILE_ATTRIBUTE_NO_SCRUB_DATA " : str;
-
-    return str;
+void log_file_attributes(uint32_t fileAttributes)
+{
+#define ASTR(f) (fileAttributes & f) ? " " #f : ""
+    LOG(LOG_INFO, "          * FileAttributes = 0x%08x "
+        "(4 bytes):%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
+        fileAttributes,
+        ASTR(FILE_ATTRIBUTE_READONLY),
+        ASTR(FILE_ATTRIBUTE_HIDDEN),
+        ASTR(FILE_ATTRIBUTE_SYSTEM),
+        ASTR(FILE_ATTRIBUTE_DIRECTORY),
+        ASTR(FILE_ATTRIBUTE_ARCHIVE),
+        ASTR(FILE_ATTRIBUTE_NORMAL),
+        ASTR(FILE_ATTRIBUTE_TEMPORARY),
+        ASTR(FILE_ATTRIBUTE_SPARSE_FILE),
+        ASTR(FILE_ATTRIBUTE_REPARSE_POINT),
+        ASTR(FILE_ATTRIBUTE_OFFLINE),
+        ASTR(FILE_ATTRIBUTE_NOT_CONTENT_INDEXED),
+        ASTR(FILE_ATTRIBUTE_ENCRYPTED),
+        ASTR(FILE_ATTRIBUTE_COMPRESSED),
+        ASTR(FILE_ATTRIBUTE_INTEGRITY_STREAM),
+        ASTR(FILE_ATTRIBUTE_NO_SCRUB_DATA)
+      );
+#undef ASTR
 }
 
 
@@ -828,7 +832,7 @@ public:
 
     void log() const {
         LOG(LOG_INFO, "     File Attribute Tag Information:");
-        LOG(LOG_INFO, "          * FileAttributes = 0x%08x (4 bytes): %s", this->FileAttributes, get_FileAttributes_name(this->FileAttributes));
+        log_file_attributes(this->FileAttributes);
         LOG(LOG_INFO, "          * ReparseTag     = 0x%08x (4 bytes)", this->ReparseTag);
     }
 };
@@ -1013,7 +1017,7 @@ public:
         LOG(LOG_INFO, "          * LastAccessTime = 0x%" PRIx64 " (8 bytes)", this->LastAccessTime_);
         LOG(LOG_INFO, "          * LastWriteTime  = 0x%" PRIx64 " (8 bytes)", this->LastWriteTime_);
         LOG(LOG_INFO, "          * ChangeTime     = 0x%" PRIx64 " (8 bytes)", this->ChangeTime_);
-        LOG(LOG_INFO, "          * FileAttributes = 0x%08x (4 bytes): %s", this->FileAttributes_, get_FileAttributes_name(this->FileAttributes_));
+        log_file_attributes(this->FileAttributes_);
     }
 };  // FileBasicInformation
 
@@ -1200,7 +1204,7 @@ public:
                                  uint64_t LastWriteTime, uint64_t ChangeTime,
                                  int64_t EndOfFile, int64_t AllocationSize,
                                  uint32_t FileAttributes,
-                                 const char * file_name)
+                                 array_view_const_char file_name)
     : CreationTime(CreationTime)
     , LastAccessTime(LastAccessTime)
     , LastWriteTime(LastWriteTime)
@@ -1210,8 +1214,7 @@ public:
     , FileAttributes(FileAttributes)
     {
         this->FileNameLength =
-            ::UTF8toUTF16(byte_ptr_cast(file_name), this->file_name_UTF16,
-                sizeof(this->file_name_UTF16));
+            ::UTF8toUTF16(file_name, this->file_name_UTF16, sizeof(this->file_name_UTF16));
     }
 
     void emit(OutStream & stream) const {
@@ -1347,7 +1350,7 @@ private:
 
 public:
     void log(int level) const {
-        char buffer[2048];
+        char buffer[65536+2048];
         this->str(buffer, sizeof(buffer));
         buffer[sizeof(buffer) - 1] = 0;
         LOG(level, "%s", buffer);
@@ -1377,9 +1380,9 @@ public:
         LOG(LOG_INFO, "          * LastAccessTime  = 0x%" PRIx64 " (8 bytes)", this->LastAccessTime);
         LOG(LOG_INFO, "          * LastWriteTime   = 0x%" PRIx64 " (8 bytes)", this->LastWriteTime);
         LOG(LOG_INFO, "          * ChangeTime      = 0x%" PRIx64 " (8 bytes)", this->ChangeTime);
-        LOG(LOG_INFO, "          * EndOfFile       = 0x%ld (8 bytes)", this->EndOfFile);
-        LOG(LOG_INFO, "          * AllocationSize  = 0x%ld (8 bytes)", this->AllocationSize);
-        LOG(LOG_INFO, "          * FileAttributes  = 0x%08x (4 bytes): %s", this->FileAttributes, get_FileAttributes_name(this->FileAttributes));
+        LOG(LOG_INFO, "          * EndOfFile       = 0x%" PRId64 " (8 bytes)", this->EndOfFile);
+        LOG(LOG_INFO, "          * AllocationSize  = 0x%" PRId64 " (8 bytes)", this->AllocationSize);
+        log_file_attributes(this->FileAttributes);
         LOG(LOG_INFO, "          * FileNameLength  = %u (4 bytes)", this->FileNameLength);
         LOG(LOG_INFO, "          * EaSize          = %u (4 bytes)", this->EaSize);
         LOG(LOG_INFO, "          * ShortNameLength = %u (1 byte)", this->ShortNameLength);
@@ -1494,7 +1497,7 @@ public:
     explicit FileDirectoryInformation(uint32_t NextEntryOffset, uint32_t FileIndex,
                              uint64_t CreationTime, uint64_t LastAccessTime,
                              uint64_t LastWriteTime, uint64_t ChangeTime,
-                             uint32_t FileAttributes, const char* file_name)
+                             uint32_t FileAttributes, array_view_const_char file_name)
     : NextEntryOffset(NextEntryOffset)
     , FileIndex(FileIndex)
     , CreationTime(CreationTime)
@@ -1504,8 +1507,7 @@ public:
     , FileAttributes_(FileAttributes)
     {
         this->FileNameLength =
-            ::UTF8toUTF16(byte_ptr_cast(file_name), this->file_name_UTF16,
-                sizeof(this->file_name_UTF16));
+            ::UTF8toUTF16(file_name, this->file_name_UTF16, sizeof(this->file_name_UTF16));
     }
 
     void emit(OutStream & stream) const {
@@ -1607,7 +1609,7 @@ public:
         LOG(LOG_INFO, "          * LastAccessTime  = 0x%" PRIx64 " (8 bytes)", this->LastAccessTime_);
         LOG(LOG_INFO, "          * LastWriteTime   = 0x%" PRIx64 " (8 bytes)", this->LastWriteTime_);
         LOG(LOG_INFO, "          * ChangeTime      = 0x%" PRIx64 " (8 bytes)", this->ChangeTime);
-        LOG(LOG_INFO, "          * FileAttributes  = 0x%08x (4 bytes): %s", this->FileAttributes_, get_FileAttributes_name(this->FileAttributes_));
+        log_file_attributes(this->FileAttributes_);
         LOG(LOG_INFO, "          * FileNameLength  = %u (4 bytes)", this->FileNameLength);
         LOG(LOG_INFO, "          * FileName        = \"%s\" (%u byte(s))", file_name_UTF8, this->FileNameLength);
     }
@@ -1797,11 +1799,10 @@ struct FileFsLabelInformation {
 
     explicit FileFsLabelInformation() = default;
 
-    explicit FileFsLabelInformation(char * volume_label)
+    explicit FileFsLabelInformation(array_view_const_char volume_label)
     {
         this->VolumeLabelLength =
-            ::UTF8toUTF16(byte_ptr_cast(volume_label), this->volume_label_UTF16,
-                sizeof(this->volume_label_UTF16) - sizeof(uint16_t));
+            ::UTF8toUTF16(volume_label, this->volume_label_UTF16, sizeof(this->volume_label_UTF16) - sizeof(uint16_t));
         this->volume_label_UTF16[this->VolumeLabelLength    ] = 0;
         this->volume_label_UTF16[this->VolumeLabelLength + 1] = 0;
         this->VolumeLabelLength += 2;
@@ -2006,7 +2007,7 @@ public:
                                  uint64_t LastWriteTime, uint64_t ChangeTime,
                                  int64_t EndOfFile, int64_t AllocationSize,
                                  uint32_t FileAttributes,
-                                 const char * file_name)
+                                 array_view_const_char file_name)
     : CreationTime(CreationTime)
     , LastAccessTime(LastAccessTime)
     , LastWriteTime(LastWriteTime)
@@ -2016,8 +2017,7 @@ public:
     , FileAttributes(FileAttributes)
     {
         this->FileNameLength =
-            ::UTF8toUTF16(byte_ptr_cast(file_name), this->file_name_UTF16,
-                sizeof(this->file_name_UTF16));
+            ::UTF8toUTF16(file_name, this->file_name_UTF16, sizeof(this->file_name_UTF16));
     }
 
     void emit(OutStream & stream) const {
@@ -2127,7 +2127,7 @@ private:
 
 public:
     void log(int level) const {
-        char buffer[2048];
+        char buffer[65536+2048];
         this->str(buffer, sizeof(buffer));
         buffer[sizeof(buffer) - 1] = 0;
         LOG(level, "%s", buffer);
@@ -2149,9 +2149,9 @@ public:
         LOG(LOG_INFO, "          * LastAccessTime  = 0x%" PRIx64 " (8 bytes)", this->LastAccessTime);
         LOG(LOG_INFO, "          * LastWriteTime   = 0x%" PRIx64 " (8 bytes)", this->LastWriteTime);
         LOG(LOG_INFO, "          * ChangeTime      = 0x%" PRIx64 " (8 bytes)", this->ChangeTime);
-        LOG(LOG_INFO, "          * EndOfFile       = 0x%ld (8 bytes)", this->EndOfFile);
-        LOG(LOG_INFO, "          * AllocationSize  = 0x%ld (8 bytes)", this->AllocationSize);
-        LOG(LOG_INFO, "          * FileAttributes  = 0x%08x (4 bytes): %s", this->FileAttributes, get_FileAttributes_name(this->FileAttributes));
+        LOG(LOG_INFO, "          * EndOfFile       = 0x%" PRId64 " (8 bytes)", this->EndOfFile);
+        LOG(LOG_INFO, "          * AllocationSize  = 0x%" PRId64 " (8 bytes)", this->AllocationSize);
+        log_file_attributes(this->FileAttributes);
         LOG(LOG_INFO, "          * FileNameLength  = %u (4 bytes)", this->FileNameLength);
         LOG(LOG_INFO, "          * EaSize          = %u (4 bytes)", this->EaSize);
         LOG(LOG_INFO, "          * FileName        = \"%s\"", file_name_UTF8);
@@ -2239,11 +2239,10 @@ class FileNamesInformation {
 public:
     explicit FileNamesInformation() = default;
 
-    explicit FileNamesInformation(const char * file_name)
+    explicit FileNamesInformation(array_view_const_char file_name)
     {
         this->FileNameLength =
-            ::UTF8toUTF16(byte_ptr_cast(file_name), this->file_name_UTF16,
-                sizeof(this->file_name_UTF16));
+            ::UTF8toUTF16(file_name, this->file_name_UTF16, sizeof(this->file_name_UTF16));
     }
 
     void emit(OutStream & stream) const {
@@ -2313,7 +2312,7 @@ private:
 
 public:
     void log(int level) const {
-        char buffer[2048];
+        char buffer[65536+2048];
         this->str(buffer, sizeof(buffer));
         buffer[sizeof(buffer) - 1] = 0;
         LOG(level, "%s", buffer);
@@ -2441,13 +2440,12 @@ struct FileRenameInformation {
 
     explicit FileRenameInformation( uint8_t ReplaceIfExists
                          , uint64_t RootDirectory
-                         , const char * file_name)
+                         , array_view_const_char file_name)
       : ReplaceIfExists(ReplaceIfExists)
       , RootDirectory(RootDirectory)
     {
         this->FileNameLength =
-            ::UTF8toUTF16(byte_ptr_cast(file_name), this->file_name_UTF16,
-                sizeof(this->file_name_UTF16));
+            ::UTF8toUTF16(file_name, this->file_name_UTF16, sizeof(this->file_name_UTF16));
     }
 
     void emit(OutStream & stream) const {
@@ -2651,8 +2649,8 @@ public:
 
     void log() const {
         LOG(LOG_INFO, "     File Standard Information:");
-        LOG(LOG_INFO, "          * AllocationSize = 0x%ld (8 bytes)", this->AllocationSize);
-        LOG(LOG_INFO, "          * EndOfFile      = 0x%ld (8 bytes)", this->EndOfFile);
+        LOG(LOG_INFO, "          * AllocationSize = 0x%" PRId64 " (8 bytes)", this->AllocationSize);
+        LOG(LOG_INFO, "          * EndOfFile      = 0x%" PRId64 " (8 bytes)", this->EndOfFile);
         LOG(LOG_INFO, "          * NumberOfLinks  = 0x%08x (4 bytes)", this->NumberOfLinks);
         LOG(LOG_INFO, "          * DeletePending  = 0x%02x (1 byte)", this->DeletePending);
         LOG(LOG_INFO, "          * Directory      = 0x%02x (1 byte)", this->Directory);
@@ -2848,14 +2846,12 @@ public:
 
     explicit FileFsAttributeInformation(uint32_t FileSystemAttributes,
                                uint32_t MaximumComponentNameLength,
-                               const char * file_system_name)
+                               array_view_const_char file_system_name)
     : FileSystemAttributes_(FileSystemAttributes)
     , MaximumComponentNameLength(MaximumComponentNameLength)
     {
         this->FileSystemNameLength =
-            ::UTF8toUTF16(byte_ptr_cast(file_system_name),
-                this->file_system_name_UTF16,
-                sizeof(this->file_system_name_UTF16));
+            ::UTF8toUTF16(file_system_name, this->file_system_name_UTF16, sizeof(this->file_system_name_UTF16));
     }
 
     void emit(OutStream & stream) const {
@@ -2939,43 +2935,46 @@ private:
         return ((length < size) ? length : size - 1);
     }
 
-    static std::string get_FileSystemAttributes_name(uint32_t FileSystemAttribute) {
-        std::string str;
-        (FileSystemAttribute & FILE_SUPPORTS_USN_JOURNAL) ? str+="FILE_SUPPORTS_USN_JOURNAL " :str;
-        (FileSystemAttribute & FILE_SUPPORTS_OPEN_BY_FILE_ID) ? str+="FILE_SUPPORTS_OPEN_BY_FILE_ID " :str;
-        (FileSystemAttribute & FILE_SUPPORTS_EXTENDED_ATTRIBUTES) ? str+="FILE_SUPPORTS_EXTENDED_ATTRIBUTES " :str;
+    void log_file_system_attributes() const
+    {
+#define ASTR(f) bool(this->FileSystemAttributes_ & f) ? " " #f : ""
+        LOG(LOG_INFO, "          * FileSystemAttributes       = 0x%08x "
+            "(4 bytes): %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
+            this->FileSystemAttributes_,
+            ASTR(FILE_SUPPORTS_USN_JOURNAL),
+            ASTR(FILE_SUPPORTS_OPEN_BY_FILE_ID),
+            ASTR(FILE_SUPPORTS_EXTENDED_ATTRIBUTES),
 
-        (FileSystemAttribute & FILE_SUPPORTS_HARD_LINKS) ? str+="FILE_SUPPORTS_HARD_LINKS " : str;
-        (FileSystemAttribute & FILE_SUPPORTS_TRANSACTIONS) ? str+="FILE_SUPPORTS_TRANSACTIONS " : str;
-        (FileSystemAttribute & FILE_SEQUENTIAL_WRITE_ONCE) ? str+="FILE_SEQUENTIAL_WRITE_ONCE " : str;
+            ASTR(FILE_SUPPORTS_HARD_LINKS),
+            ASTR(FILE_SUPPORTS_TRANSACTIONS),
+            ASTR(FILE_SEQUENTIAL_WRITE_ONCE),
 
-        (FileSystemAttribute & FILE_READ_ONLY_VOLUME) ? str+="FILE_READ_ONLY_VOLUME " : str;
-        (FileSystemAttribute & FILE_NAMED_STREAMS) ? str+="FILE_NAMED_STREAMS " : str;
-        (FileSystemAttribute & FILE_SUPPORTS_ENCRYPTION) ? str+="FILE_SUPPORTS_ENCRYPTION " : str;
+            ASTR(FILE_READ_ONLY_VOLUME),
+            ASTR(FILE_NAMED_STREAMS),
+            ASTR(FILE_SUPPORTS_ENCRYPTION),
 
-        (FileSystemAttribute & FILE_SUPPORTS_OBJECT_IDS) ? str+="FILE_SUPPORTS_OBJECT_IDS ":str;
-        (FileSystemAttribute & FILE_VOLUME_IS_COMPRESSED) ? str+="FILE_VOLUME_IS_COMPRESSED " : str;
-        (FileSystemAttribute & FILE_SUPPORTS_REMOTE_STORAGE) ? str+="FILE_SUPPORTS_REMOTE_STORAGE " : str;
+            ASTR(FILE_SUPPORTS_OBJECT_IDS),
+            ASTR(FILE_VOLUME_IS_COMPRESSED),
+            ASTR(FILE_SUPPORTS_REMOTE_STORAGE),
 
-        (FileSystemAttribute & FILE_SUPPORTS_REPARSE_POINTS) ? str+="FILE_SUPPORTS_REPARSE_POINTS " : str;
-        (FileSystemAttribute & FILE_SUPPORTS_SPARSE_FILES) ? str+="FILE_SUPPORTS_SPARSE_FILES " : str;
-        (FileSystemAttribute & FILE_VOLUME_QUOTAS) ? str+="FILE_VOLUME_QUOTAS " : str;
+            ASTR(FILE_SUPPORTS_REPARSE_POINTS),
+            ASTR(FILE_SUPPORTS_SPARSE_FILES),
+            ASTR(FILE_VOLUME_QUOTAS),
 
+            ASTR(FILE_FILE_COMPRESSION),
+            ASTR(FILE_PERSISTENT_ACLS),
+            ASTR(FILE_UNICODE_ON_DISK),
 
-        (FileSystemAttribute & FILE_FILE_COMPRESSION) ? str+="FILE_FILE_COMPRESSION " : str;
-        (FileSystemAttribute & FILE_PERSISTENT_ACLS) ? str+="FILE_PERSISTENT_ACLS " : str;
-        (FileSystemAttribute & FILE_UNICODE_ON_DISK) ? str+="FILE_UNICODE_ON_DISK " : str;
-
-        (FileSystemAttribute & FILE_CASE_PRESERVED_NAMES) ? str+="FILE_CASE_PRESERVED_NAMES " : str;
-        (FileSystemAttribute & FILE_CASE_SENSITIVE_SEARCH) ? str+="FILE_CASE_SENSITIVE_SEARCH " : str;
-        (FileSystemAttribute & FILE_SUPPORT_INTEGRITY_STREAMS) ? str+="FILE_SUPPORT_INTEGRITY_STREAMS " : str;
-
-        return str;
+            ASTR(FILE_CASE_PRESERVED_NAMES),
+            ASTR(FILE_CASE_SENSITIVE_SEARCH),
+            ASTR(FILE_SUPPORT_INTEGRITY_STREAMS)
+        );
+#undef ASTR
     }
 
 public:
     void log(int level) const {
-        char buffer[2048];
+        char buffer[65536+2048];
         this->str(buffer, sizeof(buffer));
         buffer[sizeof(buffer) - 1] = 0;
         LOG(level, "%s", buffer);
@@ -2991,7 +2990,7 @@ public:
         file_system_name_UTF8[file_system_name_UTF8_length] = 0;
 
         LOG(LOG_INFO, "     File Fs Attribute Information:");
-        LOG(LOG_INFO, "          * FileSystemAttributes       = 0x%08x (4 bytes): %s", this->FileSystemAttributes_, get_FileSystemAttributes_name(this->FileSystemAttributes_));
+        this->log_file_system_attributes();
         LOG(LOG_INFO, "          * MaximumComponentNameLength = %d (4 bytes)", int(this->MaximumComponentNameLength));
         LOG(LOG_INFO, "          * FileSystemNameLength       = %u (4 bytes)", this->FileSystemNameLength);
         LOG(LOG_INFO, "          * FileSystemName             = \"%s\" (%u byte(s))", file_system_name_UTF8, this->FileSystemNameLength);
@@ -3143,9 +3142,9 @@ public:
 
     void log() const {
         LOG(LOG_INFO, "     File Fs Full Size Information:");
-        LOG(LOG_INFO, "          * TotalAllocationUnits           = 0x%ld (8 bytes)", this->TotalAllocationUnits);
-        LOG(LOG_INFO, "          * CallerAvailableAllocationUnits = 0x%ld (8 bytes)", this->CallerAvailableAllocationUnits);
-        LOG(LOG_INFO, "          * ActualAvailableAllocationUnits = 0x%ld (8 bytes)", this->ActualAvailableAllocationUnits);
+        LOG(LOG_INFO, "          * TotalAllocationUnits           = 0x%" PRId64 " (8 bytes)", this->TotalAllocationUnits);
+        LOG(LOG_INFO, "          * CallerAvailableAllocationUnits = 0x%" PRId64 " (8 bytes)", this->CallerAvailableAllocationUnits);
+        LOG(LOG_INFO, "          * ActualAvailableAllocationUnits = 0x%" PRId64 " (8 bytes)", this->ActualAvailableAllocationUnits);
         LOG(LOG_INFO, "          * SectorsPerAllocationUnit       = %u (4 bytes)", this->SectorsPerAllocationUnit);
         LOG(LOG_INFO, "          * BytesPerSector                 = %u (4 bytes)", this->BytesPerSector);
     }
@@ -3279,8 +3278,8 @@ public:
 
     void log() const {
         LOG(LOG_INFO, "     File Fs Size Information:");
-        LOG(LOG_INFO, "          * TotalAllocationUnits     = 0x%ld (8 bytes)", this->TotalAllocationUnits);
-        LOG(LOG_INFO, "          * AvailableAllocationUnits = 0x%ld (8 bytes)", this->AvailableAllocationUnits);
+        LOG(LOG_INFO, "          * TotalAllocationUnits     = 0x%" PRId64 " (8 bytes)", this->TotalAllocationUnits);
+        LOG(LOG_INFO, "          * AvailableAllocationUnits = 0x%" PRId64 " (8 bytes)", this->AvailableAllocationUnits);
         LOG(LOG_INFO, "          * SectorsPerAllocationUnit = 0x%08x (4 byte)", this->SectorsPerAllocationUnit);
         LOG(LOG_INFO, "          * BytesPerSector           = %u (4 bytes)", this->BytesPerSector);
     }
@@ -3370,15 +3369,13 @@ public:
     explicit FileFsVolumeInformation() = default;
 
     explicit FileFsVolumeInformation(uint64_t VolumeCreationTime, uint32_t VolumeSerialNumber,
-                         uint8_t SupportsObjects, const char * volume_label)
+                         uint8_t SupportsObjects, array_view_const_char volume_label)
     : VolumeCreationTime(VolumeCreationTime)
     , VolumeSerialNumber(VolumeSerialNumber)
     , SupportsObjects(SupportsObjects)
     {
         this->VolumeLabelLength =
-            ::UTF8toUTF16(byte_ptr_cast(volume_label),
-                this->volume_label_UTF16,
-                sizeof(this->volume_label_UTF16) - sizeof(uint16_t));
+            ::UTF8toUTF16(volume_label, this->volume_label_UTF16, sizeof(this->volume_label_UTF16) - sizeof(uint16_t));
         this->volume_label_UTF16[this->VolumeLabelLength    ] = 0;
         this->volume_label_UTF16[this->VolumeLabelLength + 1] = 0;
         this->VolumeLabelLength += 2;
@@ -3466,7 +3463,7 @@ private:
 
 public:
     void log(int level) const {
-        char buffer[2048];
+        char buffer[65536+2048];
         this->str(buffer, sizeof(buffer));
         buffer[sizeof(buffer) - 1] = 0;
         LOG(level, "%s", buffer);
@@ -3845,13 +3842,12 @@ struct FileNotifyInformation {
 
     explicit FileNotifyInformation() = default;
 
-    explicit FileNotifyInformation(uint32_t NextEntryOffset, uint32_t Action, const char * file_name)
+    explicit FileNotifyInformation(uint32_t NextEntryOffset, uint32_t Action, array_view_const_char file_name)
       : NextEntryOffset(NextEntryOffset)
       , Action(Action)
     {
         this->FileNameLength =
-            ::UTF8toUTF16(byte_ptr_cast(file_name), this->file_name_UTF16,
-                sizeof(this->file_name_UTF16));
+            ::UTF8toUTF16(file_name, this->file_name_UTF16, sizeof(this->file_name_UTF16));
     }
 
     void emit(OutStream & stream) const {

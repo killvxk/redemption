@@ -19,39 +19,33 @@
 */
 
 #define RED_TEST_MODULE TestGCC
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "core/SMB2/MessageSyntax.hpp"
 
 
 
-RED_AUTO_TEST_CASE(ChangeNotifyResponseEmit)
+RED_AUTO_TEST_CASE(ChangeNotifyResponse)
 {
-    const size_t len = 8;
-    const char data[] =
-            "\x01\x00\x02\x00\x03\x00\x00\x00";
+    auto data = "\x01\x00\x02\x00\x03\x00\x00\x00"_av;
 
-    StaticOutStream<128> stream;
-    smb2::ChangeNotifyResponse pdu(1, 2, 3);
-    pdu.emit(stream);
+    {
+        StaticOutStream<128> stream;
+        smb2::ChangeNotifyResponse pdu(1, 2, 3);
 
-    std::string const out_data(data, len);
-    std::string const expected(reinterpret_cast<const char *>(stream.get_data()), len);
-    RED_CHECK_EQUAL(expected, out_data);
-}
+        pdu.emit(stream);
 
-RED_AUTO_TEST_CASE(ChangeNotifyResponseReceive)
-{
-    const size_t len = 8;
-    const char data[] =
-            "\x01\x00\x02\x00\x03\x00\x00\x00";
+        RED_CHECK_MEM(stream.get_bytes(), data);
+    }
 
-    InStream in_stream(data, len);
-    smb2::ChangeNotifyResponse pdu;
-    pdu.receive(in_stream);
+    {
+        InStream in_stream(data);
+        smb2::ChangeNotifyResponse pdu;
+        pdu.receive(in_stream);
 
-    RED_CHECK_EQUAL(pdu.StructureSize, 1);
-    RED_CHECK_EQUAL(pdu.OutputBufferOffset, 2);
-    RED_CHECK_EQUAL(pdu.OutputBufferLength, 3);
+        RED_CHECK_EQUAL(pdu.StructureSize, 1);
+        RED_CHECK_EQUAL(pdu.OutputBufferOffset, 2);
+        RED_CHECK_EQUAL(pdu.OutputBufferLength, 3);
+    }
 }

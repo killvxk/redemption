@@ -25,11 +25,21 @@
 #include "mod/rdp/channels/cliprdr_channel.hpp"
 #include "mod/rdp/channels/sespro_channel.hpp"
 #include "mod/rdp/channels/sespro_launcher.hpp"
-#include "mod/rdp/rdp_log.hpp"
+#include "mod/rdp/channels/sespro_clipboard_based_launcher.hpp"
+#include "mod/rdp/rdp_verbose.hpp"
 #include "core/channel_names.hpp"
 #include "core/session_reactor.hpp"
 
 class SessionProbeClipboardBasedLauncher final : public SessionProbeLauncher {
+    public:
+    struct Params {
+        std::chrono::milliseconds   clipboard_initialization_delay_ms{};
+        std::chrono::milliseconds   start_delay_ms{};
+        std::chrono::milliseconds   long_delay_ms{};
+        std::chrono::milliseconds   short_delay_ms{};
+    };
+
+    private:
     enum class State {
         START,
         DELAY,
@@ -38,6 +48,9 @@ class SessionProbeClipboardBasedLauncher final : public SessionProbeLauncher {
         STOP
     } state = State::START;
 
+    Params params;
+
+    private:
     mod_api& mod;
 
     const std::string alternate_shell;
@@ -46,6 +59,7 @@ class SessionProbeClipboardBasedLauncher final : public SessionProbeLauncher {
     bool drive_redirection_initialized = false;
     bool image_readed = false;
     bool clipboard_initialized = false;
+    bool clipboard_initialized_by_proxy = false;
     bool clipboard_monitor_ready = false;
 
     bool format_data_requested = false;
@@ -54,11 +68,6 @@ class SessionProbeClipboardBasedLauncher final : public SessionProbeLauncher {
 
     SessionProbeVirtualChannel* sesprob_channel = nullptr;
     ClipboardVirtualChannel*    cliprdr_channel = nullptr;
-
-    const std::chrono::milliseconds clipboard_initialization_delay;
-    const std::chrono::milliseconds start_delay;
-    const std::chrono::milliseconds long_delay;
-    const std::chrono::milliseconds short_delay;
 
     float   delay_coefficient = 1.0f;
 
@@ -78,25 +87,27 @@ class SessionProbeClipboardBasedLauncher final : public SessionProbeLauncher {
         return ms.count();
     }
 
+    std::unique_ptr<uint8_t[]> current_client_format_list_pdu;
+    size_t                     current_client_format_list_pdu_length = 0;
+    uint32_t                   current_client_format_list_pdu_flags  = 0;
+
 public:
     SessionProbeClipboardBasedLauncher(
         SessionReactor& session_reactor,
         mod_api& mod,
         const char* alternate_shell,
-        std::chrono::milliseconds clipboard_initialization_delay_ms,
-        std::chrono::milliseconds start_delay_ms,
-        std::chrono::milliseconds long_delay_ms,
-        std::chrono::milliseconds short_delay_ms, RDPVerbose verbose)
-    : mod(mod)
+        Params params,
+        RDPVerbose verbose)
+    : params(params)
+    , mod(mod)
     , alternate_shell(alternate_shell)
-    , clipboard_initialization_delay(
-        std::max(clipboard_initialization_delay_ms, std::chrono::milliseconds(2000)))
-    , start_delay(start_delay_ms)
-    , long_delay(std::max(long_delay_ms, std::chrono::milliseconds(500)))
-    , short_delay(std::max(short_delay_ms, std::chrono::milliseconds(50)))
     , session_reactor(session_reactor)
     , verbose(verbose)
     {
+        this->params.clipboard_initialization_delay_ms = std::max(this->params.clipboard_initialization_delay_ms, std::chrono::milliseconds(2000));
+        this->params.long_delay_ms                     = std::max(this->params.long_delay_ms, std::chrono::milliseconds(500));
+        this->params.short_delay_ms                    = std::max(this->params.short_delay_ms, std::chrono::milliseconds(50));
+
         if (bool(this->verbose & RDPVerbose::sesprobe_launcher)) {
             LOG(LOG_INFO,
                 "SessionProbeClipboardBasedLauncher: "
@@ -104,8 +115,8 @@ public:
                     "start_delay_ms=%lld "
                     "long_delay_ms=%lld "
                     "short_delay_ms=%lld",
-                ms2ll(clipboard_initialization_delay_ms), ms2ll(start_delay_ms),
-                ms2ll(long_delay_ms), ms2ll(short_delay_ms));
+                ms2ll(this->params.clipboard_initialization_delay_ms), ms2ll(this->params.start_delay_ms),
+                ms2ll(this->params.long_delay_ms), ms2ll(this->params.short_delay_ms));
         }
     }
 
@@ -135,7 +146,7 @@ public:
 
         if (this->state == State::START) {
             this->event = this->session_reactor.create_timer()
-            .set_delay(this->clipboard_initialization_delay)
+            .set_delay(this->params.clipboard_initialization_delay_ms)
             .on_action(jln::one_shot([&]{ this->on_event(); }));
         }
 
@@ -218,15 +229,22 @@ public:
                         this->cliprdr_channel->disable_to_client_sender();
                     }
 
+                    this->clipboard_initialized_by_proxy = true;
+
                     // Client Clipboard Capabilities PDU.
                     {
-                        RDPECLIP::ClipboardCapabilitiesPDU clipboard_caps_pdu(1,
-                            RDPECLIP::GeneralCapabilitySet::size());
                         RDPECLIP::GeneralCapabilitySet general_cap_set(
                             RDPECLIP::CB_CAPS_VERSION_1,
                             RDPECLIP::CB_USE_LONG_FORMAT_NAMES);
+
+                        RDPECLIP::ClipboardCapabilitiesPDU clipboard_caps_pdu(1);
+
+                        RDPECLIP::CliprdrHeader clipboard_header(RDPECLIP::CB_CLIP_CAPS, RDPECLIP::CB_RESPONSE__NONE_,
+                            clipboard_caps_pdu.size() + general_cap_set.size());
+
                         StaticOutStream<1024> out_s;
 
+                        clipboard_header.emit(out_s);
                         clipboard_caps_pdu.emit(out_s);
                         general_cap_set.emit(out_s);
 
@@ -244,21 +262,25 @@ public:
 
                     // Format List PDU.
                     {
+                        RDPECLIP::FormatListPDUEx format_list_pdu;
+                        format_list_pdu.add_format_name(RDPECLIP::CF_TEXT);
+
                         const bool use_long_format_names =
                             (this->cliprdr_channel ?
                              this->cliprdr_channel->use_long_format_names() :
                              false);
+                        const bool in_ASCII_8 = format_list_pdu.will_be_sent_in_ASCII_8(use_long_format_names);
 
-                        RDPECLIP::FormatListPDU format_list_pdu;
-                        StaticOutStream<256>    out_s;
+                        RDPECLIP::CliprdrHeader clipboard_header(RDPECLIP::CB_FORMAT_LIST,
+                            RDPECLIP::CB_RESPONSE__NONE_ | (in_ASCII_8 ? RDPECLIP::CB_ASCII_NAMES : 0),
+                            format_list_pdu.size(use_long_format_names));
 
-                        const bool unicodetext = false;
+                        StaticOutStream<256> out_s;
 
-                        format_list_pdu.emit_2(out_s, unicodetext,
-                            use_long_format_names);
+                        clipboard_header.emit(out_s);
+                        format_list_pdu.emit(out_s, use_long_format_names);
 
                         const size_t totalLength = out_s.get_offset();
-
                         InStream in_s(out_s.get_data(), totalLength);
 
                         this->mod.send_to_mod_channel(channel_names::cliprdr,
@@ -311,16 +333,11 @@ public:
         }
 
         StaticOutStream<1024> out_s;
-
-        const bool response_ok = true;
-        const RDPECLIP::FormatDataResponsePDU format_data_response_pdu(
-            response_ok);
-
         size_t alternate_shell_length = this->alternate_shell.length() + 1;
-        format_data_response_pdu.emit_ex(out_s, alternate_shell_length);
-        out_s.out_copy_bytes(this->alternate_shell.c_str(),
-            alternate_shell_length);
-
+        RDPECLIP::CliprdrHeader header(RDPECLIP::CB_FORMAT_DATA_RESPONSE, RDPECLIP::CB_RESPONSE_OK, alternate_shell_length);
+        const RDPECLIP::FormatDataResponsePDU format_data_response_pdu;
+        header.emit(out_s);
+        format_data_response_pdu.emit(out_s, byte_ptr_cast(this->alternate_shell.c_str()), alternate_shell_length);
         const size_t totalLength = out_s.get_offset();
 
         InStream in_s(out_s.get_data(), totalLength);
@@ -383,7 +400,7 @@ public:
 
                 return ctx.set_delay(
                         self.to_microseconds(
-                                (decltype(wait_for_short_delay)::value ? self.short_delay : self.long_delay),
+                                (decltype(wait_for_short_delay)::value ? self.params.short_delay_ms : self.params.long_delay_ms),
                                 self.delay_coefficient
                             )
                     ).next();
@@ -391,7 +408,7 @@ public:
         };
 
         this->event = this->session_reactor.create_timer(std::ref(*this))
-        .set_delay(this->short_delay)
+        .set_delay(this->params.short_delay_ms)
         .on_action(jln::sequencer(
             "Windows (down)"_f  (send_scancode(value<91>, value<SlowPath::KBDFLAGS_EXTENDED>, value<true>,  value<true> )),
             "r (down)"_f        (send_scancode(value<19>, value<0>,                           value<false>, value<true> )),
@@ -417,17 +434,23 @@ public:
                 self.delay_wainting_clipboard_response = true;
 
                 {
+                    RDPECLIP::FormatListPDUEx format_list_pdu;
+                    format_list_pdu.add_format_name(RDPECLIP::CF_TEXT);
+
                     const bool use_long_format_names =
                         (self.cliprdr_channel ?
                          self.cliprdr_channel->use_long_format_names() :
                          false);
+                    const bool in_ASCII_8 = format_list_pdu.will_be_sent_in_ASCII_8(use_long_format_names);
 
-                    RDPECLIP::FormatListPDU format_list_pdu;
-                    StaticOutStream<256>    out_s;
+                    RDPECLIP::CliprdrHeader clipboard_header(RDPECLIP::CB_FORMAT_LIST,
+                        RDPECLIP::CB_RESPONSE__NONE_ | (in_ASCII_8 ? RDPECLIP::CB_ASCII_NAMES : 0),
+                        format_list_pdu.size(use_long_format_names));
 
-                    const bool unicodetext = false;
+                    StaticOutStream<256> out_s;
 
-                    format_list_pdu.emit_2(out_s, unicodetext, use_long_format_names);
+                    clipboard_header.emit(out_s);
+                    format_list_pdu.emit(out_s, use_long_format_names);
 
                     const size_t totalLength = out_s.get_offset();
 
@@ -441,11 +464,11 @@ public:
                                                  | CHANNELS::CHANNEL_FLAG_SHOW_PROTOCOL);
                 }
 
-                return ctx.set_delay(self.to_microseconds(self.long_delay, self.delay_coefficient)).next();
+                return ctx.set_delay(self.to_microseconds(self.params.long_delay_ms, self.delay_coefficient)).next();
             }),
-            "Wait format list responsd"_f
+            "Wait format list response"_f
                                 ([](auto ctx, SessionProbeClipboardBasedLauncher& self) {
-                return ctx.set_delay(self.to_microseconds(self.long_delay, self.delay_coefficient)).ready();
+                return ctx.set_delay(self.to_microseconds(self.params.long_delay_ms, self.delay_coefficient)).ready();
             })
 
         ));
@@ -477,12 +500,12 @@ public:
 
                 if (ctx.is_final_sequence()) {
                     self.state = State::WAIT;
-                    return ctx.set_delay(self.to_microseconds(self.short_delay, self.delay_coefficient)).at(0).ready();
+                    return ctx.set_delay(self.to_microseconds(self.params.short_delay_ms, self.delay_coefficient)).at(0).ready();
                 }
 
                 return ctx.set_delay(
                     self.to_microseconds(
-                        (decltype(wait_for_short_delay)::value ? self.short_delay : self.long_delay),
+                        (decltype(wait_for_short_delay)::value ? self.params.short_delay_ms : self.params.long_delay_ms),
                         self.delay_coefficient
                     )
                 ).next();
@@ -490,7 +513,7 @@ public:
         };
 
         this->event = this->session_reactor.create_timer(std::ref(*this))
-        .set_delay(this->short_delay)
+        .set_delay(this->params.short_delay_ms)
         .on_action(jln::sequencer(
             "Windows (down)"_f  (send_scancode(value<91>, value<SlowPath::KBDFLAGS_EXTENDED>, value<true>,  value<true> )),
             "r (down)"_f        (send_scancode(value<19>, value<0>,                           value<false>, value<true> )),
@@ -505,7 +528,7 @@ public:
             "Enter (down)"_f    ([](auto ctx, SessionProbeClipboardBasedLauncher& self) {
                 ++self.copy_paste_loop_counter;
                 if (!self.format_data_requested) {
-                    return ctx.set_delay(self.to_microseconds(self.short_delay, self.delay_coefficient)).exec_at(0);
+                    return ctx.set_delay(self.to_microseconds(self.params.short_delay_ms, self.delay_coefficient)).exec_at(0);
                 }
                 return jln::make_lambda<decltype(send_scancode)>()(value<28>, value<0>, value<true>, value<true>)(ctx, self);
             }),
@@ -520,7 +543,7 @@ public:
                 "SessionProbeClipboardBasedLauncher :=> on_server_format_list_response");
         }
 
-        if (this->start_delay.count()) {
+        if (this->params.start_delay_ms.count()) {
             if (!this->delay_executed) {
                 if (this->state != State::START) {
                     return (this->state < State::WAIT);
@@ -531,7 +554,7 @@ public:
                 make_delay_sequencer();
 
                 time_t const now = time(nullptr);
-                this->delay_end_time = (now + (this->start_delay.count() + 999) / 1000);
+                this->delay_end_time = (now + (this->params.start_delay_ms.count() + 999) / 1000);
 
                 this->delay_executed = true;
             }
@@ -575,20 +598,37 @@ public:
 
         if ((flags & (CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_LAST)) &&
             (chunk.in_remain() >= 8 /* msgType(2) + msgFlags(2) + dataLen(4) */)) {
+            const uint8_t* current_chunk_pos  = chunk.get_current();
+            const size_t   current_chunk_size = chunk.in_remain();
+
+            assert(current_chunk_size == length);
+
             const uint16_t msgType = chunk.in_uint16_le();
-            chunk.in_skip_bytes(6); // msgFlags(2) + dataLen(4)
             if (msgType == RDPECLIP::CB_FORMAT_LIST) {
+                this->current_client_format_list_pdu_length = current_chunk_size;
+                this->current_client_format_list_pdu        =
+                    std::make_unique<uint8_t[]>(current_chunk_size);
+                ::memcpy(this->current_client_format_list_pdu.get(),
+                    current_chunk_pos, current_chunk_size);
+                this->current_client_format_list_pdu_flags  = flags;
+
+                RDPECLIP::FormatListPDUEx format_list_pdu;
+                format_list_pdu.add_format_name(RDPECLIP::CF_TEXT);
+
                 const bool use_long_format_names =
                     (this->cliprdr_channel ?
                      this->cliprdr_channel->use_long_format_names() :
                      false);
+                const bool in_ASCII_8 = format_list_pdu.will_be_sent_in_ASCII_8(use_long_format_names);
 
-                RDPECLIP::FormatListPDU format_list_pdu;
-                StaticOutStream<256>    out_s;
+                RDPECLIP::CliprdrHeader clipboard_header(RDPECLIP::CB_FORMAT_LIST,
+                    RDPECLIP::CB_RESPONSE__NONE_ | (in_ASCII_8 ? RDPECLIP::CB_ASCII_NAMES : 0),
+                    format_list_pdu.size(use_long_format_names));
 
-                const bool unicodetext = false;
+                StaticOutStream<256> out_s;
 
-                format_list_pdu.emit_2(out_s, unicodetext, use_long_format_names);
+                clipboard_header.emit(out_s);
+                format_list_pdu.emit(out_s, use_long_format_names);
 
                 const size_t totalLength = out_s.get_offset();
 
@@ -609,9 +649,8 @@ public:
         return ret;
     }
 
-    void set_clipboard_virtual_channel(
-            BaseVirtualChannel* channel) override {
-        this->cliprdr_channel = reinterpret_cast<ClipboardVirtualChannel*>(channel);
+    void set_clipboard_virtual_channel(ClipboardVirtualChannel* channel) override {
+        this->cliprdr_channel = channel;
     }
 
     void set_remote_programs_virtual_channel(BaseVirtualChannel* /*channel*/) override {}
@@ -681,7 +720,17 @@ public:
         }
 
         if (this->clipboard_initialized) {
-            this->cliprdr_channel->empty_client_clipboard();
+            if (!this->clipboard_initialized_by_proxy && bool(this->current_client_format_list_pdu)) {
+                // Sends client Format List PDU to server
+                this->cliprdr_channel->process_client_message(
+                        this->current_client_format_list_pdu_length,
+                        this->current_client_format_list_pdu_flags,
+                        this->current_client_format_list_pdu.get(),
+                        this->current_client_format_list_pdu_length);
+            }
+            else {
+                this->cliprdr_channel->empty_client_clipboard();
+            }
         }
     }
 
@@ -693,20 +742,25 @@ private:
             return;
         }
 
+        RDPECLIP::FormatListPDUEx format_list_pdu;
+        format_list_pdu.add_format_name(RDPECLIP::CF_TEXT);
+
         const bool use_long_format_names =
             (this->cliprdr_channel ?
              this->cliprdr_channel->use_long_format_names() :
              false);
+        const bool in_ASCII_8 = format_list_pdu.will_be_sent_in_ASCII_8(use_long_format_names);
 
-        RDPECLIP::FormatListPDU format_list_pdu;
-        StaticOutStream<256>    out_s;
+        RDPECLIP::CliprdrHeader clipboard_header(RDPECLIP::CB_FORMAT_LIST,
+            RDPECLIP::CB_RESPONSE__NONE_ | (in_ASCII_8 ? RDPECLIP::CB_ASCII_NAMES : 0),
+            format_list_pdu.size(use_long_format_names));
 
-        const bool unicodetext = false;
+        StaticOutStream<256> out_s;
 
-        format_list_pdu.emit_2(out_s, unicodetext, use_long_format_names);
+        clipboard_header.emit(out_s);
+        format_list_pdu.emit(out_s, use_long_format_names);
 
         const size_t totalLength = out_s.get_offset();
-
         InStream in_s(out_s.get_data(), totalLength);
 
         this->mod.send_to_mod_channel(channel_names::cliprdr,

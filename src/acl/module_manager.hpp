@@ -34,7 +34,7 @@
 #include "gdi/protected_graphics.hpp"
 
 #include "mod/internal/bouncer2_mod.hpp"
-#include "mod/internal/client_execute.hpp"
+#include "RAIL/client_execute.hpp"
 #include "mod/internal/flat_dialog_mod.hpp"
 #include "mod/internal/flat_login_mod.hpp"
 #include "mod/internal/flat_wab_close_mod.hpp"
@@ -53,10 +53,13 @@
 
 #include "transport/socket_transport.hpp"
 
+#include "utils/load_theme.hpp"
 #include "utils/netutils.hpp"
+#include "utils/sugar/algostring.hpp"
 #include "utils/sugar/scope_exit.hpp"
 #include "utils/sugar/update_lock.hpp"
 #include "utils/translation.hpp"
+
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -68,39 +71,39 @@ inline void add_time_before_closing(std::string & msg, uint32_t elapsed_time, Tr
     const auto hours = elapsed_time / (60*60);
     const auto minutes = elapsed_time / 60 - hours * 60;
     const auto seconds = elapsed_time - hours * (60*60) - minutes * 60;
+
     if (hours) {
-        msg += std::to_string(hours);
-        msg += ' ';
-        msg += tr(trkeys::hour);
-        msg += (hours > 1) ? "s, " : ", ";
+        str_append(
+            msg,
+            std::to_string(hours),
+            ' ',
+            tr(trkeys::hour),
+            (hours > 1) ? "s, " : ", "
+        );
     }
+
     if (minutes || hours) {
-        msg += std::to_string(minutes);
-        msg += ' ';
-        msg += tr(trkeys::minute);
-        msg += (minutes > 1) ? "s, " : ", ";
+        str_append(
+            msg,
+            std::to_string(minutes),
+            ' ',
+            tr(trkeys::minute),
+            (minutes > 1) ? "s, " : ", "
+        );
     }
-    msg += std::to_string(seconds);
-    msg += ' ';
-    msg += tr(trkeys::second);
-    msg += (seconds > 1) ? "s " : " ";
-    msg += tr(trkeys::before_closing);
+
+    str_append(
+        msg,
+        std::to_string(seconds),
+        ' ',
+        tr(trkeys::second),
+        (seconds > 1) ? "s " : " ",
+        tr(trkeys::before_closing)
+    );
 }
 
 class ModuleManager : public MMIni
 {
-    struct IniAccounts {
-        char username[255]; // should use string
-        char password[255]; // should use string
-
-        IniAccounts()
-        {
-            this->username[0] = 0;
-            this->password[0] = 0;
-        }
-    } accounts;
-
-private:
     class ModOSD : public gdi::ProtectedGraphics, public mod_api
     {
         ModuleManager & mm;
@@ -129,7 +132,8 @@ private:
             if (this->bogus_refresh_rect_ex) {
                 this->mm.mod->rdp_suppress_display_updates();
                 this->mm.mod->rdp_allow_display_updates(0, 0,
-                    this->mm.front.client_info.width, this->mm.front.client_info.height);
+                    this->mm.front.client_info.screen_info.width,
+                    this->mm.front.client_info.screen_info.height);
             }
 
             if (this->mm.winapi) {
@@ -152,15 +156,14 @@ private:
              && (this->mm.front.client_info.cs_monitor.monitorCount > 1));
 
             if (is_disable_by_input) {
-                this->osd_message += "  ";
-                this->osd_message += TR(trkeys::disable_osd, language(this->mm.ini));
+                str_append(this->osd_message, "  ", TR(trkeys::disable_osd, language(this->mm.ini)));
             }
 
-            gdi::TextMetrics tm(this->mm.ini.get<cfg::font>(), this->osd_message.c_str());
+            gdi::TextMetrics tm(this->mm.load_font(), this->osd_message.c_str());
             int w = tm.width + padw * 2;
             int h = tm.height + padh * 2;
-            this->color = color_encode(BGRColor(BLACK), this->mm.front.client_info.bpp);
-            this->background_color = color_encode(BGRColor(LIGHT_YELLOW), this->mm.front.client_info.bpp);
+            this->color = color_encode(BGRColor(BLACK), this->mm.front.client_info.screen_info.bpp);
+            this->background_color = color_encode(BGRColor(LIGHT_YELLOW), this->mm.front.client_info.screen_info.bpp);
 
             if (this->mm.front.client_info.remote_program &&
                 (this->mm.winapi == static_cast<windowing_api*>(&this->mm.client_execute))) {
@@ -173,7 +176,7 @@ private:
                     0, w, h);
             }
             else {
-                this->clip = Rect(this->mm.front.client_info.width < w ? 0 : (this->mm.front.client_info.width - w) / 2, 0, w, h);
+                this->clip = Rect(this->mm.front.client_info.screen_info.width < w ? 0 : (this->mm.front.client_info.screen_info.width - w) / 2, 0, w, h);
             }
 
             this->set_protected_rect(this->clip);
@@ -268,7 +271,7 @@ private:
                 return ;
             }
 
-            auto const color_ctx = gdi::ColorCtx::from_bpp(this->mm.front.client_info.bpp, this->mm.front.get_palette());
+            auto const color_ctx = gdi::ColorCtx::from_bpp(this->mm.front.client_info.screen_info.bpp, this->mm.front.get_palette());
 
             drawable.draw(RDPOpaqueRect(this->clip, this->background_color), this->clip, color_ctx);
 
@@ -287,7 +290,7 @@ private:
             drawable.draw(line_top, this->clip, color_ctx);
 
             gdi::server_draw_text(
-                drawable, this->mm.ini.get<cfg::font>(),
+                drawable, this->mm.load_font(),
                 this->get_protected_rect().x + padw, padh,
                 this->osd_message.c_str(),
                 this->color, this->background_color, color_ctx, this->clip
@@ -359,14 +362,13 @@ private:
         void send_auth_channel_data(const char * data) override
         { this->mm.mod->send_auth_channel_data(data); }
 
-        void send_to_front_channel(CHANNELS::ChannelNameId mod_channel_name,
-            uint8_t const * data, size_t length, size_t chunk_size, int flags) override
-        { this->mm.mod->send_to_front_channel(mod_channel_name, data, length, chunk_size, flags); }
+        void send_checkout_channel_data(const char * data) override
+        { this->mm.mod->send_checkout_channel_data(data); }
 
         void refresh_context() override
         { this->mm.mod->refresh_context(); }
 
-        bool is_up_and_running() override
+        bool is_up_and_running() const override
         { return this->mm.mod->is_up_and_running(); }
 
         void disconnect(time_t now) override
@@ -399,113 +401,7 @@ public:
 
 private:
     struct sock_mod_barrier {};
-    template<class Mod>
-    class ModWithSocket final : private SocketTransport, public Mod
-    {
-        ModuleManager & mm;
-        bool target_info_is_shown = false;
-
-    public:
-        template<class... Args>
-        ModWithSocket(
-            ModuleManager & mm, AuthApi & /*authentifier*/,
-            const char * name, unique_fd sck, uint32_t verbose,
-            std::string * error_message, sock_mod_barrier /*unused*/, Args && ... mod_args)
-        : SocketTransport( name, std::move(sck)
-                         , mm.ini.get<cfg::context::target_host>().c_str()
-                         , mm.ini.get<cfg::context::target_port>()
-                         , std::chrono::milliseconds(mm.ini.get<cfg::globals::mod_recv_timeout>())
-                         , to_verbose_flags(verbose), error_message)
-        , Mod(*this, std::forward<Args>(mod_args)...)
-        , mm(mm)
-        {
-            this->mm.socket_transport = this;
-        }
-
-        ~ModWithSocket()
-        {
-            this->mm.socket_transport = nullptr;
-        }
-
-        void display_osd_message(std::string const & message) override {
-            this->mm.osd_message(message, true);
-        }
-
-        void rdp_input_scancode(long param1, long param2, long param3, long param4, Keymap2 * keymap) override
-        {
-            //LOG(LOG_INFO, "mod_osd::rdp_input_scancode: keyCode=0x%X keyboardFlags=0x%04X this=<%p>", param1, param3, this);
-            if (this->mm.mod_osd.try_input_scancode(param1, param2, param3, param4, keymap)) {
-                this->target_info_is_shown = false;
-                return ;
-            }
-
-            Mod::rdp_input_scancode(param1, param2, param3, param4, keymap);
-
-            if (this->mm.ini.template get<cfg::globals::enable_osd_display_remote_target>() && (param1 == Keymap2::F12)) {
-                bool const f12_released = (param3 & SlowPath::KBDFLAGS_RELEASE);
-                if (this->target_info_is_shown && f12_released) {
-                    // LOG(LOG_INFO, "Hide info");
-                    this->mm.clear_osd_message();
-                    this->target_info_is_shown = false;
-                }
-                else if (!this->target_info_is_shown && !f12_released) {
-                    // LOG(LOG_INFO, "Show info");
-                    std::string msg;
-                    msg.reserve(64);
-                    if (this->mm.ini.template get<cfg::client::show_target_user_in_f12_message>()) {
-                        msg  = this->mm.ini.template get<cfg::globals::target_user>();
-                        msg += "@";
-                    }
-                    msg += this->mm.ini.template get<cfg::globals::target_device>();
-                    const uint32_t enddate = this->mm.ini.template get<cfg::context::end_date_cnx>();
-                    if (enddate) {
-                        const auto now = time(nullptr);
-                        const auto elapsed_time = enddate - now;
-                        // only if "reasonable" time
-                        if (elapsed_time < 60*60*24*366L) {
-                            msg += "  [";
-                            add_time_before_closing(msg, elapsed_time, Translator(this->mm.ini));
-                            msg += ']';
-                        }
-                    }
-                    this->mm.osd_message(std::move(msg), false);
-                    this->target_info_is_shown = true;
-                }
-            }
-        }
-
-        void rdp_input_mouse(int device_flags, int x, int y, Keymap2 * keymap) override
-        {
-            if (this->mm.mod_osd.try_input_mouse(device_flags, x, y, keymap)) {
-                this->target_info_is_shown = false;
-                return ;
-            }
-
-            Mod::rdp_input_mouse(device_flags, x, y, keymap);
-        }
-
-        void rdp_input_unicode(uint16_t unicode, uint16_t flag) override {
-            Mod::rdp_input_unicode(unicode, flag);
-        }
-
-        void rdp_input_invalidate(const Rect r) override
-        {
-            if (this->mm.mod_osd.try_input_invalidate(r)) {
-                return ;
-            }
-
-            Mod::rdp_input_invalidate(r);
-        }
-
-        void rdp_input_invalidate2(array_view<Rect const> vr) override
-        {
-            if (this->mm.mod_osd.try_input_invalidate2(vr)) {
-                return ;
-            }
-
-            Mod::rdp_input_invalidate2(vr);
-        }
-    };
+    #include "mod/mod_with_socket.hpp"
 
 public:
     void clear_osd_message()
@@ -572,7 +468,13 @@ public:
         return this->socket_transport && this->socket_transport->has_pending_data();
     }
 
-    void remove_mod() override {
+    SocketTransport* get_socket() const noexcept
+    {
+        return this->socket_transport;
+    }
+
+    void remove_mod() override
+    {
         if (this->mod != &this->no_mod) {
             this->clear_osd_message();
 
@@ -584,7 +486,8 @@ public:
         }
     }
 
-    ~ModuleManager() override {
+    ~ModuleManager() override
+    {
         this->remove_mod();
     }
 
@@ -615,6 +518,18 @@ public:
 
         this->client_execute.enable_remote_program(this->front.client_info.remote_program);
 
+        switch (target_module) {
+        case MODULE_INTERNAL_CLOSE:
+            detail::log_proxy_logout(this->ini.get<cfg::context::auth_error_message>().c_str());
+            break;
+        case MODULE_INTERNAL_WIDGET_LOGIN:
+            detail::log_proxy_logout();
+            break;
+        default:
+            detail::log_proxy_set_user(this->ini.get<cfg::globals::auth_user>().c_str());
+            break;
+        }
+
         this->connected = false;
 
         if (this->old_target_module != target_module) {
@@ -644,9 +559,9 @@ public:
             this->set_mod(new Bouncer2Mod(
                 this->session_reactor,
                 this->front,
-                this->front.client_info.width,
-                this->front.client_info.height,
-                this->ini.get<cfg::font>()
+                this->front.client_info.screen_info.width,
+                this->front.client_info.screen_info.height,
+                this->load_font()
             ));
             if (bool(this->verbose & Verbose::new_mod)) {
                 LOG(LOG_INFO, "ModuleManager::internal module 'bouncer2_mod' ready");
@@ -665,11 +580,12 @@ public:
                     }
                     return movie_path;
                 }().c_str(),
-                this->front.client_info.width,
-                this->front.client_info.height,
+                this->front.client_info.screen_info.width,
+                this->front.client_info.screen_info.height,
                 this->ini.get_ref<cfg::context::auth_error_message>(),
                 !this->ini.get<cfg::mod_replay::on_end_of_data>(),
                 this->ini.get<cfg::mod_replay::replay_on_loop>(),
+                this->ini.get<cfg::video::play_video_with_corrupted_bitmap>(),
                 to_verbose_flags(this->ini.get<cfg::debug::capture>())
             ));
             if (bool(this->verbose & Verbose::new_mod)) {
@@ -677,26 +593,24 @@ public:
             }
             break;
         case MODULE_INTERNAL_WIDGETTEST:
-            {
-                LOG(LOG_INFO, "ModuleManager::Creation of internal module 'widgettest'");
-                this->set_mod(new WidgetTestMod(
-                    this->session_reactor,
-                    this->front,
-                    this->front.client_info.width,
-                    this->front.client_info.height,
-                    this->ini.get<cfg::font>()
-                ));
-                LOG(LOG_INFO, "ModuleManager::internal module 'widgettest' ready");
-            }
+            LOG(LOG_INFO, "ModuleManager::Creation of internal module 'widgettest'");
+            this->set_mod(new WidgetTestMod(
+                this->session_reactor,
+                this->front,
+                this->front.client_info.screen_info.width,
+                this->front.client_info.screen_info.height,
+                this->load_font()
+            ));
+            LOG(LOG_INFO, "ModuleManager::internal module 'widgettest' ready");
             break;
         case MODULE_INTERNAL_CARD:
             LOG(LOG_INFO, "ModuleManager::Creation of internal module 'test_card'");
             this->set_mod(new TestCardMod(
                 this->session_reactor,
                 this->front,
-                this->front.client_info.width,
-                this->front.client_info.height,
-                this->ini.get<cfg::font>(),
+                this->front.client_info.screen_info.width,
+                this->front.client_info.screen_info.height,
+                this->load_font(),
                 false
             ));
             LOG(LOG_INFO, "ModuleManager::internal module 'test_card' ready");
@@ -707,76 +621,58 @@ public:
             if (report_message.get_inactivity_timeout() != this->ini.get<cfg::globals::session_timeout>().count()) {
                 report_message.update_inactivity_timeout();
             }
-            {
 
             this->set_mod(new SelectorMod(
                 this->ini,
                 this->session_reactor,
                 this->front,
-                this->front.client_info.width,
-                this->front.client_info.height,
+                this->front.client_info.screen_info.width,
+                this->front.client_info.screen_info.height,
                 this->client_execute.adjust_rect(get_widget_rect(
-                    this->front.client_info.width,
-                    this->front.client_info.height,
+                    this->front.client_info.screen_info.width,
+                    this->front.client_info.screen_info.height,
                     this->front.client_info.cs_monitor
                 )),
-                this->client_execute
+                this->client_execute,
+                this->load_font(),
+                this->load_theme()
             ));
             //if (bool(this->verbose & Verbose::new_mod)) {
                 LOG(LOG_INFO, "ModuleManager::internal module 'selector' ready");
             //}
-            }
             break;
         case MODULE_INTERNAL_CLOSE:
-            {
-                LOG(LOG_INFO, "ModuleManager::Creation of new mod 'INTERNAL::Close'");
-                if (this->ini.get<cfg::context::auth_error_message>().empty()) {
-                    this->ini.set<cfg::context::auth_error_message>(TR(trkeys::connection_ended, language(this->ini)));
-                }
-                this->set_mod(new FlatWabCloseMod(
-                    this->ini,
-                    this->session_reactor,
-                    this->front,
-                    this->front.client_info.width,
-                    this->front.client_info.height,
-                    this->client_execute.adjust_rect(get_widget_rect(
-                        this->front.client_info.width,
-                        this->front.client_info.height,
-                        this->front.client_info.cs_monitor
-                    )),
-                    now,
-                    this->client_execute,
-//                     true,
-                    true
-                ));
+        case MODULE_INTERNAL_CLOSE_BACK: {
+            bool const back_to_selector = (target_module == MODULE_INTERNAL_CLOSE_BACK);
+            LOG(LOG_INFO, "ModuleManager::Creation of new mod 'INTERNAL::Close%s'",
+                back_to_selector ? "Back" : "");
+
+            if (this->ini.get<cfg::context::auth_error_message>().empty()) {
+                this->ini.set<cfg::context::auth_error_message>(TR(trkeys::connection_ended, language(this->ini)));
             }
-            LOG(LOG_INFO, "ModuleManager::internal module Close ready");
+
+            this->set_mod(new FlatWabCloseMod(
+                this->ini,
+                this->session_reactor,
+                this->front,
+                this->front.client_info.screen_info.width,
+                this->front.client_info.screen_info.height,
+                this->client_execute.adjust_rect(get_widget_rect(
+                    this->front.client_info.screen_info.width,
+                    this->front.client_info.screen_info.height,
+                    this->front.client_info.cs_monitor
+                )),
+                now,
+                this->client_execute,
+                this->load_font(),
+                this->load_theme(),
+                true,
+                back_to_selector
+            ));
+            LOG(LOG_INFO, "ModuleManager::internal module Close%s ready",
+                back_to_selector ? " Back" : "");
             break;
-        case MODULE_INTERNAL_CLOSE_BACK:
-            {
-                if (this->ini.get<cfg::context::auth_error_message>().empty()) {
-                    this->ini.set<cfg::context::auth_error_message>(TR(trkeys::connection_ended, language(this->ini)));
-                }
-                LOG(LOG_INFO, "ModuleManager::Creation of new mod 'INTERNAL::CloseBack'");
-                this->set_mod(new FlatWabCloseMod(
-                    this->ini,
-                    this->session_reactor,
-                    this->front,
-                    this->front.client_info.width,
-                    this->front.client_info.height,
-                    this->client_execute.adjust_rect(get_widget_rect(
-                        this->front.client_info.width,
-                        this->front.client_info.height,
-                        this->front.client_info.cs_monitor
-                    )),
-                    now,
-                    this->client_execute,
-                    true,
-                    true
-                ));
-            }
-            LOG(LOG_INFO, "ModuleManager::internal module Close Back ready");
-            break;
+        }
         case MODULE_INTERNAL_TARGET:
             {
                 LOG(LOG_INFO, "ModuleManager::Creation of internal module 'Interactive Target'");
@@ -784,14 +680,16 @@ public:
                     this->ini,
                     this->session_reactor,
                     this->front,
-                    this->front.client_info.width,
-                    this->front.client_info.height,
+                    this->front.client_info.screen_info.width,
+                    this->front.client_info.screen_info.height,
                     this->client_execute.adjust_rect(get_widget_rect(
-                        this->front.client_info.width,
-                        this->front.client_info.height,
+                        this->front.client_info.screen_info.width,
+                        this->front.client_info.screen_info.height,
                         this->front.client_info.cs_monitor
                     )),
-                    this->client_execute
+                    this->client_execute,
+                    this->load_font(),
+                    this->load_theme()
                 ));
                 LOG(LOG_INFO, "ModuleManager::internal module 'Interactive Target' ready");
             }
@@ -807,18 +705,20 @@ public:
                     this->ini,
                     this->session_reactor,
                     this->front,
-                    this->front.client_info.width,
-                    this->front.client_info.height,
+                    this->front.client_info.screen_info.width,
+                    this->front.client_info.screen_info.height,
                     this->client_execute.adjust_rect(get_widget_rect(
-                        this->front.client_info.width,
-                        this->front.client_info.height,
+                        this->front.client_info.screen_info.width,
+                        this->front.client_info.screen_info.height,
                         this->front.client_info.cs_monitor
                     )),
                     caption,
                     message,
                     button,
                     now,
-                    this->client_execute
+                    this->client_execute,
+                    this->load_font(),
+                    this->load_theme()
                 ));
                 LOG(LOG_INFO, "ModuleManager::internal module 'Dialog Accept Message' ready");
             }
@@ -834,18 +734,20 @@ public:
                     this->ini,
                     this->session_reactor,
                     this->front,
-                    this->front.client_info.width,
-                    this->front.client_info.height,
+                    this->front.client_info.screen_info.width,
+                    this->front.client_info.screen_info.height,
                     this->client_execute.adjust_rect(get_widget_rect(
-                        this->front.client_info.width,
-                        this->front.client_info.height,
+                        this->front.client_info.screen_info.width,
+                        this->front.client_info.screen_info.height,
                         this->front.client_info.cs_monitor
                     )),
                     caption,
                     message,
                     button,
                     now,
-                    this->client_execute
+                    this->client_execute,
+                    this->load_font(),
+                    this->load_theme()
                 ));
                 LOG(LOG_INFO, "ModuleManager::internal module 'Dialog Display Message' ready");
             }
@@ -866,11 +768,11 @@ public:
                     this->ini,
                     this->session_reactor,
                     this->front,
-                    this->front.client_info.width,
-                    this->front.client_info.height,
+                    this->front.client_info.screen_info.width,
+                    this->front.client_info.screen_info.height,
                     this->client_execute.adjust_rect(get_widget_rect(
-                        this->front.client_info.width,
-                        this->front.client_info.height,
+                        this->front.client_info.screen_info.width,
+                        this->front.client_info.screen_info.height,
                         this->front.client_info.cs_monitor
                     )),
                     caption,
@@ -878,6 +780,8 @@ public:
                     button,
                     now,
                     this->client_execute,
+                    this->load_font(),
+                    this->load_theme(),
                     challenge
                 ));
                 LOG(LOG_INFO, "ModuleManager::internal module 'Dialog Challenge' ready");
@@ -895,104 +799,106 @@ public:
                     this->ini,
                     this->session_reactor,
                     this->front,
-                    this->front.client_info.width,
-                    this->front.client_info.height,
+                    this->front.client_info.screen_info.width,
+                    this->front.client_info.screen_info.height,
                     this->client_execute.adjust_rect(get_widget_rect(
-                        this->front.client_info.width,
-                        this->front.client_info.height,
+                        this->front.client_info.screen_info.width,
+                        this->front.client_info.screen_info.height,
                         this->front.client_info.cs_monitor
                     )),
                     caption,
                     message,
                     now,
                     this->client_execute,
+                    this->load_font(),
+                    this->load_theme(),
                     showform,
                     flag
                 ));
                 LOG(LOG_INFO, "ModuleManager::internal module 'Wait Info Message' ready");
             }
             break;
-        case MODULE_INTERNAL_WIDGET_LOGIN:
+        case MODULE_INTERNAL_WIDGET_LOGIN: {
+            char username[255]; // should use string
+            username[0] = 0;
             LOG(LOG_INFO, "ModuleManager::Creation of internal module 'Login'");
-            if (this->ini.is_asked<cfg::globals::target_user>()
-             || this->ini.is_asked<cfg::globals::target_device>()){
-                if (this->ini.is_asked<cfg::globals::auth_user>()){
-                    accounts.username[0] = 0;
+            if (!this->ini.is_asked<cfg::globals::auth_user>()){
+                if (this->ini.is_asked<cfg::globals::target_user>()
+                 || this->ini.is_asked<cfg::globals::target_device>()){
+                    utils::strlcpy(
+                        username,
+                        this->ini.get<cfg::globals::auth_user>().c_str(),
+                        sizeof(username));
                 }
                 else {
-                    strncpy(accounts.username,
-                            this->ini.get<cfg::globals::auth_user>().c_str(),
-                            sizeof(accounts.username));
-                    accounts.username[sizeof(accounts.username) - 1] = 0;
+                    // TODO check this! Assembling parts to get user login with target is not obvious method used below il likely to show @: if target fields are empty
+                    snprintf( username, sizeof(username), "%s@%s:%s%s%s"
+                            , this->ini.get<cfg::globals::target_user>().c_str()
+                            , this->ini.get<cfg::globals::target_device>().c_str()
+                            , this->ini.get<cfg::context::target_protocol>().c_str()
+                            , (!this->ini.get<cfg::context::target_protocol>().empty() ? ":" : "")
+                            , this->ini.get<cfg::globals::auth_user>().c_str()
+                            );
                 }
-            }
-            else if (this->ini.is_asked<cfg::globals::auth_user>()) {
-                accounts.username[0] = 0;
-            }
-            else {
-                // TODO check this! Assembling parts to get user login with target is not obvious method used below il likely to show @: if target fields are empty
-                snprintf( accounts.username, sizeof(accounts.username), "%s@%s:%s%s%s"
-                        , this->ini.get<cfg::globals::target_user>().c_str()
-                        , this->ini.get<cfg::globals::target_device>().c_str()
-                        , this->ini.get<cfg::context::target_protocol>().c_str()
-                        , (!this->ini.get<cfg::context::target_protocol>().empty() ? ":" : "")
-                        , this->ini.get<cfg::globals::auth_user>().c_str()
-                        );
-                utils::back(accounts.username) = '\0';
+
+                username[sizeof(username) - 1] = 0;
             }
 
             this->set_mod(new FlatLoginMod(
                 this->ini,
                 this->session_reactor,
-                accounts.username,
-                accounts.password,
+                username,
+                "", // password
                 this->front,
-                this->front.client_info.width,
-                this->front.client_info.height,
+                this->front.client_info.screen_info.width,
+                this->front.client_info.screen_info.height,
                 this->client_execute.adjust_rect(get_widget_rect(
-                    this->front.client_info.width,
-                    this->front.client_info.height,
+                    this->front.client_info.screen_info.width,
+                    this->front.client_info.screen_info.height,
                     this->front.client_info.cs_monitor
                 )),
                 now,
-                this->client_execute
+                this->client_execute,
+                this->load_font(),
+                this->load_theme()
             ));
             LOG(LOG_INFO, "ModuleManager::internal module Login ready");
             break;
+        }
 
-        case MODULE_XUP:
-            {
-                const char * name = "XUP Target";
-                if (bool(this->verbose & Verbose::new_mod)) {
-                    LOG(LOG_INFO, "ModuleManager::Creation of new mod 'XUP'\n");
-                }
-
-                unique_fd client_sck = this->connect_to_target_host(
-                    report_message, trkeys::authentification_x_fail);
-
-                this->set_mod(new ModWithSocket<xup_mod>(
-                    *this,
-                    authentifier,
-                    name,
-                    std::move(client_sck),
-                    this->ini.get<cfg::debug::mod_xup>(),
-                    nullptr,
-                    sock_mod_barrier(),
-                    this->session_reactor,
-                    this->front,
-                    this->front.client_info.width,
-                    this->front.client_info.height,
-                    this->ini.get<cfg::context::opt_width>(),
-                    this->ini.get<cfg::context::opt_height>(),
-                    this->ini.get<cfg::context::opt_bpp>()
-                    // TODO: shouldn't alls mods have access to sesman authentifier ?
-                ));
-
-                this->ini.get_ref<cfg::context::auth_error_message>().clear();
-                LOG(LOG_INFO, "ModuleManager::Creation of new mod 'XUP' suceeded\n");
-                this->connected = true;
+        case MODULE_XUP: {
+            const char * name = "XUP Target";
+            if (bool(this->verbose & Verbose::new_mod)) {
+                LOG(LOG_INFO, "ModuleManager::Creation of new mod 'XUP'\n");
             }
+
+            unique_fd client_sck = this->connect_to_target_host(
+                report_message, trkeys::authentification_x_fail, "XUP");
+
+            this->set_mod(new ModWithSocket<xup_mod>(
+                *this,
+                authentifier,
+                name,
+                std::move(client_sck),
+                this->ini.get<cfg::debug::mod_xup>(),
+                nullptr,
+                sock_mod_barrier(),
+                this->session_reactor,
+                this->front,
+                this->front.client_info.screen_info.width,
+                this->front.client_info.screen_info.height,
+                this->ini.get<cfg::context::opt_width>(),
+                this->ini.get<cfg::context::opt_height>(),
+                // TODO use safe_int
+                checked_int(this->ini.get<cfg::context::opt_bpp>())
+                // TODO: shouldn't alls mods have access to sesman authentifier ?
+            ));
+
+            this->ini.get_ref<cfg::context::auth_error_message>().clear();
+            LOG(LOG_INFO, "ModuleManager::Creation of new mod 'XUP' suceeded\n");
+            this->connected = true;
             break;
+        }
 
         case MODULE_RDP:
             this->create_mod_rdp(
@@ -1010,10 +916,8 @@ public:
             break;
 
         default:
-            {
-                LOG(LOG_INFO, "ModuleManager::Unknown backend exception");
-                throw Error(ERR_SESSION_UNKNOWN_BACKEND);
-            }
+            LOG(LOG_INFO, "ModuleManager::Unknown backend exception");
+            throw Error(ERR_SESSION_UNKNOWN_BACKEND);
         }
     }
 
@@ -1022,31 +926,53 @@ public:
     }
 
 private:
-    unique_fd connect_to_target_host(ReportMessageApi& report_message, trkeys::TrKey const& authentification_fail)
+    unique_fd connect_to_target_host(ReportMessageApi& report_message, trkeys::TrKey const& authentification_fail, char const * protocol)
     {
+        auto throw_error = [this, &protocol, &report_message](char const* error_message, int id) {
+            LOG_PROXY_SIEM("TARGET_CONNECTION_FAILED",
+                R"(target="%s" host="%s" port="%d" reason="%s")",
+                this->ini.get<cfg::context::real_target_device>(),
+                this->ini.get<cfg::context::target_host>(),
+                this->ini.get<cfg::context::target_port>(),
+                error_message);
+
+            ArcsightLogInfo arc_info;
+            arc_info.name = "CONNECTION";
+            arc_info.signatureID = ArcsightLogInfo::CONNECTION;
+            arc_info.ApplicationProtocol = protocol;
+            arc_info.WallixBastionStatus = "FAIL";
+            arc_info.direction_flag = ArcsightLogInfo::SERVER_DST;
+            report_message.log6("type=\"CONNECTION_FAILED\"", arc_info, this->session_reactor.get_current_time());
+
+            this->ini.set<cfg::context::auth_error_message>(TR(trkeys::target_fail, language(this->ini)));
+
+            LOG(LOG_ERR, "%s", (id == 1)
+                ? "Failed to connect to remote TCP host (1)"
+                : "Failed to connect to remote TCP host (2)");
+            throw Error(ERR_SOCKET_CONNECT_FAILED);
+        };
+
+        LOG_PROXY_SIEM("TARGET_CONNECTION",
+            R"(target="%s" host="%s" port="%d")",
+            this->ini.get<cfg::context::real_target_device>(),
+            this->ini.get<cfg::context::target_host>(),
+            this->ini.get<cfg::context::target_port>());
+
         const char * ip = this->ini.get<cfg::context::target_host>().c_str();
         char ip_addr[256] {};
         in_addr s4_sin_addr;
-        int status = resolve_ipv4_address(ip, s4_sin_addr);
-        if (status){
-            report_message.log5("type=\"CONNECTION_FAILED\"");
-
-            this->ini.set<cfg::context::auth_error_message>(TR(trkeys::target_fail, language(this->ini)));
+        if (auto error_message = resolve_ipv4_address(ip, s4_sin_addr)) {
             // TODO: actually this is DNS Failure or invalid address
-            LOG(LOG_ERR, "Failed to connect to remote TCP host (1)");
-            throw Error(ERR_SOCKET_CONNECT_FAILED);
+            throw_error(error_message, 1);
         }
 
         snprintf(ip_addr, sizeof(ip_addr), "%s", inet_ntoa(s4_sin_addr));
 
-        unique_fd client_sck = ip_connect(ip, this->ini.get<cfg::context::target_port>(), 3, 1000);
+        char const* error_message = nullptr;
+        unique_fd client_sck = ip_connect(ip, this->ini.get<cfg::context::target_port>(), 3, 1000, &error_message);
 
-        if (!client_sck.is_open()){
-            report_message.log5("type=\"CONNECTION_FAILED\"");
-
-            this->ini.set<cfg::context::auth_error_message>(TR(trkeys::target_fail, language(this->ini)));
-            LOG(LOG_ERR, "Failed to connect to remote TCP host (2)");
-            throw Error(ERR_SOCKET_CONNECT_FAILED);
+        if (!client_sck.is_open()) {
+            throw_error(error_message, 2);
         }
 
         this->ini.set<cfg::context::auth_error_message>(TR(authentification_fail, language(this->ini)));
@@ -1065,4 +991,40 @@ private:
         AuthApi& authentifier, ReportMessageApi& report_message,
         Inifile& ini, FrontAPI& front, ClientInfo const& client_info,
         ClientExecute& client_execute, Keymap2::KeyFlags key_flags);
+
+    Font& load_font()
+    {
+        if (this->_font_is_loaded) {
+            return this->_font;
+        }
+
+        this->_font = Font(
+            app_path(AppPath::DefaultFontFile),
+            ini.get<cfg::globals::spark_view_specific_glyph_width>());
+
+        this->_font_is_loaded = true;
+        return this->_font;
+    }
+
+    Theme& load_theme()
+    {
+        if (this->_theme_is_loaded) {
+            return this->_theme;
+        }
+
+        auto & theme_name = this->ini.get<cfg::internal_mod::theme>();
+        if (this->ini.get<cfg::debug::config>()) {
+            LOG(LOG_INFO, "LOAD_THEME: %s", theme_name);
+        }
+
+        ::load_theme(this->_theme, theme_name);
+
+        this->_theme_is_loaded = true;
+        return this->_theme;
+    }
+
+    Theme _theme;
+    Font _font;
+    bool _theme_is_loaded = false;
+    bool _font_is_loaded = false;
 };

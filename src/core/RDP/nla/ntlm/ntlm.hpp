@@ -31,25 +31,24 @@
 
 // TODO: constants below are still globals,
 // better to move them in the scope of functions/objects using them
-namespace {
-    //const char* NTLM_PACKAGE_NAME = "NTLM";
-    // const char Ntlm_Name[] = "NTLM";
-    // const char Ntlm_Comment[] = "NTLM Security Package";
-    // const SecPkgInfo NTLM_SecPkgInfo = {
-    //     0x00082B37,             // fCapabilities
-    //     1,                      // wVersion
-    //     0x000A,                 // wRPCID
-    //     0x00000B48,             // cbMaxToken
-    //     Ntlm_Name,              // Name
-    //     Ntlm_Comment            // Comment
-    // };
-    constexpr uint32_t cbMaxSignature = 16;
-    // SecPkgContext_Sizes ContextSizes;
-    // ContextSizes.cbMaxToken = 2010;
-    // ContextSizes.cbMaxSignature = 16;
-    // ContextSizes.cbBlockSize = 0;
-    // ContextSizes.cbSecurityTrailer = 16;
-} // namespace
+//const char* NTLM_PACKAGE_NAME = "NTLM";
+// const char Ntlm_Name[] = "NTLM";
+// const char Ntlm_Comment[] = "NTLM Security Package";
+// const SecPkgInfo NTLM_SecPkgInfo = {
+//     0x00082B37,             // fCapabilities
+//     1,                      // wVersion
+//     0x000A,                 // wRPCID
+//     0x00000B48,             // cbMaxToken
+//     Ntlm_Name,              // Name
+//     Ntlm_Comment            // Comment
+// };
+constexpr uint32_t cbMaxSignature = 16;
+// SecPkgContext_Sizes ContextSizes;
+// ContextSizes.cbMaxToken = 2010;
+// ContextSizes.cbMaxSignature = 16;
+// ContextSizes.cbBlockSize = 0;
+// ContextSizes.cbSecurityTrailer = 16;
+
 
 struct Ntlm_SecurityFunctionTable : public SecurityFunctionTable
 {
@@ -103,7 +102,7 @@ public:
     // GSS_Init_sec_context
     // INITIALIZE_SECURITY_CONTEXT_FN InitializeSecurityContext;
     SEC_STATUS InitializeSecurityContext(
-        char* pszTargetName, array_view_const_u8 input_buffer, SecBuffer& output_buffer
+        array_view_const_char pszTargetName, array_view_const_u8 input_buffer, Array& output_buffer
     ) override
     {
         if (this->verbose) {
@@ -117,8 +116,8 @@ public:
             if (!this->identity) {
                 return SEC_E_WRONG_CREDENTIAL_HANDLE;
             }
-            this->context->ntlm_SetContextWorkstation(byte_ptr_cast(pszTargetName));
-            this->context->ntlm_SetContextServicePrincipalName(byte_ptr_cast(pszTargetName));
+            this->context->ntlm_SetContextWorkstation(pszTargetName);
+            this->context->ntlm_SetContextServicePrincipalName(pszTargetName);
 
             this->context->identity.CopyAuthIdentity(*this->identity);
         }
@@ -143,7 +142,7 @@ public:
     // GSS_Accept_sec_context
     // ACCEPT_SECURITY_CONTEXT AcceptSecurityContext;
     SEC_STATUS AcceptSecurityContext(
-        array_view_const_u8 input_buffer, SecBuffer& output_buffer
+        array_view_const_u8 input_buffer, Array& output_buffer
     ) override {
         if (!this->context) {
             this->context = std::make_unique<NTLMContext>(true, this->rand, this->timeobj);
@@ -214,7 +213,7 @@ private:
         SslHMAC_Md5 hmac_md5({signing_key, 16});
         StaticOutStream<4> out_stream;
         out_stream.out_uint32_le(SeqNo);
-        hmac_md5.update(stream_to_avu8(out_stream));
+        hmac_md5.update(out_stream.get_bytes());
         hmac_md5.update(data_buffer);
         hmac_md5.final(digest);
     }
@@ -236,7 +235,7 @@ private:
 public:
     // GSS_Wrap
     // ENCRYPT_MESSAGE EncryptMessage;
-    SEC_STATUS EncryptMessage(array_view_const_u8 data_in, SecBuffer& data_out, unsigned long MessageSeqNo) override {
+    SEC_STATUS EncryptMessage(array_view_const_u8 data_in, Array& data_out, unsigned long MessageSeqNo) override {
         if (!this->context) {
             return SEC_E_NO_CONTEXT;
         }
@@ -264,12 +263,16 @@ public:
 
     // GSS_Unwrap
     // DECRYPT_MESSAGE DecryptMessage;
-    SEC_STATUS DecryptMessage(array_view_const_u8 data_in, SecBuffer& data_out, unsigned long MessageSeqNo) override {
+    SEC_STATUS DecryptMessage(array_view_const_u8 data_in, Array& data_out, unsigned long MessageSeqNo) override {
         if (!this->context) {
             return SEC_E_NO_CONTEXT;
         }
         if (this->context->verbose & 0x400) {
             LOG(LOG_INFO, "NTLM_SSPI::DecryptMessage");
+        }
+
+        if (data_in.size() < cbMaxSignature) {
+            return SEC_E_INVALID_TOKEN;
         }
 
         // data_in [signature][data_buffer]

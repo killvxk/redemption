@@ -21,7 +21,7 @@
 */
 
 #define RED_TEST_MODULE TestRedirectionInfo
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "utils/redirection_info.hpp"
 
@@ -37,7 +37,7 @@ RED_AUTO_TEST_CASE(TestRedirectionInfo)
 
     rinfo.log(LOG_INFO, "test rinfo");
 
-    RED_CHECK_EQUAL(rinfo.session_id, 3333);
+    RED_CHECK_EQUAL(rinfo.session_id, 3333u);
     rinfo = RedirectionInfo();
-    RED_CHECK_EQUAL(rinfo.session_id, 0);
+    RED_CHECK_EQUAL(rinfo.session_id, 0u);
 }

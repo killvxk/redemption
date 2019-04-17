@@ -20,25 +20,27 @@
 */
 
 #define RED_TEST_MODULE TestBitmapUpdate
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
+#include "core/RDP/orders/RDPOrdersPrimaryOpaqueRect.hpp"
+#include "core/RDP/bitmapupdate.hpp"
+#include "gdi/graphic_api.hpp"
+#include "utils/bitmap.hpp"
+#include "test_only/gdi/test_graphic.hpp"
 #include "test_only/check_sig.hpp"
 
-#include "core/RDP/bitmapupdate.hpp"
-#include "core/RDP/RDPDrawable.hpp"
 
-
-RED_AUTO_TEST_CASE(TestDrawBitmapUpdate)
+RED_AUTO_TEST_CASE(TestGraphicBitmapUpdate)
 {
     // Create a simple capture image and dump it to file
     uint16_t width = 1440;
     uint16_t height = 850;
     Rect screen_rect(0, 0, width, height);
 
-    RDPDrawable gd(width, height);
+    TestGraphic gd(width, height);
     auto const color_cxt = gdi::ColorCtx::depth16();
-    gd.draw(RDPOpaqueRect(screen_rect, encode_color16()(BGRColor(0x2F2F2F))), screen_rect, color_cxt);
+    gd->draw(RDPOpaqueRect(screen_rect, encode_color16()(BGRColor(0x2F2F2F))), screen_rect, color_cxt);
 
     uint8_t raw_palette[] = {
 /* 0000 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ................
@@ -152,13 +154,13 @@ RED_AUTO_TEST_CASE(TestDrawBitmapUpdate)
 
     BGRPalette palette = make_bgr_palette_from_bgrx_array(raw_palette);
 
-    Bitmap bmp(16, 24, &palette, 8, 600, raw_bitmap, sizeof(raw_bitmap), true);
+    Bitmap bmp(BitsPerPixel{16}, BitsPerPixel{24}, &palette, 8, 600, raw_bitmap, sizeof(raw_bitmap), true);
 
 
-    Bitmap capture_bmp(16, bmp);
+    Bitmap capture_bmp(BitsPerPixel{16}, bmp);
 
     StaticOutStream<65535> bmp_stream;
-    capture_bmp.compress(16, bmp_stream);
+    capture_bmp.compress(BitsPerPixel{16}, bmp_stream);
 
     RDPBitmapData bitmap_data;
 
@@ -181,7 +183,7 @@ RED_AUTO_TEST_CASE(TestDrawBitmapUpdate)
 
 //    gd.draw(bitmap_data, raw_bitmap, sizeof(raw_bitmap), bmp);
 //    gd.draw(bitmap_data, capture_bmp.data(), capture_bmp.bmp_size(), capture_bmp);
-    gd.draw(bitmap_data, capture_bmp);
+    gd->draw(bitmap_data, capture_bmp);
 
     RED_CHECK_SIG(gd, "\xae\x7b\x8e\xe3\x2f\xbf\xaf\x9b\x6e\x58\xbb\x23\x23\xb9\xdc\x4a\xac\xad\x09\xd1");
 

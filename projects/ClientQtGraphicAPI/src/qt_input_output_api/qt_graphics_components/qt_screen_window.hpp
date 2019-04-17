@@ -16,16 +16,16 @@
    Product name: redemption, a FLOSS RDP proxy
    Copyright (C) Wallix 2010-2013
    Author(s): Clément Moroldo
-
 */
 
 #pragma once
 
 
 #include "utils/log.hpp"
-#include "client_redemption/client_redemption_controller.hpp"
-#include "client_redemption/client_input_output_api/client_graphic_api.hpp"
-#include "client_redemption/client_input_output_api/client_mouse_keyboard_api.hpp"
+#include "client_redemption/client_config/client_redemption_config.hpp"
+#include "client_redemption/mod_wrapper/client_callback.hpp"
+#include "client_redemption/client_channels/client_remoteapp_channel.hpp"
+// #include "client_redemption/client_input_output_api/client_mouse_keyboard_api.hpp"
 
 #include <QtCore/QTimer>
 #include <QtGui/QMouseEvent>
@@ -62,9 +62,10 @@ public:
         READING_BAR_H = 12,
     };
 
-    ClientRedemptionConfig * config;
-    ClientRedemptionController       * controller;
-    ClientInputMouseKeyboardAPI * impl_input;
+    WindowsData * win_data;
+
+    ClientCallback * callback;
+//     ClientOutputGraphicAPI * client_graphic_api;
 
     int            _width;
     int            _height;
@@ -77,14 +78,13 @@ public:
     int cursorHotx;
     int cursorHoty;
 
-     QRect clip;
 
 
-    QtScreen(ClientRedemptionConfig * config, ClientRedemptionController * controller, ClientInputMouseKeyboardAPI * impl_input, QPixmap * cache, int w, int h)
+    QtScreen(WindowsData * win_data, ClientCallback * callback, /*ClientOutputGraphicAPI * client_graphic_api,*/ QPixmap * cache, int w, int h)
     : QWidget()
-    , config(config)
-    , controller(controller)
-    , impl_input(impl_input)
+    , win_data(win_data)
+    , callback(callback)
+//     , client_graphic_api(client_graphic_api)
     , _width(w)
     , _height(h)
     , _penColor(Qt::black)
@@ -92,7 +92,6 @@ public:
     , _connexionLasted(false)
     , cursorHotx(0)
     , cursorHoty(0)
-    , clip(-1, -1, 0, 0)
     {
         this->setAttribute(Qt::WA_DeleteOnClose);
         this->setFocusPolicy(Qt::StrongFocus);
@@ -100,16 +99,16 @@ public:
 
     ~QtScreen() {
         QPoint points = this->mapToGlobal({0, 0});
-        this->config->windowsData.screen_x = points.x()-1;    //-1;
-        this->config->windowsData.screen_y = points.y()-39;   //-39;
-        this->config->writeWindowsData();
+        this->win_data->screen_x = points.x()-1;            //-1;
+        this->win_data->screen_y = points.y()-39;           //-39;
+        ClientConfig::writeWindowsData(*(this->win_data));
 
         if (!this->_connexionLasted) {
-            this->controller->closeFromScreen();
+            this->callback->close();
         }
     }
 
-    void mouseReleaseEvent(QMouseEvent *e) override {
+    virtual void mouseReleaseEvent(QMouseEvent *e) override {
         int flag(0);
         switch (e->button()) {
 
@@ -127,32 +126,27 @@ public:
         int x = e->x();
         int y = e->y();
 
-        if (this->config->mod_state == ClientRedemptionConfig::MOD_RDP_REMOTE_APP) {
-            QPoint mouseLoc = QCursor::pos();
-            x = mouseLoc.x();
-            y = mouseLoc.y();
-        }
-
-        this->controller->mouseButtonEvent(x, y, flag);
+        this->callback->mouseButtonEvent(x, y, flag);
     }
 
     void keyPressEvent(QKeyEvent *e) override {
-        this->impl_input->keyPressEvent(e->key(), e->text().toStdString());
+        this->callback->keyPressEvent(e->key(), e->text().toStdString());
     }
 
     void keyReleaseEvent(QKeyEvent *e) override {
-        this->impl_input->keyReleaseEvent(e->key(), e->text().toStdString());
+        this->callback->keyReleaseEvent(e->key(), e->text().toStdString());
     }
 
     void wheelEvent(QWheelEvent *e) override {
-        this->controller->wheelEvent(e->x(), e->y(), e->delta());
+//         LOG(LOG_INFO, "QtScreen::wheelEvent x=%d y=%d delta=%d", e->x(), e->y(), e->delta());
+        this->callback->wheelEvent(e->delta());
     }
 
     void setPenColor(QColor color) {
         this->_penColor = color;
     }
 
-    bool eventFilter(QObject *obj, QEvent *e) override {
+    virtual bool eventFilter(QObject *obj, QEvent *e) override {
         Q_UNUSED(obj);
         if (e->type() == QEvent::MouseMove)
         {
@@ -160,13 +154,7 @@ public:
             int x = std::max(0, mouseEvent->x());
             int y = std::max(0, mouseEvent->y());
 
-            if (this->config->mod_state == ClientRedemptionConfig::MOD_RDP_REMOTE_APP) {
-                QPoint mouseLoc = QCursor::pos();
-                x = std::max(0, mouseLoc.x());
-                y = std::max(0, mouseLoc.y());
-            }
-
-            this->controller->mouseMouveEvent(x, y);
+            this->callback->mouseMouveEvent(x, y);
         }
 
         return false;
@@ -188,7 +176,7 @@ public:
         this->close();
     }
 
-    void mousePressEvent(QMouseEvent *e) override {
+    virtual void mousePressEvent(QMouseEvent *e) override {
 
         int flag(0);
         switch (e->button()) {
@@ -206,13 +194,13 @@ public:
         int x = e->x();
         int y = e->y();
 
-        if (this->config->mod_state == ClientRedemptionConfig::MOD_RDP_REMOTE_APP) {
-            QPoint mouseLoc = QCursor::pos();
-            x = mouseLoc.x();
-            y = mouseLoc.y();
-        }
+//         if (this->config->mod_state == ClientRedemptionConfig::MOD_RDP_REMOTE_APP) {
+//             QPoint mouseLoc = QCursor::pos();
+//             x = mouseLoc.x();
+//             y = mouseLoc.y();
+//         }
 
-        this->controller->mouseButtonEvent(x, y, flag | MOUSE_FLAG_DOWN);
+        this->callback->mouseButtonEvent(x, y, flag | MOUSE_FLAG_DOWN);
     }
 
 
@@ -238,8 +226,8 @@ public:
 
 
 
-    RemoteAppQtScreen (ClientRedemptionConfig * config, ClientRedemptionController * controller, ClientInputMouseKeyboardAPI * impl_input, int width, int height, int x, int y, QPixmap * cache)
-        : QtScreen(config, controller, impl_input, cache, width, height)
+    RemoteAppQtScreen (WindowsData * wind_data, ClientCallback * callback, /*ClientOutputGraphicAPI * client_graphic_api,*/ int width, int height, int x, int y, QPixmap * cache)
+        : QtScreen(wind_data, callback, /*client_graphic_api, */cache, width, height)
         , x_pixmap_shift(x)
         , y_pixmap_shift(y)
     {
@@ -249,11 +237,11 @@ public:
 
         //this->setAttribute(Qt::WA_OutsideWSRange);
 
-        if (this->config->is_spanning) {
-            this->setWindowState(Qt::WindowFullScreen);
-        } else {
-            this->setFixedSize(this->_width, this->_height);
-        }
+//         if (this->config->is_spanning) {
+//             this->setWindowState(Qt::WindowFullScreen);
+//         } else {
+//             this->setFixedSize(this->_width, this->_height);
+//         }
 
         this->move(this->x_pixmap_shift, this->y_pixmap_shift);
     }
@@ -269,6 +257,74 @@ public:
         painter.setPen(pen);
         painter.drawPixmap(QPoint(0, 0), *(this->_cache), QRect(this->x_pixmap_shift, this->y_pixmap_shift, this->_width, this->_height));
         painter.end();
+    }
+
+    void mouseReleaseEvent(QMouseEvent *e) override {
+        int flag(0);
+        switch (e->button()) {
+
+            case Qt::LeftButton:  flag = MOUSE_FLAG_BUTTON1; break;
+            case Qt::RightButton: flag = MOUSE_FLAG_BUTTON2; break;
+            case Qt::MidButton:   flag = MOUSE_FLAG_BUTTON4; break;
+            case Qt::XButton1:
+            case Qt::XButton2:
+            case Qt::NoButton:
+            case Qt::MouseButtonMask:
+
+            default: break;
+        }
+
+        int x = e->x();
+        int y = e->y();
+
+        QPoint mouseLoc = QCursor::pos();
+        x = mouseLoc.x();
+        y = mouseLoc.y();
+
+        this->callback->mouseButtonEvent(x, y, flag);
+    }
+
+    bool eventFilter(QObject *obj, QEvent *e) override {
+        Q_UNUSED(obj);
+        if (e->type() == QEvent::MouseMove)
+        {
+            QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(e);
+            int x = std::max(0, mouseEvent->x());
+            int y = std::max(0, mouseEvent->y());
+
+            QPoint mouseLoc = QCursor::pos();
+            x = std::max(0, mouseLoc.x());
+            y = std::max(0, mouseLoc.y());
+
+            this->callback->mouseMouveEvent(x, y);
+        }
+
+        return false;
+    }
+
+    void mousePressEvent(QMouseEvent *e) override {
+
+        int flag(0);
+        switch (e->button()) {
+            case Qt::LeftButton:  flag = MOUSE_FLAG_BUTTON1; break;
+            case Qt::RightButton: flag = MOUSE_FLAG_BUTTON2; break;
+            case Qt::MidButton:   flag = MOUSE_FLAG_BUTTON4; break;
+            case Qt::XButton1:
+            case Qt::XButton2:
+            case Qt::NoButton:
+            case Qt::MouseButtonMask:
+
+            default: break;
+        }
+
+        int x = e->x();
+        int y = e->y();
+
+        QPoint mouseLoc = QCursor::pos();
+        x = mouseLoc.x();
+        y = mouseLoc.y();
+
+        this->callback->mouseButtonEvent(x, y, flag | MOUSE_FLAG_DOWN);
     }
 
 };
@@ -287,8 +343,8 @@ public:
     QPushButton    _buttonRefresh;
     QPushButton    _buttonDisconnexion;
 
-    RDPQtScreen (ClientRedemptionConfig * config, ClientRedemptionController * controller, ClientInputMouseKeyboardAPI * impl_input, QPixmap * cache)
-        : QtScreen(config, controller, impl_input, cache, cache->width(), cache->height())
+    RDPQtScreen (WindowsData * wind_data, ClientCallback * callback, /*ClientOutputGraphicAPI * client_graphic_api,*/ QPixmap * cache, bool is_spanning, std::string & target_IP)
+        : QtScreen(wind_data, callback, /*client_graphic_api,*/ cache, cache->width(), cache->height())
         , _buttonCtrlAltDel("CTRL + ALT + DELETE", this)
         , _buttonRefresh("Refresh", this)
         , _buttonDisconnexion("Disconnection", this)
@@ -297,10 +353,10 @@ public:
         this->installEventFilter(this);
 //         this->setAttribute(Qt::WA_NoSystemBackground);
 
-        std::string title = "ReDemPtion Client connected to [" + this->config->target_IP +  "].";
+        std::string title = "ReDemPtion Client connected to [" + target_IP +  "].";
         this->setWindowTitle(QString(title.c_str()));
 
-        if (this->config->is_spanning) {
+        if (is_spanning) {
             this->setWindowState(Qt::WindowFullScreen);
         } else {
             this->setFixedSize(this->_width, this->_height + BUTTON_HEIGHT);
@@ -328,16 +384,16 @@ public:
         this->QObject::connect(&(this->_buttonDisconnexion), SIGNAL (released()), this, SLOT (disconnexionRelease()));
         this->_buttonDisconnexion.setFocusPolicy(Qt::NoFocus);
 
-        if (this->config->is_spanning) {
+        if (is_spanning) {
             this->move(0, 0);
         } else {
-            if (this->config->is_no_win_data()) {
+            if (wind_data->no_data) {
                 QDesktopWidget* desktop = QApplication::desktop();
-                this->config->windowsData.screen_x = (desktop->width()/2)  - (this->_width/2);
-                this->config->windowsData.screen_y = (desktop->height()/2) - (this->_height/2);
+                wind_data->screen_x = (desktop->width()/2)  - (this->_width/2);
+                wind_data->screen_y = (desktop->height()/2) - (this->_height/2);
             }
 
-            this->move(this->config->windowsData.screen_x, this->config->windowsData.screen_y);
+            this->move(wind_data->screen_x, wind_data->screen_y);
         }
     }
 
@@ -358,19 +414,19 @@ public:
 public Q_SLOTS:
 
     void disconnexionRelease(){
-        this->controller->disconnexionReleased();
+        this->callback->disconnect(false);
     }
 
     void RefreshPressed() {
-        this->controller->refreshPressed();
+        this->callback->refreshPressed(this->_width, this->_height);
     }
 
     void CtrlAltDelPressed() {
-        this->controller->CtrlAltDelPressed();
+        this->callback->CtrlAltDelPressed();
     }
 
     void CtrlAltDelReleased() {
-        this->controller->CtrlAltDelReleased();
+        this->callback->CtrlAltDelReleased();
     }
 
 };
@@ -393,8 +449,6 @@ public:
     QTimer         _timer_replay;
 
     bool           _running;
-    std::string    _movie_name;
-    std::string    _movie_dir;
 
     timeval movie_time_start;
     timeval movie_time_pause;
@@ -414,15 +468,14 @@ public:
 
 
 public:
-    ReplayQtScreen ( ClientRedemptionController * controller, ClientInputMouseKeyboardAPI * impl_input, std::string const & movie_dir, std::string const & movie_name, QPixmap * cache, time_t movie_time, time_t current_time_movie)
-        : QtScreen(&(controller->config), controller, impl_input, cache, cache->width(), cache->height())
+    ReplayQtScreen (ClientCallback * callback, /*ClientOutputGraphicAPI * client_graphic_api,*/ QPixmap * cache, time_t movie_time, time_t current_time_movie, WindowsData * win_data, std::string & movie_name)
+        : QtScreen(win_data, callback, /*client_graphic_api,*/ cache, cache->width(), cache->height())
         , _buttonCtrlAltDel("Play", this)
         , _buttonRefresh("Stop", this)
         , _buttonDisconnexion("Close", this)
         , _timer_replay(this)
         , _running(false)
-        , _movie_name(movie_name)
-        , _movie_dir(movie_dir)
+//         , _movie_dir(movie_dir)
         , is_paused(false)
         , movie_time(movie_time)
         , movie_status( QString("  Stop"), this)
@@ -432,9 +485,9 @@ public:
         , reading_bar_len(this->_width - 60)
         , readding_bar(this->reading_bar_len+10, READING_BAR_H)
         , current_time_movie(current_time_movie)
-        , real_time_record(controller->get_real_time_movie_begin())
+        , real_time_record(callback->get_real_time_movie_begin())
     {
-        std::string title = "ReDemPtion Client " + this->_movie_name;
+        std::string title = "ReDemPtion Client " + movie_name;
         this->setWindowTitle(QString(title.c_str()));
 
 //         if (this->_front->is_spanning) {
@@ -498,18 +551,17 @@ public:
         this->repaint();
 
 
-        if (this->config->is_no_win_data()) {
+        if (win_data->no_data) {
             QDesktopWidget* desktop = QApplication::desktop();
-            this->config->windowsData.screen_x = (desktop->width()/2)  - (this->_width/2);
-            this->config->windowsData.screen_y = (desktop->height()/2) - (this->_height/2);
+            win_data->screen_x = (desktop->width()/2)  - (this->_width/2);
+            win_data->screen_y = (desktop->height()/2) - (this->_height/2);
         }
-        this->move(this->config->windowsData.screen_x, this->config->windowsData.screen_y);
+        this->move(win_data->screen_x, win_data->screen_y);
 
         this->QObject::connect(&(this->_timer_replay), SIGNAL (timeout()),  this, SLOT (playReplay()));
 
         //this->barRepaint(this->current_time_movie, QColor(Qt::green));
     }
-
 
     void show_video_real_time() {
 
@@ -591,7 +643,7 @@ public:
     }
 
     bool event(QEvent *event) override {
-        if (this->config->is_replaying) {
+//         if (this->config->is_replaying) {
             QHelpEvent *helpEvent = static_cast<QHelpEvent*>( event );
             QRect bar_zone(44, this->_height+4, this->reading_bar_len, READING_BAR_H);
             int x = helpEvent->pos().x();
@@ -605,9 +657,10 @@ public:
             } else {
                 QToolTip::hideText();
             }
-        }
+//         }
         return QWidget::event( event );
     }
+
 
 
 private:
@@ -639,7 +692,7 @@ private:
             this->barRepaint(this->current_time_movie, QColor(Qt::green));
             this->slotRepainMatch();
 
-            this->movie_time_start = this->controller->reload_replay_mod(this->begin, now_stop);
+            this->movie_time_start = this->callback->reload_replay_mod(this->begin, now_stop);
 
             this->_timer_replay.start(4);
         }
@@ -667,14 +720,14 @@ public Q_SLOTS:
                 timeval pause_duration = tvtime();
                 pause_duration = {pause_duration.tv_sec - this->movie_time_pause.tv_sec, pause_duration.tv_usec - this->movie_time_pause.tv_usec};
                 this->movie_time_start.tv_sec += pause_duration.tv_sec;
-                this->controller->replay_set_pause(pause_duration);
+                this->callback->set_pause(pause_duration);
 
                 this->is_paused = false;
             } else {
                 this->begin = 0;
                 this->barRepaint(this->reading_bar_len, QColor(Qt::black));
                 this->movie_time_start = tvtime();
-                this->controller->replay_set_sync();
+                this->callback->set_sync();
             }
             this->_buttonCtrlAltDel.setText("Pause");
             this->movie_status.setText("  Play ");
@@ -686,7 +739,7 @@ public Q_SLOTS:
     void playReplay() {
         this->show_video_real_time();
 
-        if (this->controller->is_replay_on()) {
+        if (this->callback->is_replay_on()) {
             this->slotRepainMatch();
         }
 
@@ -702,13 +755,14 @@ public Q_SLOTS:
             this->movie_status.setText("  Stop ");
             this->_running = false;
             this->is_paused = false;
-            this->controller->load_replay_mod(this->_movie_dir, this->_movie_name, {0, 0}, {0, 0});
+            this->callback->load_replay_mod({0, 0}, {0, 0});
         }
     }
 
     void closeReplay() {
-        this->controller->delete_replay_mod();
-        this->controller->disconnexionReleased();
+        this->callback->delete_replay_mod();
+        this->callback->disconnect(false);
+        this->close();
     }
 
     void stopRelease() override {
@@ -725,7 +779,7 @@ public Q_SLOTS:
         this->current_time_movie = 0;
         this->show_video_real_time_hms();
 
-        if (this->controller->load_replay_mod(this->_movie_dir, this->_movie_name, {0, 0}, {0, 0})) {
+        if (this->callback->load_replay_mod({0, 0}, {0, 0})) {
             //this->slotRepainMatch();
         }
     }

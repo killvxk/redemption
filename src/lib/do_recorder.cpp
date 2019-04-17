@@ -38,7 +38,6 @@
 #include "utils/sugar/iter.hpp"
 #include "utils/sugar/scope_exit.hpp"
 #include "utils/sugar/unique_fd.hpp"
-#include "utils/word_identification.hpp"
 
 
 #include <string>
@@ -198,10 +197,9 @@ public:
     }
 
 public:
-    void chunk(uint16_t chunk_type, uint16_t chunk_count, InStream stream) /*override*/
+    void chunk(WrmChunkType chunk_type, uint16_t chunk_count, InStream stream) /*override*/
     {
-        auto wrm_chunk_type = safe_cast<WrmChunkType>(chunk_type);
-        switch (wrm_chunk_type)
+        switch (chunk_type)
         {
         case WrmChunkType::META_FILE:
             {
@@ -227,7 +225,7 @@ public:
                 ssc.send(payload, sc);
 
                 send_wrm_chunk(this->trans, WrmChunkType::SAVE_STATE, payload.get_offset(), chunk_count);
-                this->trans.send(payload.get_data(), payload.get_offset());
+                this->trans.send(payload.get_bytes());
             }
             break;
 
@@ -247,7 +245,7 @@ public:
             REDEMPTION_CXX_FALLTHROUGH;
         default:
             {
-                send_wrm_chunk(this->trans, wrm_chunk_type, stream.get_capacity(), chunk_count);
+                send_wrm_chunk(this->trans, chunk_type, stream.get_capacity(), chunk_count);
                 this->trans.send(stream.get_data(), stream.get_capacity());
             }
             break;
@@ -268,7 +266,7 @@ class FileToChunk
 
     // variables used to read batch of orders "chunks"
     uint32_t chunk_size = 0;
-    uint16_t chunk_type = 0;
+    WrmChunkType chunk_type = WrmChunkType::RDP_UPDATE_ORDERS;
     uint16_t chunk_count = 0;
 
     ChunkToFile * consumer = nullptr;
@@ -323,7 +321,7 @@ private:
                 unsigned char buf[buf_sz];
                 this->trans->recv_boom(buf, buf_sz);
                 InStream header(buf);
-                this->chunk_type  = header.in_uint16_le();
+                this->chunk_type  = safe_cast<WrmChunkType>(header.in_uint16_le());
                 this->chunk_size  = header.in_uint32_le();
                 this->chunk_count = header.in_uint16_le();
             }
@@ -885,13 +883,10 @@ inline void remove_file(
 ) {
     std::vector<std::string> files;
 
-    char infile_fullpath[2048];
     if (is_encrypted) {
-        std::snprintf(infile_fullpath, sizeof(infile_fullpath), "%s%s%s", hash_path, input_filename, infile_extension);
-        files.emplace_back(infile_fullpath);
+        files.emplace_back(str_concat(hash_path, input_filename, infile_extension));
     }
-    std::snprintf(infile_fullpath, sizeof(infile_fullpath), "%s%s%s", infile_path, input_filename, infile_extension);
-    files.emplace_back(infile_fullpath);
+    files.emplace_back(str_concat(infile_path, input_filename, infile_extension));
 
     try {
         do {
@@ -1226,7 +1221,7 @@ inline void get_joint_visibility_rect(
         in_wrm_trans.next();
     }
 
-    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, to_verbose_flags(verbose));
+    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, ini.get<cfg::video::play_video_with_corrupted_bitmap>(), to_verbose_flags(verbose));
 
     player.play(program_requested_to_shutdown);
 
@@ -1398,7 +1393,7 @@ inline int replay(std::string & infile_path, std::string & input_basename, std::
             }
 
             LOG(LOG_INFO, "player begin_capture = %ld", begin_capture.tv_sec);
-            FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, to_verbose_flags(verbose));
+            FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, ini.get<cfg::video::play_video_with_corrupted_bitmap>(), to_verbose_flags(verbose));
 
             if (show_file_metadata) {
                 show_metadata(player);
@@ -1447,7 +1442,7 @@ inline int replay(std::string & infile_path, std::string & input_basename, std::
                     );
 
                     if (wrm_color_depth == static_cast<int>(USE_ORIGINAL_COLOR_DEPTH)) {
-                        wrm_color_depth = player.info.bpp;
+                        wrm_color_depth = safe_int(player.info.bpp);
                     }
 
                     {
@@ -1556,7 +1551,12 @@ inline int replay(std::string & infile_path, std::string & input_basename, std::
 
                         MetaParams const meta_params{
                             MetaParams::EnableSessionLog::No,
-                            MetaParams::HideNonPrintable::No
+                            MetaParams::HideNonPrintable::No,
+
+                            MetaParams::LogClipboardActivities((ini.get<cfg::video::disable_clipboard_log>() & ClipboardLogFlags::meta) != ClipboardLogFlags::meta),
+                            MetaParams::LogFileSystemActivities((ini.get<cfg::video::disable_file_system_log>() & FileSystemLogFlags::meta) != FileSystemLogFlags::meta),
+
+                            MetaParams::LogOnlyRelevantClipboardActivities(ini.get<cfg::mod_rdp::log_only_relevant_clipboard_activities>())
                         };
 
                         KbdLogParams kbd_log_params = kbd_log_params_from_ini(ini);
@@ -1569,7 +1569,7 @@ inline int replay(std::string & infile_path, std::string & input_basename, std::
                         cctx.set_trace_type(ini.get<cfg::globals::trace_type>());
 
                         WrmParams const wrm_params = wrm_params_from_ini(
-                            wrm_color_depth,
+                            checked_int(wrm_color_depth),
                             player.info.remote_app,
                             cctx,
                             rnd,
@@ -2098,7 +2098,7 @@ ClRes parse_command_line_options(int argc, char const ** argv, RecorderParams & 
 
     if (is_encrypted_file(recorder.full_path.c_str(), recorder.infile_is_encrypted) == -1) {
         int const errnum = errno;
-        auto const mes = std::string("Input file error: ") + strerror(errnum);
+        auto const mes = str_concat("Input file error: ", strerror(errnum));
         return cl_error(mes.c_str(), -errnum);
     }
 
@@ -2122,7 +2122,7 @@ ClRes parse_command_line_options(int argc, char const ** argv, RecorderParams & 
     recorder.show_statistics    = (options.count("statistics"       ) > 0);
 
     if (!recorder.output_filename.empty()) {
-        std::string directory = app_path(AppPath::Wrm); directory += "/";
+        std::string directory = str_concat(app_path(AppPath::Wrm), '/');
         std::string filename                ;
         std::string extension = ".mwrm"     ;
 
@@ -2147,10 +2147,14 @@ extern "C" {
         int command = 0;
 
         if (argc > arg_used + 1){
-            command = in(argv[arg_used+1], {"redrec", "redver", "reddec"});
-            if (command){
-                command = command - 1;
-                arg_used++;
+            char const* scmd = argv[arg_used+1];
+            command = !strcmp("redrec", scmd) ? 1
+                    : !strcmp("redver", scmd) ? 2
+                    : !strcmp("reddec", scmd) ? 3
+                    : 0;
+            if (command) {
+                --command;
+                ++arg_used;
             }
             // default command is previous one;
         }

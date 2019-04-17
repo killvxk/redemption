@@ -21,11 +21,12 @@
 */
 
 #define RED_TEST_MODULE TestRdp
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 // Comment the code block below to generate testing data.
 // Uncomment the code block below to generate testing data.
 
+#include "acl/auth_api.hpp"
 #include "capture/cryptofile.hpp"
 #include "configs/config.hpp"
 // Uncomment the code block below to generate testing data.
@@ -33,12 +34,14 @@
 #include "test_only/transport/test_transport.hpp"
 #include "test_only/session_reactor_executor.hpp"
 #include "core/client_info.hpp"
-#include "mod/rdp/rdp.hpp"
+#include "utils/theme.hpp"
 
 #include "front/front.hpp"
 #include "mod/null/null.hpp"
+#include "mod/rdp/new_mod_rdp.hpp"
 
 #include "test_only/lcg_random.hpp"
+#include "test_only/core/font.hpp"
 
 
 namespace dump2008 {
@@ -75,9 +78,16 @@ public:
         size_t ,
         int ) override
     {
-        LOG(LOG_INFO, "--------- FRONT ------------------------");
-        LOG(LOG_INFO, "send_to_channel");
-        LOG(LOG_INFO, "========================================\n");
+    }
+};
+
+struct FrontTransport : GeneratorTransport
+{
+    using GeneratorTransport::GeneratorTransport;
+
+    void do_send(const uint8_t * const /*buffer*/, size_t /*len*/) override
+    {
+        // TEST test
     }
 };
 
@@ -90,9 +100,9 @@ RED_AUTO_TEST_CASE(TestFront)
     info.keylayout = 0x04C;
     info.console_session = 0;
     info.brush_cache_code = 0;
-    info.bpp = 24;
-    info.width = 800;
-    info.height = 600;
+    info.screen_info.bpp = BitsPerPixel{24};
+    info.screen_info.width = 800;
+    info.screen_info.height = 600;
     info.rdp5_performanceflags = PERF_DISABLE_WALLPAPER;
     snprintf(info.hostname,sizeof(info.hostname),"test");
     uint32_t verbose = 3;
@@ -135,9 +145,7 @@ RED_AUTO_TEST_CASE(TestFront)
     #include "fixtures/trace_front_client.hpp"
 
     // Comment the code block below to generate testing data.
-    GeneratorTransport front_trans(indata, sizeof(indata)-1);
-
-    RED_CHECK(true);
+    FrontTransport front_trans(indata, sizeof(indata)-1);
 
     LCGRandom gen1(0);
     CryptoContext cctx;
@@ -167,7 +175,7 @@ RED_AUTO_TEST_CASE(TestFront)
     }
     RED_CHECK(session_reactor.front_events_.is_empty());
 
-    LOG(LOG_INFO, "hostname=%s", front.client_info.hostname);
+    // LOG(LOG_INFO, "hostname=%s", front.client_info.hostname);
 
     // int client_sck = ip_connect("10.10.47.36", 3389, 3, 1000);
     // std::string error_message;
@@ -179,13 +187,9 @@ RED_AUTO_TEST_CASE(TestFront)
     //                  , &error_message
     //                  );
 
-    GeneratorTransport t(dump2008::indata, sizeof(dump2008::indata)-1);
+    FrontTransport t(dump2008::indata, sizeof(dump2008::indata)-1);
 
-    if (verbose > 2){
-        LOG(LOG_INFO, "--------- CREATION OF MOD ------------------------");
-    }
-
-    RED_CHECK(true);
+    Theme theme;
 
     std::array<uint8_t, 28> server_auto_reconnect_packet {};
     ModRDPParams mod_rdp_params( "administrateur"
@@ -193,8 +197,8 @@ RED_AUTO_TEST_CASE(TestFront)
                                 , "10.10.47.36"
                                 , "10.10.43.33"
                                 , 2
-                                , ini.get<cfg::font>()
-                                , ini.get<cfg::theme>()
+                                , global_font()
+                                , theme
                                 , server_auto_reconnect_packet
                                 , ini.get_ref<cfg::context::close_box_extra_message>()
                                 , to_verbose_flags(0)
@@ -223,26 +227,22 @@ RED_AUTO_TEST_CASE(TestFront)
 
     front.clear_channels();
     NullAuthentifier authentifier;
-    mod_rdp mod(
+    class RDPMetrics * metrics = nullptr;
+    auto mod = new_mod_rdp(
         t, session_reactor, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(),
-        gen2, timeobj, mod_rdp_params, authentifier, report_message, ini);
+        gen2, timeobj, mod_rdp_params, authentifier, report_message, ini, metrics);
 
-    if (verbose > 2){
-        LOG(LOG_INFO, "========= CREATION OF MOD DONE ====================\n\n");
-    }
     // incoming connexion data
-    RED_CHECK_EQUAL(front.client_info.width, 1024);
-    RED_CHECK_EQUAL(front.client_info.height, 768);
+    RED_CHECK_EQUAL(front.client_info.screen_info.width, 1024);
+    RED_CHECK_EQUAL(front.client_info.screen_info.height, 768);
 
     // Force Front to be up and running after Deactivation-Reactivation
     //  Sequence initiated by mod_rdp.
     front.up_and_running = 1;
 
-    LOG(LOG_INFO, "Before Start Capture");
-
     front.can_be_start_capture();
 
-    execute_mod(session_reactor, mod, front, 38);
+    execute_mod(session_reactor, *mod, front, 38);
 
     front.must_be_stop_capture();
 
@@ -330,9 +330,9 @@ RED_AUTO_TEST_CASE(TestFront2)
     info.keylayout = 0x04C;
     info.console_session = 0;
     info.brush_cache_code = 0;
-    info.bpp = 24;
-    info.width = 800;
-    info.height = 600;
+    info.screen_info.bpp = BitsPerPixel{24};
+    info.screen_info.width = 800;
+    info.screen_info.height = 600;
     info.rdp5_performanceflags = PERF_DISABLE_WALLPAPER;
     snprintf(info.hostname,sizeof(info.hostname),"test");
     uint32_t verbose = 3;
@@ -464,7 +464,7 @@ RED_AUTO_TEST_CASE(TestFront2)
     // front.clear_channels();
     //
     // NullAuthentifier authentifier;
-    // mod_rdp mod(t, front, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(), gen2, timeobj, mod_rdp_params, authentifier, report_message, ini);
+    // auto mod = new_mod_rdp(t, front, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(), gen2, timeobj, mod_rdp_params, authentifier, report_message, ini, nullptr);
     // RED_CHECK(true);
     //
     // if (verbose > 2){
@@ -473,8 +473,8 @@ RED_AUTO_TEST_CASE(TestFront2)
     // RED_CHECK_EQUAL(front.client_info.width, 800);
     // RED_CHECK_EQUAL(front.client_info.height, 600);
     //
-    // while (!mod.is_up_and_running())
-    //     mod.draw_event(now, front);
+    // while (!mod->is_up_and_running())
+    //     mod->draw_event(now, front);
     //
     // // Force Front to be up and running after Deactivation-Reactivation
     // //  Sequence initiated by mod_rdp.
@@ -489,7 +489,7 @@ RED_AUTO_TEST_CASE(TestFront2)
     // while (res == BACK_EVENT_NONE){
     //     LOG(LOG_INFO, "===================> count = %u", count);
     //     if (count++ >= 38) break;
-    //     mod.draw_event(now, front);
+    //     mod->draw_event(now, front);
     //     now++;
     //     LOG(LOG_INFO, "Calling Snapshot");
     //     front.periodic_snapshot();

@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "gdi/screen_info.hpp"
 #include "utils/sugar/noncopyable.hpp"
 #include "utils/colors.hpp"
 #include "utils/rect.hpp"
@@ -82,7 +83,7 @@ struct Depth
     static constexpr Depth depth16() { return Depth{3}; }
     static constexpr Depth depth24() { return Depth{4}; }
 
-    static /*c++14: constexpr*/ Depth from_bpp(uint8_t bpp)
+    static /*c++14: constexpr*/ Depth from_bpp(BitsPerPixel bpp) noexcept
     {
         struct depth_table {
             Depth table[33] = {
@@ -97,7 +98,7 @@ struct Depth
                 depth24(), // TODO useless ?
             };
         };
-        auto const depth = bpp < sizeof(depth_table{}.table)/sizeof(depth_table{}.table[0])
+        auto const depth = size_t(bpp) < sizeof(depth_table{}.table)/sizeof(depth_table{}.table[0])
             ? depth_table{}.table[int(bpp)]
             : unspecified();
         assert(depth != unspecified());
@@ -110,38 +111,46 @@ struct Depth
     Depth & operator=(Depth const &) = default;
 
 private:
-    struct bpp_table { uint8_t table[5] = {0, 8, 15, 16, 24}; };
+    struct bpp_table { BitsPerPixel table[5] = {
+        BitsPerPixel{0},
+        BitsPerPixel{8},
+        BitsPerPixel{15},
+        BitsPerPixel{16},
+        BitsPerPixel{24}
+    }; };
 
 public:
-    constexpr uint8_t to_bpp() const {
+    constexpr BitsPerPixel to_bpp() const noexcept {
         return bpp_table{}.table[unsigned(this->depth_)];
     }
 
-    constexpr bool is_defined() const { return !this->is_unspecified(); }
-    constexpr bool is_unspecified() const { return this->depth_ == unspecified().depth_; }
-    constexpr bool is_depth8() const { return this->depth_ == depth8().depth_; }
-    constexpr bool is_depth15() const { return this->depth_ == depth15().depth_; }
-    constexpr bool is_depth16() const { return this->depth_ == depth16().depth_; }
-    constexpr bool is_depth24() const { return this->depth_ == depth24().depth_; }
+    constexpr bool is_defined() const noexcept { return !this->is_unspecified(); }
+    constexpr bool is_unspecified() const noexcept { return this->depth_ == unspecified().depth_; }
+    constexpr bool is_depth8() const noexcept { return this->depth_ == depth8().depth_; }
+    constexpr bool is_depth15() const noexcept { return this->depth_ == depth15().depth_; }
+    constexpr bool is_depth16() const noexcept { return this->depth_ == depth16().depth_; }
+    constexpr bool is_depth24() const noexcept { return this->depth_ == depth24().depth_; }
 
-    constexpr bool contains(Depth depth) const {
+    constexpr bool contains(Depth depth) const noexcept {
         return this->is_unspecified() || depth.is_unspecified() || (this->depth_ == depth.depth_);
     }
 
-    constexpr Depth const & depth_or(Depth const & default_depth) const {
+    constexpr Depth const & depth_or(Depth const & default_depth) const noexcept {
         return this->is_unspecified() ? default_depth : *this;
     }
 
-    constexpr unsigned id() const { return this->depth_; }
+    constexpr unsigned id() const noexcept { return this->depth_; }
 
 private:
     enum class PrivateDepth { unspecified_, depth8_, depth15_, depth16_, depth24_, };
 public:
     // for switch/case, == and !=
-    constexpr operator PrivateDepth () const { return static_cast<PrivateDepth>(this->depth_); }
+    constexpr operator PrivateDepth () const noexcept {
+        return static_cast<PrivateDepth>(this->depth_);
+    }
 
 private:
-    explicit constexpr Depth(uint8_t depth) : depth_(depth) {}
+    explicit constexpr Depth(uint8_t depth) noexcept : depth_(depth) {}
 
     uint8_t depth_;
 };
@@ -188,11 +197,13 @@ struct ColorCtx
     static ColorCtx depth16() { return {Depth::depth16(), nullptr}; }
     static ColorCtx depth24() { return {Depth::depth24(), nullptr}; }
 
-    static ColorCtx from_bpp(uint8_t bpp, BGRPalette const * palette)
+    static ColorCtx from_bpp(BitsPerPixel bpp, BGRPalette const * palette)
     { return {Depth::from_bpp(bpp), palette}; }
 
     static ColorCtx from_bpp(uint8_t bpp, BGRPalette const && palette) = delete;
-    static ColorCtx from_bpp(uint8_t bpp, BGRPalette const & palette)
+    static ColorCtx from_bpp(BitsPerPixel bpp, BGRPalette const && palette) = delete;
+
+    static ColorCtx from_bpp(BitsPerPixel bpp, BGRPalette const & palette)
     { return {Depth::from_bpp(bpp), &palette}; }
 
 private:
@@ -270,18 +281,18 @@ struct GraphicApi : private noncopyable
     virtual void draw(RDPGlyphIndex       const & cmd, Rect clip, ColorCtx color_ctx, GlyphCache const & gly_cache) = 0;
 
     // NOTE maybe in an other interface
-    virtual void draw(const RDP::RAIL::NewOrExistingWindow            & /*unused*/) {}
-    virtual void draw(const RDP::RAIL::WindowIcon                     & /*unused*/) {}
-    virtual void draw(const RDP::RAIL::CachedIcon                     & /*unused*/) {}
-    virtual void draw(const RDP::RAIL::DeletedWindow                  & /*unused*/) {}
-    virtual void draw(const RDP::RAIL::NewOrExistingNotificationIcons & /*unused*/) {}
-    virtual void draw(const RDP::RAIL::DeletedNotificationIcons       & /*unused*/) {}
-    virtual void draw(const RDP::RAIL::ActivelyMonitoredDesktop       & /*unused*/) {}
-    virtual void draw(const RDP::RAIL::NonMonitoredDesktop            & /*unused*/) {}
+    virtual void draw(const RDP::RAIL::NewOrExistingWindow            & /*cmd*/) = 0;
+    virtual void draw(const RDP::RAIL::WindowIcon                     & /*cmd*/) = 0;
+    virtual void draw(const RDP::RAIL::CachedIcon                     & /*cmd*/) = 0;
+    virtual void draw(const RDP::RAIL::DeletedWindow                  & /*cmd*/) = 0;
+    virtual void draw(const RDP::RAIL::NewOrExistingNotificationIcons & /*cmd*/) = 0;
+    virtual void draw(const RDP::RAIL::DeletedNotificationIcons       & /*cmd*/) = 0;
+    virtual void draw(const RDP::RAIL::ActivelyMonitoredDesktop       & /*cmd*/) = 0;
+    virtual void draw(const RDP::RAIL::NonMonitoredDesktop            & /*cmd*/) = 0;
 
     // TODO The 2 methods below should not exist and cache access be done before calling drawing orders
-    virtual void draw(RDPColCache   const & /*unused*/) {}
-    virtual void draw(RDPBrushCache const & /*unused*/) {}
+    virtual void draw(RDPColCache   const & /*cache*/) {}
+    virtual void draw(RDPBrushCache const & /*cache*/) {}
 
     virtual void begin_update() {}
     virtual void end_update() {}

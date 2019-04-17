@@ -22,9 +22,11 @@
 */
 
 #define RED_TEST_MODULE TestOrderGlyphIndex
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "core/RDP/orders/RDPOrdersPrimaryGlyphIndex.hpp"
+
+RED_TEST_DONT_PRINT_LOG_VALUE(RDPBrush)
 
 RED_AUTO_TEST_CASE(TestGlyphIndex)
 {
@@ -74,8 +76,8 @@ RED_AUTO_TEST_CASE(TestGlyphIndex)
             0x0c, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x2c, 0x20, 0x57, 0x6f, 0x72, 0x6c, 0x64,
         };
 
-        RED_CHECK_MEM(stream_to_avu8(out_stream), make_array_view(datas));
-        InStream in_stream(out_stream.get_data(), out_stream.get_offset());
+        RED_CHECK_MEM(out_stream.get_bytes(), make_array_view(datas));
+        InStream in_stream(out_stream.get_bytes());
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
@@ -98,7 +100,7 @@ RED_AUTO_TEST_CASE(TestGlyphIndex)
 
         decltype(out_stream) out_stream2;
         cmd.emit(out_stream2, newcommon, state_common, statecmd);
-        RED_CHECK_MEM(stream_to_avu8(out_stream), stream_to_avu8(out_stream2));
+        RED_CHECK_MEM(out_stream.get_bytes(), out_stream2.get_bytes());
     }
 }
 
@@ -111,7 +113,7 @@ RED_AUTO_TEST_CASE(TestGlyphIndex2)
         // TODO " actual data is much more complex  than a text  we should create a specialized object to store  serialize and replay it. This should be done after the RDP layer include cache management primitives"
 
         RDPOrderCommon state_common(RDP::PATBLT, Rect(0, 0, 1024, 768));
-        RDPGlyphIndex  statecmd(0, 0, 0, 0, RDPColor{}, RDPColor{}, Rect(0, 0, 1, 1), Rect(0, 0, 1, 1), RDPBrush(), 0, 0, 0, reinterpret_cast<const uint8_t *>(""));
+        RDPGlyphIndex  statecmd(0, 0, 0, 0, RDPColor{}, RDPColor{}, Rect(0, 0, 1, 1), Rect(0, 0, 1, 1), RDPBrush(), 0, 0, 0, byte_ptr_cast(""));
         RDPOrderCommon newcommon(GLYPHINDEX, Rect(0, 0, 1024, 768));
         const uint8_t nullbrush_extra[] = {0,0,0,0,0,0,0};
         const uint8_t data[] = { 0x00, 0x00, 0x01, 0x08, 0x02, 0x07, 0x03, 0x07
@@ -158,8 +160,8 @@ RED_AUTO_TEST_CASE(TestGlyphIndex2)
             , 0x08, 0x09
         };
 
-        RED_CHECK_MEM(stream_to_avu8(out_stream), make_array_view(datas));
-        InStream in_stream(out_stream.get_data(), out_stream.get_offset());
+        RED_CHECK_MEM(out_stream.get_bytes(), make_array_view(datas));
+        InStream in_stream(out_stream.get_bytes());
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t        control    = in_stream.in_uint8();
@@ -180,6 +182,6 @@ RED_AUTO_TEST_CASE(TestGlyphIndex2)
         // TODO " actual data is much more complex than a text  we should create a specialized object to store  serialize and replay it. This should be done after the RDP layer include cache management primitives"
         decltype(out_stream) out_stream2;
         cmd.emit(out_stream2, newcommon, state_common, statecmd);
-        RED_CHECK_MEM(stream_to_avu8(out_stream), stream_to_avu8(out_stream2));
+        RED_CHECK_MEM(out_stream.get_bytes(), out_stream2.get_bytes());
     }
 }

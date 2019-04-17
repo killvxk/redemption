@@ -28,8 +28,8 @@
 
 #include "core/RDP/MonitorLayoutPDU.hpp"
 #include "core/channel_list.hpp"
-#include "client_redemption/client_redemption_config.hpp"
-#include "client_redemption/client_input_output_api/client_mouse_keyboard_api.hpp"
+#include "client_redemption/client_config/client_redemption_config.hpp"
+#include "client_redemption/mod_wrapper/client_callback.hpp"
 
 
 #include "../keymaps/qt_scancode_keymap.hpp"
@@ -81,11 +81,7 @@ public:
       , q_key_code(0)
       , label("Press a Key", this)
       , key_not_assigned(true)
-      {
-//           qApp->installEventFilter(this);
-
-          //this->installEventFilter(this);
-      }
+      {}
 
     void set_key(int q_key_code, const std::string & q_key_name) {
         this->q_key_code = q_key_code;
@@ -93,7 +89,6 @@ public:
         this->label.setText(q_key_name.c_str());
     }
 };
-
 
 
 
@@ -111,8 +106,8 @@ public:
         VNC
     };
     ClientRedemptionConfig * config;
-//     ClientRedemptionAPI   * _front;
-    ClientInputMouseKeyboardAPI * controllers;
+    ClientCallback * controllers;
+
     const int            _width;
     const int            _height;
 
@@ -157,10 +152,9 @@ public:
 //     bool                 key_editting;
 
 
-    QtOptions(ClientRedemptionConfig * config/*, ClientRedemptionAPI * front*/, ClientInputMouseKeyboardAPI * controllers, QWidget * parent)
+    QtOptions(ClientRedemptionConfig * config, ClientCallback * controllers, QWidget * parent)
         : QWidget(parent)
         , config(config)
-//         , _front(front)
         , controllers(controllers)
         , _width(410)
         , _height(330)
@@ -178,10 +172,8 @@ public:
         , _recordingCB(this)
 
     	, _languageComboBox(this)
-
         , _labelProfil("Options Profil:", this)
         , _labelRecording("Record movie :", this)
-
         , _labelLanguage("Keyboard Language :", this)
 
         , _servicesTab(nullptr)
@@ -205,7 +197,7 @@ public:
 //         , key_editting(true)/**/
     {
         this->setFixedSize(this->_width, this->_height);
-        this->config->setClientInfo();
+        ClientConfig::setClientInfo(*this->config);
         this->_layout = new QGridLayout(this);
 
 
@@ -356,12 +348,11 @@ public:
         this->config->is_recording = this->_recordingCB.isChecked();
 
         // Keyboard tab
-        this->config->vnc_conf.keylayout = this->_languageComboBox.itemData(this->_languageComboBox.currentIndex()).toInt();
+        this->config->modVNCParamsData.keylayout = this->_languageComboBox.itemData(this->_languageComboBox.currentIndex()).toInt();
 
         this->config->keyCustomDefinitions.clear();
 
         const int row_count = this->_tableKeySetting->rowCount();
-        this->config->keyCustomDefinitions.clear();
 
         for (int i = 0; i < row_count; i++) {
             int qtKeyID(0);
@@ -371,20 +362,16 @@ public:
             int extended(0);
 //             static_cast<QtKeyLabel*>(this->_tableKeySetting->cellWidget(i, 0))->print();
             qtKeyID = static_cast<QtKeyLabel*>(this->_tableKeySetting->cellWidget(i, 0))->q_key_code;
-//                 LOG(LOG_INFO, "qtKeyID=%d !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", qtKeyID);
             if (qtKeyID != 0) {
                 scanCode = this->_tableKeySetting->item(i, 1)->text().toInt();
                 ASCII8 = this->_tableKeySetting->item(i, 2)->text().toStdString();
                 extended = (static_cast<QComboBox*>(this->_tableKeySetting->cellWidget(i, 3))->currentIndex());
                 name = static_cast<QtKeyLabel*>(this->_tableKeySetting->cellWidget(i, 0))->label.text().toStdString();
             }
-            this->config->add_key_custom_definition(qtKeyID, scanCode, ASCII8, extended, name);
+            this->config->keyCustomDefinitions.emplace_back(qtKeyID, scanCode, ASCII8, extended, name);
         }
 
-        //this->config->update_keylayout();
-
-        this->config->writeCustomKeyConfig();
-        //this->config->writeClientInfo();
+        ClientConfig::writeCustomKeyConfig(*(this->config));
     }
 
     void keyPressEvent(QKeyEvent *e) override {
@@ -452,20 +439,20 @@ public Q_SLOTS:
 
     void deleteCurrentProtile() {
         if (this->profilComboBox.currentIndex() != 0) {
-            this->config->deleteCurrentProtile();
+            ClientConfig::deleteCurrentProtile(*(this->config));
             this->profilComboBox.removeItem(this->config->current_user_profil);
             this->changeProfil(0);
         }
     }
 
     void restoreConfig() {
-        this->config->setDefaultConfig();
+        ClientConfig::setDefaultConfig(*(this->config));
         this->setConfigValues();
     }
 
     void changeProfil(int index) {
         this->config->current_user_profil = this->profilComboBox.itemData(index).toInt();
-        this->config->setClientInfo();
+        ClientConfig::setClientInfo(*this->config);
         this->setConfigValues();
     }
 
@@ -552,7 +539,7 @@ public:
 
 
 
-    QtRDPOptions(ClientRedemptionConfig * config, ClientInputMouseKeyboardAPI * controllers, QWidget * parent)
+    QtRDPOptions(ClientRedemptionConfig * config, ClientCallback * controllers,  QWidget * parent)
         : QtOptions(config, controllers, parent)
         , _tlsBox(this)
         , _nlaBox(this)
@@ -654,10 +641,10 @@ public:
         this->_bppComboBox.setStyleSheet("combobox-popup: 0;");
         this->_layoutView->addRow(&(this->_labelBpp), &(this->_bppComboBox));
 
-        this->_resolutionComboBox.addItem( "640 * 480", 640);
-        this->_resolutionComboBox.addItem( "800 * 600", 800);
-        this->_resolutionComboBox.addItem("1024 * 768", 1024);
-        this->_resolutionComboBox.addItem("1600 * 900", 1600);
+        this->_resolutionComboBox.addItem(" 640 * 480 ", 640);
+        this->_resolutionComboBox.addItem(" 800 * 600 ", 800);
+        this->_resolutionComboBox.addItem("1024 * 768 ", 1024);
+        this->_resolutionComboBox.addItem("1600 * 900 ", 1600);
         this->_resolutionComboBox.addItem("1920 * 1080", 1920);
         this->_resolutionComboBox.setStyleSheet("combobox-popup: 0;");
         this->_layoutView->addRow(&(this->_labelResolution), &(this->_resolutionComboBox));
@@ -680,7 +667,6 @@ public:
         this->addRow();
         this->setConfigValues();
     }
-
 
     void setConfigValues() override {
         QtOptions::setConfigValues();
@@ -706,7 +692,7 @@ public:
         this->remoteapp_workin_dir.setText(this->config->rDPRemoteAppConfig.source_of_WorkingDir.c_str());
 
         // View tab
-        int indexBpp = this->_bppComboBox.findData(this->config->info.bpp);
+        int indexBpp = this->_bppComboBox.findData(safe_cast<int>(this->config->info.screen_info.bpp));
         if ( indexBpp != -1 ) {
             this->_bppComboBox.setCurrentIndex(indexBpp);
         }
@@ -737,7 +723,6 @@ public:
             this->desktopCompositionCheckBox.setCheckState(Qt::Checked);
         }
     }
-
 
     void getConfigValues() override {
         QtOptions::getConfigValues();
@@ -779,7 +764,14 @@ public:
         if (this->remoteappCheckBox.isChecked()) {
             this->config->modRDPParamsData.enable_shared_remoteapp = true;
             this->config->mod_state = ClientRedemptionConfig::MOD_RDP_REMOTE_APP;
-            this->config->set_remoteapp_cmd_line(this->remoteapp_cmd.text().toStdString());
+
+            const std::string cmd = this->remoteapp_cmd.text().toStdString();
+            this->config->rDPRemoteAppConfig.full_cmd_line = cmd;
+            int pos = cmd.find(' ');
+            this->config->rDPRemoteAppConfig.source_of_ExeOrFile = cmd.substr(0, pos);
+            this->config->rDPRemoteAppConfig.source_of_Arguments = cmd.substr(pos + 1);
+
+
             this->config->rDPRemoteAppConfig.source_of_WorkingDir = this->remoteapp_workin_dir.text().toStdString();
         } else {
             this->config->modRDPParamsData.enable_shared_remoteapp = false;
@@ -787,7 +779,7 @@ public:
         }
 
         //  View tab
-        this->config->info.bpp = this->_bppComboBox.currentText().toInt();
+        this->config->info.screen_info.bpp = checked_int(this->_bppComboBox.currentText().toInt());
         std::string delimiter = " * ";
         std::string resolution( this->_resolutionComboBox.currentText().toStdString());
         int pos(resolution.find(delimiter));
@@ -859,7 +851,7 @@ public:
     QLabel               keyboard_apple_compatibility_label;
 
 
-    QtVNCOptions(ClientRedemptionConfig* config, ClientInputMouseKeyboardAPI * controllers, QWidget * parent)
+    QtVNCOptions(ClientRedemptionConfig* config, ClientCallback * controllers, QWidget * parent)
       : QtOptions(config, controllers, parent)
         , keyboard_apple_compatibility_CB(this)
         , keyboard_apple_compatibility_label("Apple server keyboard :", this)
@@ -871,29 +863,28 @@ public:
         this->_layoutConnection->addRow(&(this->keyboard_apple_compatibility_label), &(this->keyboard_apple_compatibility_CB));
     }
 
-
     void getConfigValues() override {
         QtOptions::getConfigValues();
 
         // General tab
         bool new_profil = true;
         std::string text_profil = this->profilComboBox.currentText().toStdString();
-        for (size_t i = 0; i < this->config->vnc_conf.userProfils.size(); i++) {
-            if (this->config->vnc_conf.userProfils[i].name == text_profil) {
+        for (size_t i = 0; i < this->config->modVNCParamsData.userProfils.size(); i++) {
+            if (this->config->modVNCParamsData.userProfils[i].name == text_profil) {
                 new_profil = false;
             }
         }
         if (new_profil) {
-            this->config->vnc_conf.userProfils.push_back({int(this->config->vnc_conf.userProfils.size()), text_profil.c_str()});
-            this->config->vnc_conf.current_user_profil = this->config->vnc_conf.userProfils.size()-1;
+            this->config->modVNCParamsData.userProfils.push_back({int(this->config->modVNCParamsData.userProfils.size()), text_profil.c_str()});
+            this->config->modVNCParamsData.current_user_profil = this->config->modVNCParamsData.userProfils.size()-1;
         } else {
-            this->config->vnc_conf.current_user_profil = this->profilComboBox.currentIndex();
+            this->config->modVNCParamsData.current_user_profil = this->profilComboBox.currentIndex();
         }
-        this->config->vnc_conf.is_apple = this->keyboard_apple_compatibility_CB.isChecked();
+        this->config->modVNCParamsData.is_apple = this->keyboard_apple_compatibility_CB.isChecked();
 
         // Services tab
-        this->config->vnc_conf.enable_shared_clipboard = this->_clipboardCheckBox.isChecked();
-        this->config->vnc_conf.enable_sound = this->_soundBox.isChecked();
+        this->config->modVNCParamsData.enable_shared_clipboard = this->_clipboardCheckBox.isChecked();
+        this->config->modVNCParamsData.enable_sound = this->_soundBox.isChecked();
     }
 
 
@@ -901,14 +892,14 @@ public:
         QtOptions::setConfigValues();
 
         // General tab
-        int indexProfil = this->profilComboBox.findData(this->config->vnc_conf.current_user_profil);
+        int indexProfil = this->profilComboBox.findData(this->config->modVNCParamsData.current_user_profil);
         if ( indexProfil >= 0) {
             this->profilComboBox.setCurrentIndex(indexProfil);
         }
 
         // Services tab
-        this->_soundBox.setChecked(this->config->vnc_conf.enable_sound);
-        this->_clipboardCheckBox.setChecked(this->config->vnc_conf.enable_shared_clipboard);
+        this->_soundBox.setChecked(this->config->modVNCParamsData.enable_sound);
+        this->_clipboardCheckBox.setChecked(this->config->modVNCParamsData.enable_shared_clipboard);
     }
 
 };

@@ -97,7 +97,12 @@ MetaParams meta_params_from_ini(Inifile & ini)
 {
     return MetaParams{
         MetaParams::EnableSessionLog(ini.get<cfg::session_log::enable_session_log>()),
-        MetaParams::HideNonPrintable(ini.get<cfg::session_log::hide_non_printable_kbd_input>())
+        MetaParams::HideNonPrintable(ini.get<cfg::session_log::hide_non_printable_kbd_input>()),
+
+        MetaParams::LogClipboardActivities((ini.get<cfg::video::disable_clipboard_log>() & ClipboardLogFlags::meta) != ClipboardLogFlags::meta),
+        MetaParams::LogFileSystemActivities((ini.get<cfg::video::disable_file_system_log>() & FileSystemLogFlags::meta) != FileSystemLogFlags::meta),
+
+        MetaParams::LogOnlyRelevantClipboardActivities(ini.get<cfg::mod_rdp::log_only_relevant_clipboard_activities>())
     };
 }
 
@@ -124,7 +129,7 @@ PatternParams pattern_params_from_ini(Inifile & ini)
 }
 
 WrmParams wrm_params_from_ini(
-    uint8_t capture_bpp, bool remote_app, CryptoContext & cctx, Random & rnd, Fstat & fstat,
+    BitsPerPixel capture_bpp, bool remote_app, CryptoContext & cctx, Random & rnd, Fstat & fstat,
     const char * hash_path, Inifile & ini)
 {
     return WrmParams{

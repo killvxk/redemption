@@ -24,9 +24,10 @@
 #include "configs/config_access.hpp"
 #include "core/RDP/caches/bmpcache.hpp"
 #include "core/channel_names.hpp"
-#include "mod/rdp/rdp_log.hpp"
+#include "mod/rdp/rdp_verbose.hpp"
 #include "utils/log.hpp"
 #include "utils/translation.hpp"
+#include "mod/rdp/channels/sespro_clipboard_based_launcher.hpp"
 
 #include <chrono>
 #include <string>
@@ -45,14 +46,15 @@ using ModRdpVariables = vcfg::variables<
     vcfg::var<cfg::globals::auth_user,                         vcfg::accessmode::get>,
     vcfg::var<cfg::globals::host,                              vcfg::accessmode::get>,
     vcfg::var<cfg::globals::target_device,                     vcfg::accessmode::get>,
-    vcfg::var<cfg::rdp_metrics::log_dir_path,                  vcfg::accessmode::get>,
-    vcfg::var<cfg::rdp_metrics::log_file_turnover_interval,    vcfg::accessmode::get>,
-    vcfg::var<cfg::rdp_metrics::sign_key,                      vcfg::accessmode::get>,
-    vcfg::var<cfg::rdp_metrics::activate_log_metrics,          vcfg::accessmode::get>,
-    vcfg::var<cfg::rdp_metrics::log_interval,                  vcfg::accessmode::get>
+    vcfg::var<cfg::metrics::log_dir_path,                  vcfg::accessmode::get>,
+    vcfg::var<cfg::metrics::log_file_turnover_interval,    vcfg::accessmode::get>,
+    vcfg::var<cfg::metrics::sign_key,                      vcfg::accessmode::get>,
+    vcfg::var<cfg::metrics::enable_rdp_metrics,            vcfg::accessmode::get>,
+    vcfg::var<cfg::metrics::log_interval,                  vcfg::accessmode::get>
 >;
 
-struct ModRDPParams {
+struct ModRDPParams
+{
     const char * target_user;
     const char * target_password;
     const char * target_host;
@@ -95,10 +97,7 @@ struct ModRDPParams {
     bool                         session_probe_enable_log = false;
     bool                         session_probe_enable_log_rotation = true;
 
-    std::chrono::milliseconds    session_probe_clipboard_based_launcher_clipboard_initialization_delay {};
-    std::chrono::milliseconds    session_probe_clipboard_based_launcher_start_delay {};
-    std::chrono::milliseconds    session_probe_clipboard_based_launcher_long_delay {};
-    std::chrono::milliseconds    session_probe_clipboard_based_launcher_short_delay {};
+    struct SessionProbeClipboardBasedLauncher::Params session_probe_clipboard_based_launcher;
 
     bool                         session_probe_allow_multiple_handshake = false;
 
@@ -106,6 +105,10 @@ struct ModRDPParams {
 
     uint32_t                     session_probe_handle_usage_limit = 0;
     uint32_t                     session_probe_memory_usage_limit = 0;
+
+    bool                         session_probe_ignore_ui_less_processes_during_end_of_session_check = true;
+
+    bool                         session_probe_childless_window_as_unidentified_input_field = true;
 
     bool                         session_probe_public_session = false;
 
@@ -116,6 +119,8 @@ struct ModRDPParams {
     const char * session_probe_extra_system_processes               = "";
     const char * session_probe_outbound_connection_monitoring_rules = "";
     const char * session_probe_process_monitoring_rules             = "";
+
+    const char * session_probe_windows_of_these_applications_as_unidentified_input_field = "";
 
     bool         ignore_auth_channel = false;
     CHANNELS::ChannelNameId auth_channel;
@@ -180,8 +185,8 @@ struct ModRDPParams {
     const char * client_execute_working_dir = "";
     const char * client_execute_arguments = "";
 
-    bool         use_client_provided_remoteapp = false;
-    bool         should_ignore_first_client_execute = false;
+    bool use_client_provided_remoteapp = false;
+    bool should_ignore_first_client_execute = false;
 
     bool remote_program          = false;
     bool remote_program_enhanced = false;
@@ -213,6 +218,8 @@ struct ModRDPParams {
 
     bool experimental_fix_input_event_sync = true;
     bool experimental_fix_too_long_cookie  = true;
+
+    bool log_only_relevant_clipboard_activities = true;
 
     RDPVerbose verbose;
     BmpCache::Verbose cache_verbose = BmpCache::Verbose::none;
@@ -286,10 +293,10 @@ struct ModRDPParams {
         RDP_PARAMS_LOG("%s",     yes_or_no,             session_probe_enable_log);
         RDP_PARAMS_LOG("%s",     yes_or_no,             session_probe_enable_log_rotation);
 
-        RDP_PARAMS_LOG("%u",     from_millisec,         session_probe_clipboard_based_launcher_clipboard_initialization_delay);
-        RDP_PARAMS_LOG("%u",     from_millisec,         session_probe_clipboard_based_launcher_start_delay);
-        RDP_PARAMS_LOG("%u",     from_millisec,         session_probe_clipboard_based_launcher_long_delay);
-        RDP_PARAMS_LOG("%u",     from_millisec,         session_probe_clipboard_based_launcher_short_delay);
+        RDP_PARAMS_LOG("%u",     from_millisec,         session_probe_clipboard_based_launcher.clipboard_initialization_delay_ms);
+        RDP_PARAMS_LOG("%u",     from_millisec,         session_probe_clipboard_based_launcher.start_delay_ms);
+        RDP_PARAMS_LOG("%u",     from_millisec,         session_probe_clipboard_based_launcher.long_delay_ms);
+        RDP_PARAMS_LOG("%u",     from_millisec,         session_probe_clipboard_based_launcher.short_delay_ms);
 
         RDP_PARAMS_LOG("%s",     yes_or_no,             session_probe_allow_multiple_handshake);
 
@@ -297,6 +304,10 @@ struct ModRDPParams {
 
         RDP_PARAMS_LOG("%u",     static_cast<unsigned>, session_probe_handle_usage_limit);
         RDP_PARAMS_LOG("%u",     static_cast<unsigned>, session_probe_memory_usage_limit);
+
+        RDP_PARAMS_LOG("%s",     yes_or_no,             session_probe_ignore_ui_less_processes_during_end_of_session_check);
+
+        RDP_PARAMS_LOG("%s",     yes_or_no,             session_probe_childless_window_as_unidentified_input_field);
 
         RDP_PARAMS_LOG("%s",     yes_or_no,             session_probe_public_session);
 
@@ -315,6 +326,8 @@ struct ModRDPParams {
         RDP_PARAMS_LOG("\"%s\"", s_or_null,             session_probe_outbound_connection_monitoring_rules);
 
         RDP_PARAMS_LOG("\"%s\"", s_or_null,             session_probe_process_monitoring_rules);
+
+        RDP_PARAMS_LOG("\"%s\"", s_or_null,             session_probe_windows_of_these_applications_as_unidentified_input_field);
 
         RDP_PARAMS_LOG("%s",     yes_or_no,             ignore_auth_channel);
         RDP_PARAMS_LOG("\"%s\"", s_or_null,             auth_channel.c_str());
@@ -408,6 +421,8 @@ struct ModRDPParams {
         RDP_PARAMS_LOG("%s",     yes_or_no,             experimental_fix_input_event_sync);
         RDP_PARAMS_LOG("%s",     yes_or_no,             experimental_fix_too_long_cookie);
 
+        RDP_PARAMS_LOG("%s",     yes_or_no,             log_only_relevant_clipboard_activities);
+
         RDP_PARAMS_LOG("0x%08X", static_cast<unsigned>, verbose);
         RDP_PARAMS_LOG("0x%08X", static_cast<unsigned>, cache_verbose);
 
@@ -415,4 +430,3 @@ struct ModRDPParams {
 #undef RDP_PARAMS_LOG_GET
     }   // void log() const
 };  // struct ModRDPParams
-

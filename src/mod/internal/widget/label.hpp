@@ -22,6 +22,7 @@
 #pragma once
 
 #include "mod/internal/widget/widget.hpp"
+#include "utils/sugar/array_view.hpp"
 
 
 class Font;
@@ -50,7 +51,12 @@ public:
 
 public:
     WidgetLabel(gdi::GraphicApi & drawable, Widget& parent,
-                NotifyApi* notifier, const char * text,
+                NotifyApi* notifier, array_view_const_char text,
+                int group_id, BGRColor fgcolor, BGRColor bgcolor, Font const & font,
+                int xtext = 0, int ytext = 0);
+
+    WidgetLabel(gdi::GraphicApi & drawable, Widget& parent,
+                NotifyApi* notifier, char const* text,
                 int group_id, BGRColor fgcolor, BGRColor bgcolor, Font const & font,
                 int xtext = 0, int ytext = 0);
 
@@ -58,7 +64,8 @@ public:
 
     ~WidgetLabel() override;
 
-    void set_text(const char * text);
+    void set_text(char const* text);
+    void set_text(array_view_const_char text);
 
     const char * get_text() const;
 

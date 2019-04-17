@@ -30,8 +30,8 @@
 #include "core/RDP/clipboard.hpp"
 #include "utils/fileutils.hpp"
 
-#include "client_redemption/client_redemption_config.hpp"
-#include "client_redemption/client_input_output_api/client_clipboard_api.hpp"
+#include "client_redemption/client_config/client_redemption_config.hpp"
+#include "client_redemption/client_channels/client_cliprdr_channel.hpp"
 
 #include <QtCore/QMimeData>
 #include <QtGui/QClipboard>
@@ -51,6 +51,16 @@
 #undef REDEMPTION_QT_INCLUDE_WIDGET
 
 
+struct TextEnder {
+    enum : uint32_t {
+        SIZE = 2
+    };
+
+    void emit (uint8_t * chunk, size_t data_len) {
+        chunk[data_len + 1] = 0;
+        chunk[data_len + 2] = 0;
+    }
+};
 
 class QtInputOutputClipboard : public QObject, public ClientIOClipboardAPI
 {
@@ -61,15 +71,30 @@ REDEMPTION_DIAGNOSTIC_POP
 
 public:
 
+    enum : int {
+        FILEGROUPDESCRIPTORW_BUFFER_TYPE = 0,
+        IMAGE_BUFFER_TYPE                = 1,
+        TEXT_BUFFER_TYPE                 = 2
+    };
+
+    uint16_t    _bufferTypeID = 0;
+    int         _bufferTypeNameIndex = 0;
+    bool        _local_clipboard_stream = true;
+    size_t      _cliboard_data_length = 0;
+    int         _cItems = 0;
+
+    std::string tmp_path;
+
     enum : uint16_t {
           CF_QT_CLIENT_FILEGROUPDESCRIPTORW = 48025
         , CF_QT_CLIENT_FILECONTENTS         = 48026
     };
 
-//     ClientRedemptionAPI    * _front;
     QClipboard                * _clipboard;
     std::unique_ptr<uint8_t[]>  _chunk;
     QImage                      _bufferImage;
+
+    bool is_listenning = false;
 
 
     struct CB_out_File {
@@ -90,20 +115,17 @@ public:
     std::vector<CB_out_File*>  _items_list;
     std::vector<std::string>  _temp_files_list;
 
+    ClientCLIPRDRChannel * channel;
 
 
-    QtInputOutputClipboard(QWidget * parent)
+
+    QtInputOutputClipboard(ClientCLIPRDRChannel * channel, const std::string & path, QWidget * parent)
         : QObject(parent), ClientIOClipboardAPI()
-        , _clipboard(nullptr)
+        , tmp_path(path)
+        , _clipboard(QApplication::clipboard())
+        , channel(channel)
     {
-        //this->clean_CB_temp_dir();
-        this->_clipboard = QApplication::clipboard();
         this->QObject::connect(this->_clipboard, SIGNAL(dataChanged()),  this, SLOT(mem_clipboard()));
-    }
-
-    void set_client(ClientRedemptionAPI * client, std::string & path) {
-        this->client = client;
-        this->tmp_path = path;
     }
 
     void write_clipboard_temp_file(std::string const& fileName, const uint8_t * data, size_t data_len) override {
@@ -117,6 +139,22 @@ public:
             oFile.write(reinterpret_cast<const char *>(data), data_len);
             oFile.close();
         }
+    }
+
+    void set_local_clipboard_stream(bool val) override {
+        this->_local_clipboard_stream = val;
+    }
+
+    uint16_t get_buffer_type_id() override {
+        return this->_bufferTypeID;
+    }
+
+    size_t get_cliboard_data_length() override {
+        return this->_cliboard_data_length;
+    }
+
+    int get_citems_number() override {
+        return this->_cItems;
     }
 
     void setClipboard_files(std::string const& name) override {  //std::vector<Front_RDP_Qt_API::CB_FilesList::CB_in_Files> items_list) {
@@ -190,7 +228,7 @@ public:
         this->_clipboard->setText(QString::fromUtf8(str.c_str()), QClipboard::Clipboard);
     }
 
-    void setClipboard_image(const uint8_t * data, const int image_width, const int image_height, const int bpp) override {               // Paste image to client
+    void setClipboard_image(const uint8_t * data, const int image_width, const int image_height, const BitsPerPixel bpp) override {               // Paste image to client
         QImage image(data,
                      image_width,
                      image_height,
@@ -235,7 +273,7 @@ public:
 public Q_SLOTS:
 
     void mem_clipboard() {
-        if (this->client->mod != nullptr && this->_local_clipboard_stream) {
+        if (this->_local_clipboard_stream) {
             const QMimeData * mimeData = this->_clipboard->mimeData();
             mimeData->hasImage();
 
@@ -264,7 +302,7 @@ public Q_SLOTS:
                 RDPECLIP::FormatDataResponsePDU_MetaFilePic::Ender ender;
                 ender.emit(this->_chunk.get(), this->_cliboard_data_length);
 
-                this->client->send_clipboard_format();
+                this->channel->send_FormatListPDU();
             //==========================================================================
 
 
@@ -331,16 +369,13 @@ public Q_SLOTS:
                                 }
                                 file->nameUTF8 = path.substr(posName+2, path.size());
                                 //std::string name = file->nameUTF8;
-                                int UTF8nameSize(file->nameUTF8.size() *2);
-                                if (UTF8nameSize > 520) {
-                                    UTF8nameSize = 520;
+                                int UTF16nameSize(file->nameUTF8.size() *2);
+                                if (UTF16nameSize > 520) {
+                                    UTF16nameSize = 520;
                                 }
                                 uint8_t UTF16nameData[520];
-                                int UTF16nameSize = ::UTF8toUTF16_CrLf(
-                                    reinterpret_cast<const uint8_t *>(file->nameUTF8.c_str())
-                                , UTF16nameData
-                                , UTF8nameSize);
-                                file->name = std::string(reinterpret_cast<char *>(UTF16nameData), UTF16nameSize);
+                                int UTF16nameSizeReal = ::UTF8toUTF16_CrLf(file->nameUTF8, UTF16nameData, UTF16nameSize);
+                                file->name = std::string(reinterpret_cast<char *>(UTF16nameData), UTF16nameSizeReal);
                                 this->_cItems++;
                                 this->_items_list.push_back(file);
 
@@ -349,7 +384,7 @@ public Q_SLOTS:
                             }
                         }
 
-                        this->client->send_clipboard_format();
+                        this->channel->send_FormatListPDU();
                 //==========================================================================
 
 
@@ -366,14 +401,14 @@ public Q_SLOTS:
                         this->_chunk = std::make_unique<uint8_t[]>(size);
 
                         // UTF8toUTF16_CrLf for linux install
-                        this->_cliboard_data_length = ::UTF8toUTF16_CrLf(reinterpret_cast<const uint8_t *>(str.c_str()), this->_chunk.get(), size);
+                        this->_cliboard_data_length = ::UTF8toUTF16_CrLf(str, this->_chunk.get(), size);
 
-                        RDPECLIP::FormatDataResponsePDU_Text::Ender ender;
+                        TextEnder ender;
                         ender.emit(this->_chunk.get(), this->_cliboard_data_length);
 
-                        this->_cliboard_data_length += RDPECLIP::FormatDataResponsePDU_Text::Ender::SIZE;
+                        this->_cliboard_data_length += TextEnder::SIZE;
 
-                        this->client->send_clipboard_format();
+                        this->channel->send_FormatListPDU();
                 //==========================================================================
                     }
                 }
@@ -405,25 +440,25 @@ public Q_SLOTS:
         return {this->_items_list[index]->chunk, this->_items_list[index]->size};
     }
 
-    QImage::Format bpp_to_QFormat(int bpp, bool alpha) {
+    QImage::Format bpp_to_QFormat(BitsPerPixel bpp, bool alpha) {
         QImage::Format format(QImage::Format_RGB16);
 
         if (alpha) {
 
             switch (bpp) {
-                case 15: format = QImage::Format_ARGB4444_Premultiplied; break;
-                case 16: format = QImage::Format_ARGB4444_Premultiplied; break;
-                case 24: format = QImage::Format_ARGB8565_Premultiplied; break;
-                case 32: format = QImage::Format_ARGB32_Premultiplied;   break;
+                case BitsPerPixel{15}: format = QImage::Format_ARGB4444_Premultiplied; break;
+                case BitsPerPixel{16}: format = QImage::Format_ARGB4444_Premultiplied; break;
+                case BitsPerPixel{24}: format = QImage::Format_ARGB8565_Premultiplied; break;
+                case BitsPerPixel{32}: format = QImage::Format_ARGB32_Premultiplied;   break;
                 default : break;
             }
         } else {
 
             switch (bpp) {
-                case 15: format = QImage::Format_RGB555; break;
-                case 16: format = QImage::Format_RGB16;  break;
-                case 24: format = QImage::Format_RGB888; break;
-                case 32: format = QImage::Format_RGB32;  break;
+                case BitsPerPixel{15}: format = QImage::Format_RGB555; break;
+                case BitsPerPixel{16}: format = QImage::Format_RGB16;  break;
+                case BitsPerPixel{24}: format = QImage::Format_RGB888; break;
+                case BitsPerPixel{32}: format = QImage::Format_RGB32;  break;
                 default : break;
             }
         }

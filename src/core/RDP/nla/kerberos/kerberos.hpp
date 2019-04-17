@@ -30,32 +30,33 @@
 REDEMPTION_DIAGNOSTIC_PUSH
 REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wold-style-cast")
 REDEMPTION_DIAGNOSTIC_GCC_ONLY_IGNORE("-Wzero-as-null-pointer-constant")
-#if REDEMPTION_COMP_CLANG >= REDEMPTION_COMP_VERSION_NUMBER(5, 0, 0)
+#if REDEMPTION_COMP_CLANG_VERSION >= REDEMPTION_COMP_VERSION_NUMBER(5, 0, 0)
     REDEMPTION_DIAGNOSTIC_CLANG_IGNORE("-Wzero-as-null-pointer-constant")
 #endif
 
-namespace {
-    //const char* KERBEROS_PACKAGE_NAME = "KERBEROS";
-    // const char Kerberos_Name[] = "Kerberos";
-    // const char Kerberos_Comment[] = "Kerberos Security Package";
-    // const SecPkgInfo KERBEROS_SecPkgInfo = {
-    //     0x00082B37,             // fCapabilities
-    //     1,                      // wVersion
-    //     0x000A,                 // wRPCID
-    //     0x00000B48,             // cbMaxToken
-    //     Kerberos_Name,          // Name
-    //     Kerberos_Comment        // Comment
-    // };
+//const char* KERBEROS_PACKAGE_NAME = "KERBEROS";
+// const char Kerberos_Name[] = "Kerberos";
+// const char Kerberos_Comment[] = "Kerberos Security Package";
+// const SecPkgInfo KERBEROS_SecPkgInfo = {
+//     0x00082B37,             // fCapabilities
+//     1,                      // wVersion
+//     0x000A,                 // wRPCID
+//     0x00000B48,             // cbMaxToken
+//     Kerberos_Name,          // Name
+//     Kerberos_Comment        // Comment
+// };
 
-    gss_OID_desc _gss_spnego_krb5_mechanism_oid_desc =
-    { 9, const_cast<void *>(static_cast<const void *>("\x2a\x86\x48\x86\xf7\x12\x01\x02\x02")) }; /*NOLINT*/
 
-    // SecPkgContext_Sizes ContextSizes;
-    // ContextSizes.cbMaxToken = 4096;
-    // ContextSizes.cbMaxSignature = 0;
-    // ContextSizes.cbBlockSize = 0;
-    // ContextSizes.cbSecurityTrailer = 16;
-}  // namespace
+inline gss_OID_desc _gss_spnego_krb5_mechanism_oid_desc()
+{
+    return { 9, const_cast<void *>(static_cast<const void *>("\x2a\x86\x48\x86\xf7\x12\x01\x02\x02")) }; /*NOLINT*/
+}
+
+// SecPkgContext_Sizes ContextSizes;
+// ContextSizes.cbMaxToken = 4096;
+// ContextSizes.cbMaxSignature = 0;
+// ContextSizes.cbBlockSize = 0;
+// ContextSizes.cbSecurityTrailer = 16;
 
 
 
@@ -127,7 +128,7 @@ public:
         if (pszPrincipal && pvLogonID) {
             size_t length = strlen(pszPrincipal);
             pvLogonID->init(length + 1);
-            pvLogonID->copy(byte_ptr_cast(pszPrincipal), length);
+            pvLogonID->copy({pszPrincipal, length});
             pvLogonID->get_data()[length] = 0;
         }
         this->credentials = Krb5CredsPtr(new Krb5Creds);
@@ -151,16 +152,17 @@ public:
         return SEC_E_NO_CREDENTIALS;
     }
 
-    bool get_service_name(char * server, gss_name_t * name) {
+    bool get_service_name(array_view_const_char server, gss_name_t * name) {
         gss_buffer_desc output;
         OM_uint32 major_status, minor_status;
         const char service_name[] = "TERMSRV";
         gss_OID type = GSS_C_NT_HOSTBASED_SERVICE;
-        int size = (strlen(service_name) + 1 + strlen(server) + 1);
+        int size = (strlen(service_name) + 1 + server.size() + 1);
 
         auto output_value = std::make_unique<char[]>(size);
         output.value = output_value.get();
-        snprintf(static_cast<char*>(output.value), size, "%s@%s", service_name, server);
+        snprintf(static_cast<char*>(output.value), size, "%s@%.*s",
+            service_name, int(server.size()), server.data());
         output.length = strlen(static_cast<char*>(output.value)) + 1;
         LOG(LOG_INFO, "GSS IMPORT NAME : %s", static_cast<char*>(output.value));
         major_status = gss_import_name(&minor_status, &output, type, name);
@@ -175,7 +177,7 @@ public:
     // GSS_Init_sec_context
     // INITIALIZE_SECURITY_CONTEXT_FN InitializeSecurityContext;
     SEC_STATUS InitializeSecurityContext(
-        char* pszTargetName, array_view_const_u8 input_buffer, SecBuffer& output_buffer
+        array_view_const_char pszTargetName, array_view_const_u8 input_buffer, Array& output_buffer
     ) override
     {
         OM_uint32 major_status, minor_status;
@@ -202,8 +204,8 @@ public:
         input_tok.length = input_buffer.size();
         input_tok.value = const_cast<uint8_t*>(input_buffer.data()); /*NOLINT*/
 
-        gss_OID desired_mech = &_gss_spnego_krb5_mechanism_oid_desc;
-        if (!this->mech_available(desired_mech)) {
+        gss_OID_desc desired_mech = _gss_spnego_krb5_mechanism_oid_desc();
+        if (!this->mech_available(&desired_mech)) {
             LOG(LOG_ERR, "Desired Mech unavailable");
             return SEC_E_CRYPTO_SYSTEM_INVALID;
         }
@@ -227,7 +229,7 @@ public:
                                             gss_no_cred,
                                             &this->krb_ctx->gss_ctx,
                                             this->krb_ctx->target_name,
-                                            desired_mech,
+                                            &desired_mech,
                                             GSS_C_MUTUAL_FLAG,
                                             GSS_C_INDEFINITE,
                                             GSS_C_NO_CHANNEL_BINDINGS,
@@ -246,7 +248,7 @@ public:
 
         // LOG(LOG_INFO, "output tok length : %d", output_tok.length);
         output_buffer.init(output_tok.length);
-        output_buffer.copy(static_cast<uint8_t const*>(output_tok.value), output_tok.length);
+        output_buffer.copy({static_cast<uint8_t const*>(output_tok.value), output_tok.length});
 
         (void) gss_release_buffer(&minor_status, &output_tok);
 
@@ -262,7 +264,7 @@ public:
     // GSS_Accept_sec_context
     // ACCEPT_SECURITY_CONTEXT AcceptSecurityContext;
     SEC_STATUS AcceptSecurityContext(
-        array_view_const_u8 input_buffer, SecBuffer& output_buffer
+        array_view_const_u8 input_buffer, Array& output_buffer
     ) override
     {
         OM_uint32 major_status, minor_status;
@@ -286,8 +288,8 @@ public:
         input_tok.length = input_buffer.size();
         input_tok.value = const_cast<uint8_t*>(input_buffer.data()); /*NOLINT*/
 
-        gss_OID desired_mech = &_gss_spnego_krb5_mechanism_oid_desc;
-        if (!this->mech_available(desired_mech)) {
+        gss_OID_desc desired_mech = _gss_spnego_krb5_mechanism_oid_desc();
+        if (!this->mech_available(&desired_mech)) {
             LOG(LOG_ERR, "Desired Mech unavailable");
             return SEC_E_CRYPTO_SYSTEM_INVALID;
         }
@@ -331,7 +333,7 @@ public:
 
         // LOG(LOG_INFO, "output tok length : %d", output_tok.length);
         output_buffer.init(output_tok.length);
-        output_buffer.copy(static_cast<const uint8_t*>(output_tok.value), output_tok.length);
+        output_buffer.copy({static_cast<const uint8_t*>(output_tok.value), output_tok.length});
 
         (void) gss_release_buffer(&minor_status, &output_tok);
 
@@ -345,7 +347,7 @@ public:
 
     // GSS_Wrap
     // ENCRYPT_MESSAGE EncryptMessage;
-    SEC_STATUS EncryptMessage(array_view_const_u8 data_in, SecBuffer& data_out, unsigned long MessageSeqNo) override {
+    SEC_STATUS EncryptMessage(array_view_const_u8 data_in, Array& data_out, unsigned long MessageSeqNo) override {
         (void)MessageSeqNo;
         // OM_uint32 KRB5_CALLCONV
         // gss_wrap(
@@ -378,7 +380,7 @@ public:
         }
         // LOG(LOG_INFO, "GSS_WRAP outbuf length : %d", outbuf.length);
         data_out.init(outbuf.length);
-        data_out.copy(static_cast<uint8_t const*>(outbuf.value), outbuf.length);
+        data_out.copy({static_cast<uint8_t const*>(outbuf.value), outbuf.length});
         gss_release_buffer(&minor_status, &outbuf);
 
         return SEC_E_OK;
@@ -386,7 +388,7 @@ public:
 
     // GSS_Unwrap
     // DECRYPT_MESSAGE DecryptMessage;
-    SEC_STATUS DecryptMessage(array_view_const_u8 data_in, SecBuffer& data_out, unsigned long MessageSeqNo) override {
+    SEC_STATUS DecryptMessage(array_view_const_u8 data_in, Array& data_out, unsigned long MessageSeqNo) override {
         (void)MessageSeqNo;
 
         // OM_uint32 gss_unwrap
@@ -419,7 +421,7 @@ public:
         }
         // LOG(LOG_INFO, "GSS_UNWRAP outbuf length : %d", outbuf.length);
         data_out.init(outbuf.length);
-        data_out.copy(static_cast<uint8_t const*>(outbuf.value), outbuf.length);
+        data_out.copy({static_cast<uint8_t const*>(outbuf.value), outbuf.length});
         gss_release_buffer(&minor_status, &outbuf);
         return SEC_E_OK;
     }
@@ -451,7 +453,7 @@ public:
                 continue;
             }
 
-            LOG(LOG_ERR," - %s\n", static_cast<uint8_t const*>(status_string.value));
+            LOG(LOG_ERR," - %s\n", static_cast<char const*>(status_string.value));
         }
         while (ms == GSS_S_COMPLETE && msgctx);
 

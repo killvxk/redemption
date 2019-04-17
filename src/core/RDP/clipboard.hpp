@@ -21,8 +21,6 @@
 
 #pragma once
 
-#include <cinttypes>
-
 #include "core/FSCC/FileInformation.hpp"
 #include "core/WMF/MetaFileFormat.hpp"
 #include "core/channel_list.hpp"
@@ -30,6 +28,10 @@
 #include "utils/stream.hpp"
 #include "utils/sugar/array_view.hpp"
 #include "utils/sugar/cast.hpp"
+
+#include <cinttypes>
+#include <sstream>
+#include <vector>
 
 
 namespace RDPECLIP {
@@ -64,7 +66,7 @@ enum {
     , CF_GDIOBJLAST      = 1023
 };
 
-inline static const char * get_Format_name(uint32_t FormatId) {
+inline static const char * get_FormatId_name(uint32_t FormatId) {
     switch (FormatId) {
         case CF_TEXT:            return "CF_TEXT";
         case CF_BITMAP:          return "CF_BITMAP";
@@ -173,7 +175,6 @@ inline static const char * get_msgType_name(uint16_t msgType) {
         case CB_FILECONTENTS_RESPONSE: return "CB_FILECONTENTS_RESPONSE";
         case CB_LOCK_CLIPDATA:         return "CB_LOCK_CLIPDATA";
         case CB_UNLOCK_CLIPDATA:       return "CB_UNLOCK_CLIPDATA";
-
         case CB_CHUNKED_FORMAT_DATA_RESPONSE: return "CB_CHUNKED_FORMAT_DATA_RESPONSE";
     }
 
@@ -204,19 +205,46 @@ inline static const char * get_msgType_name(uint16_t msgType) {
 // +------------------+--------------------------------------------------------+
 
 enum {
-      CB_RESPONSE_NONE = 0x0000
-    , CB_RESPONSE_OK   = 0x0001
-    , CB_RESPONSE_FAIL = 0x0002
-    , CB_ASCII_NAMES   = 0x0004
+      CB_RESPONSE__NONE_ = 0x0000
+
+    , CB_RESPONSE_OK     = 0x0001
+    , CB_RESPONSE_FAIL   = 0x0002
+    , CB_ASCII_NAMES     = 0x0004
 };
 
 inline static const char * get_msgFlag_name(uint16_t msgFlag) {
     switch (msgFlag) {
-        case CB_RESPONSE_OK:   return "CB_RESPONSE_OK";
-        case CB_RESPONSE_FAIL: return "CB_RESPONSE_FAIL";
+        case CB_RESPONSE__NONE_: return "CB_RESPONSE__NONE_";
+
+        case CB_RESPONSE_OK:     return "CB_RESPONSE_OK";
+        case CB_RESPONSE_FAIL:   return "CB_RESPONSE_FAIL";
+        case CB_ASCII_NAMES:     return "CB_ASCII_NAMES";
     }
 
     return "<unknown>";
+}
+
+static inline const std::string msgFlags_to_string(uint16_t msgFlags) {
+    std::ostringstream stream;
+
+    if (!msgFlags) {
+        stream << "0x" << std::hex << 0;
+    }
+    else {
+        auto out_flag = [&stream, msgFlags](uint16_t msgFlag) {
+                if (msgFlags & msgFlag) {
+                    if (stream.tellp()) { stream << " | "; }
+                    stream << get_msgFlag_name(msgFlag) << "(0x" <<
+                        std::hex << msgFlag << ")";
+                }
+            };
+
+        out_flag(CB_RESPONSE_OK);
+        out_flag(CB_RESPONSE_FAIL);
+        out_flag(CB_ASCII_NAMES);
+    }
+
+    return stream.str();
 }
 
 // Short Format Name
@@ -226,36 +254,34 @@ enum {
 
 inline static const char * get_format_short_name(uint16_t formatID) {
     switch (formatID) {
-        case SF_TEXT_HTML:         return "text/html";
+        case SF_TEXT_HTML: return "text/html";
     }
 
     return "<unknown>";
 }
 
-
-
 // dataLen (4 bytes): An unsigned, 32-bit integer that specifies the size, in
 //  bytes, of the data which follows the Clipboard PDU Header.
 
-struct RecvFactory {
-    uint16_t msgType;
+// struct RecvFactory {
+//     uint16_t msgType;
 
-    explicit RecvFactory(InStream & stream) {
-        const unsigned expected = 2;    /* msgType(2) */
-        if (!stream.in_check_rem(expected)) {
-            LOG( LOG_INFO, "RDPECLIP::RecvFactory truncated msgType, need=%u remains=%zu"
-               , expected, stream.in_remain());
-            throw Error(ERR_RDP_DATA_TRUNCATED);
-        }
+//     explicit RecvFactory(InStream & stream) {
+//         const unsigned expected = 2;    /* msgType(2) */
+//         if (!stream.in_check_rem(expected)) {
+//             LOG( LOG_INFO, "RDPECLIP::RecvFactory truncated msgType, need=%u remains=%zu"
+//                , expected, stream.in_remain());
+//             throw Error(ERR_RDP_DATA_TRUNCATED);
+//         }
 
-        this->msgType = stream.in_uint16_le();
-    }   // RecvFactory(InStream & stream)
-};
+//         this->msgType = stream.in_uint16_le();
+//     }   // RecvFactory(InStream & stream)
+// };
 
+class RecvPredictor {
+    uint16_t msgType_;
 
-struct RecvPredictor {
-    uint16_t msgType;
-
+public:
     explicit RecvPredictor(const InStream & stream) {
         InStream s = stream.clone();
         const unsigned expected = 2;    /* msgType(2) */
@@ -264,30 +290,34 @@ struct RecvPredictor {
                , expected, stream.in_remain());
             throw Error(ERR_RDP_DATA_TRUNCATED);
         }
-        this->msgType = s.in_uint16_le();
+        this->msgType_ = s.in_uint16_le();
     }   // RecvFactory(InStream & stream)
+
+    uint16_t msgType() const { return this->msgType_; }
 };
 
-
-struct CliprdrHeader {
-
+class CliprdrHeader {
     uint16_t msgType_{0};
     uint16_t msgFlags_{0};
     uint32_t dataLen_{0};
 
 public:
     uint16_t msgType()  const { return this->msgType_; }
+
     uint16_t msgFlags() const { return this->msgFlags_; }
+
     uint32_t dataLen()  const { return this->dataLen_; }
 
+    void dataLen(uint32_t dataLen) {
+        this->dataLen_ = dataLen;
+    }
 
     CliprdrHeader() = default; // CliprdrHeader()
 
     CliprdrHeader(uint16_t msgType, uint16_t msgFlags, uint32_t dataLen)
         : msgType_(msgType)
         , msgFlags_(msgFlags)
-        , dataLen_(dataLen) {
-    }   // CliprdrHeader(uint16_t msgType, uint16_t msgFlags, uint32_t dataLen)
+        , dataLen_(dataLen) {}
 
     CliprdrHeader(CliprdrHeader const &) = delete;
     CliprdrHeader& operator=(CliprdrHeader const &) = delete;
@@ -299,7 +329,7 @@ public:
     }   // void emit(OutStream & stream)
 
     void recv(InStream & stream) {
-        const unsigned expected = 6;    /* msgFlags_(2) + dataLen_(4) */
+        const unsigned expected = 8;    /* msgType(2) + msgFlags(2) + dataLen(4) */
         if (!stream.in_check_rem(expected)) {
             LOG( LOG_INFO, "RDPECLIP::CliprdrHeader::recv truncated data, need=%u remains=%zu"
                , expected, stream.in_remain());
@@ -312,14 +342,17 @@ public:
     }
 
     static size_t size() {
-        return 8;       // 2(msgType) + 2(msgFlags) + 4(dataLen) = 8
+        return 8;       // 2(msgType) + 2(msgFlags) + 4(dataLen)
+    }
+
+    void log(int level) const {
+        LOG(level, "CliprdrHeader: msgType=%s(0x%X) msgFlags=<%s> dataLen=%u",
+            get_msgType_name(this->msgType_), this->msgType_,
+            msgFlags_to_string(this->msgFlags_), this->dataLen_);
     }
 
     void log() const {
-        LOG(LOG_INFO, "     CliprdrHeader:");
-        LOG(LOG_INFO, "          * MsgType  = 0x%x (2 bytes): %s", this->msgType_, get_msgType_name(this->msgType_));
-        LOG(LOG_INFO, "          * MsgFlags = 0x%x (2 bytes): %s", this->msgFlags_, get_msgFlag_name(this->msgFlags_));
-        LOG(LOG_INFO, "          * DataLen  = %u Byte(s) (4 bytes)", this->dataLen_);
+        LOG(LOG_INFO, "     CliprdrHeader: MsgType=0x%x(2 bytes):%s MsgFlags=0x%x(2 bytes):%s DataLen=%uByte(s)(4 bytes)", this->msgType_, get_msgType_name(this->msgType_), this->msgFlags_, get_msgFlag_name(this->msgFlags_), this->dataLen_);
     }
 };  // struct CliprdrHeader
 
@@ -363,33 +396,23 @@ public:
 // capabilitySets (variable): A variable-sized array of capability sets, each
 //  conforming in structure to the CLIPRDR_CAPS_SET.
 
-struct ClipboardCapabilitiesPDU
+class ClipboardCapabilitiesPDU
 {
-    CliprdrHeader header;
+    uint16_t cCapabilitiesSets_ = 0;
 
-    uint16_t cCapabilitiesSets = 0;
-
+public:
     ClipboardCapabilitiesPDU() = default;
 
-    ClipboardCapabilitiesPDU(uint16_t cCapabilitiesSets, uint32_t length_capabilities)
-        : header(CB_CLIP_CAPS,
-                      0,
-                      4 +   // cCapabilitiesSets(2) + pad1(2)
-                          length_capabilities
-                     )
-        , cCapabilitiesSets(cCapabilitiesSets)
+    ClipboardCapabilitiesPDU(uint16_t cCapabilitiesSets)
+        : cCapabilitiesSets_(cCapabilitiesSets)
     {}
 
     void emit(OutStream & stream) const {
-        this->header.emit(stream);
-
-        stream.out_uint16_le(cCapabilitiesSets);
+        stream.out_uint16_le(this->cCapabilitiesSets_);
         stream.out_clear_bytes(2);  // pad1(2)
     }   // void emit(OutStream & stream)
 
     void recv(InStream & stream) {
-        this->header.recv(stream);
-
         const unsigned expected = 4;    // cCapabilitiesSets(2) + pad1(2)
         if (!stream.in_check_rem(expected)) {
             LOG( LOG_INFO,
@@ -398,16 +421,23 @@ struct ClipboardCapabilitiesPDU
             throw Error(ERR_RDP_DATA_TRUNCATED);
         }
 
-        this->cCapabilitiesSets = stream.in_uint16_le();
+        this->cCapabilitiesSets_ = stream.in_uint16_le();
 
         stream.in_skip_bytes(2);    // pad1(2)
     }
 
+    uint16_t cCapabilitiesSets() const { return this->cCapabilitiesSets_; }
+
+    static constexpr size_t size() {
+        return 4;   // cCapabilitiesSets(2) + pad1(2)
+    }
+
+    void log(int level) const {
+        LOG(level, "ClipboardCapabilitiesPDU: cCapabilitiesSets=%u", this->cCapabilitiesSets_);
+    }
+
     void log() const {
-        this->header.log();
-        LOG(LOG_INFO, "     Clipboard Capabilities PDU:");
-        LOG(LOG_INFO, "          * cCapabilitiesSets = %d (2 bytes)", this->cCapabilitiesSets);
-        LOG(LOG_INFO, "          * Padding - (2 byte) NOT USED");
+        LOG(LOG_INFO, "     Clipboard Capabilities PDU: cCapabilitiesSets=%d(2 bytes) Padding-(2 byte):NOT USED", this->cCapabilitiesSets_);
     }
 };  // struct ClipboardCapabilitiesPDU
 
@@ -440,8 +470,9 @@ struct ClipboardCapabilitiesPDU
 //  +---------------------+------------------------+
 
 enum {
-  CB_CAPSTYPE_GENERAL        = 0x00000001,
+    CB_CAPSTYPE_GENERAL = 0x00000001
 };
+
 // lengthCapability (2 bytes): An unsigned, 16-bit integer that specifies the
 //  combined length, in bytes, of the capabilitySetType, capabilityData and
 //  lengthCapability fields.
@@ -449,9 +480,10 @@ enum {
 // capabilityData (variable): Capability set data specified by the type given
 //  in the capabilitySetType field. This field is a variable number of bytes.
 
-struct CapabilitySetRecvFactory {
-    uint16_t capabilitySetType;
+class CapabilitySetRecvFactory {
+    uint16_t capabilitySetType_;
 
+public:
     explicit CapabilitySetRecvFactory(InStream & stream) {
         const unsigned expected = 2;    /* capabilitySetType(2) */
         if (!stream.in_check_rem(expected)) {
@@ -461,8 +493,10 @@ struct CapabilitySetRecvFactory {
             throw Error(ERR_RDP_DATA_TRUNCATED);
         }
 
-        this->capabilitySetType = stream.in_uint16_le();
+        this->capabilitySetType_ = stream.in_uint16_le();
     }   // CapabilitySetRecvFactory(InStream & stream)
+
+    uint16_t capabilitySetType() const { return this->capabilitySetType_; }
 
     static const char * get_capabilitySetType_name(uint16_t capabilitySetType) {
         switch (capabilitySetType) {
@@ -523,56 +557,88 @@ enum {
 // generalFlags (4 bytes): An unsigned, 32-bit integer that specifies the
 //  general capability flags.
 
-//  +----------------------------+--------------------------------------------+
-//  | Value                      | Meaning                                    |
-//  +----------------------------+--------------------------------------------+
-//  | CB_USE_LONG_FORMAT_NAMES   | The Long Format Name variant of the Format |
-//  | 0x00000002                 | List PDU is supported for exchanging       |
-//  |                            | updated format names. If this flag is not  |
-//  |                            | set, the Short Format Name variant MUST be |
-//  |                            | used. If this flag is set by both protocol |
-//  |                            | endpoints, then the Long Format Name       |
-//  |                            | variant MUST be used.                      |
-//  +----------------------------+--------------------------------------------+
-//  | CB_STREAM_FILECLIP_ENABLED | File copy and paste using stream-based     |
-//  | 0x00000004                 | operations are supported using the File    |
-//  |                            | Contents Request PDU and File Contents     |
-//  |                            | Response PDU.                              |
-//  +----------------------------+--------------------------------------------+
-//  | CB_FILECLIP_NO_FILE_PATHS  | Indicates that any description of files to |
-//  | 0x00000008                 | copy and paste MUST NOT include the source |
-//  |                            | path of the files.                         |
-//  +----------------------------+--------------------------------------------+
-//  | CB_CAN_LOCK_CLIPDATA       | Locking and unlocking of File Stream data  |
-//  | 0x00000010                 | on the clipboard is supported using the    |
-//  |                            | Lock Clipboard Data PDU and Unlock         |
-//  |                            | Clipboard Data PDU.                        |
-//  +----------------------------+--------------------------------------------+
+//  +------------------------------+------------------------------------------+
+//  | Value                        | Meaning                                  |
+//  +------------------------------+------------------------------------------+
+//  | CB_USE_LONG_FORMAT_NAMES     | The Long Format Name variant of the      |
+//  | 0x00000002                   | Format List PDU is supported for         |
+//  |                              | exchanging updated format names. If this |
+//  |                              | flag is not set, the Short Format Name   |
+//  |                              | variant MUST be used. If this flag is    |
+//  |                              | set by both protocol endpoints, then the |
+//  |                              | Long Format Name variant MUST be used.   |
+//  +------------------------------+------------------------------------------+
+//  | CB_STREAM_FILECLIP_ENABLED   | File copy and paste using stream-based   |
+//  | 0x00000004                   | operations are supported using the File  |
+//  |                              | Contents Request PDU and File Contents   |
+//  |                              | Response PDU.                            |
+//  +------------------------------+------------------------------------------+
+//  | CB_FILECLIP_NO_FILE_PATHS    | Indicates that any description of files  |
+//  | 0x00000008                   | to copy and paste MUST NOT include the   |
+//  |                              | source path of the files.                |
+//  +------------------------------+------------------------------------------+
+//  | CB_CAN_LOCK_CLIPDATA         | Locking and unlocking of File Stream     |
+//  | 0x00000010                   | data on the clipboard is supported using |
+//  |                              | the Lock Clipboard Data PDU and Unlock   |
+//  |                              | Clipboard Data PDU.                      |
+//  +------------------------------+------------------------------------------+
+//  | CB_HUGE_FILE_SUPPORT_ENABLED | Indicates support for transferring files |
+//  | 0x00000020                   | that are larger than 4,294,967,296 bytes |
+//  |                              | in size. If this flag is not set, then   |
+//  |                              | only files of size less than or equal to |
+//  |                              | 4,294,967,296 bytes can be exchanged     |
+//  |                              | using the File Contents Request PDU and  |
+//  |                              | File Contents Response PDU.              |
+//  +------------------------------+------------------------------------------+
 
 enum {
-
-    CB_USE_LONG_FORMAT_NAMES   = 0x00000002,
-    CB_STREAM_FILECLIP_ENABLED = 0x00000004,
-    CB_FILECLIP_NO_FILE_PATHS  = 0x00000008,
-    CB_CAN_LOCK_CLIPDATA       = 0x00000010,
-
-    CB_ALL_GENERAL_CAPABILITY_FLAGS = (CB_USE_LONG_FORMAT_NAMES |
-                                       CB_STREAM_FILECLIP_ENABLED |
-                                       CB_FILECLIP_NO_FILE_PATHS |
-                                       CB_CAN_LOCK_CLIPDATA
-                                      )
+    CB_USE_LONG_FORMAT_NAMES     = 0x00000002,
+    CB_STREAM_FILECLIP_ENABLED   = 0x00000004,
+    CB_FILECLIP_NO_FILE_PATHS    = 0x00000008,
+    CB_CAN_LOCK_CLIPDATA         = 0x00000010,
+    CB_HUGE_FILE_SUPPORT_ENABLED = 0x00000020
 };
 
+enum {
+    CB__MINIMUM_WINDOWS_CLIENT_GENERAL_CAPABILITY_FLAGS_ =
+        (CB_USE_LONG_FORMAT_NAMES | CB_STREAM_FILECLIP_ENABLED |
+         CB_FILECLIP_NO_FILE_PATHS | CB_CAN_LOCK_CLIPDATA)
+};
 
-static inline const std::string get_generalFlags_names(uint32_t generalFlags) {
-        std::string str;
-        (generalFlags & CB_USE_LONG_FORMAT_NAMES) ? str+="CB_USE_LONG_FORMAT_NAMES " :str;
-        (generalFlags & CB_STREAM_FILECLIP_ENABLED) ? str+="CB_STREAM_FILECLIP_ENABLED " :str;
+inline static const char * get_generalFlag_name(uint16_t msgFlag) {
+    switch (msgFlag) {
+        case CB_USE_LONG_FORMAT_NAMES:   return "CB_USE_LONG_FORMAT_NAMES";
+        case CB_STREAM_FILECLIP_ENABLED: return "CB_STREAM_FILECLIP_ENABLED";
+        case CB_FILECLIP_NO_FILE_PATHS:  return "CB_FILECLIP_NO_FILE_PATHS";
+        case CB_CAN_LOCK_CLIPDATA:       return "CB_CAN_LOCK_CLIPDATA";
+    }
 
-        (generalFlags & CB_FILECLIP_NO_FILE_PATHS) ? str+="CB_FILECLIP_NO_FILE_PATHS " : str;
-        (generalFlags & CB_CAN_LOCK_CLIPDATA) ? str+="CB_CAN_LOCK_CLIPDATA " : str;
+    return "<unknown>";
+}
 
-        return str;
+static inline const std::string generalFlags_to_string(uint32_t generalFlags) {
+    std::ostringstream stream;
+
+    if (!generalFlags) {
+        stream << "0x" << std::hex << 0;
+    }
+    else {
+        auto out_flag = [&stream, generalFlags](uint16_t generalFlag) {
+                if (generalFlags & generalFlag) {
+                    if (stream.tellp()) { stream << " | "; }
+                    stream << get_generalFlag_name(generalFlag) << "(0x" <<
+                        std::hex << generalFlag << ")";
+                }
+            };
+
+        out_flag(CB_USE_LONG_FORMAT_NAMES);
+        out_flag(CB_STREAM_FILECLIP_ENABLED);
+        out_flag(CB_FILECLIP_NO_FILE_PATHS);
+        out_flag(CB_CAN_LOCK_CLIPDATA);
+        out_flag(CB_HUGE_FILE_SUPPORT_ENABLED);
+    }
+
+    return stream.str();
 }
 
 // If the General Capability Set is not present in the Clipboard Capabilities
@@ -581,14 +647,12 @@ static inline const std::string get_generalFlags_names(uint32_t generalFlags) {
 //  field, that is the generalFlags field is set to 0x00000000.
 
 class GeneralCapabilitySet {
-
-public:
-    uint16_t capabilitySetType = CB_CAPSTYPE_GENERAL;
-    uint16_t lengthCapability  = size();
+    uint16_t capabilitySetType_ = CB_CAPSTYPE_GENERAL;
+    uint16_t lengthCapability  = GeneralCapabilitySet::size();
     uint32_t version_          = CB_CAPS_VERSION_1;
     uint32_t generalFlags_     = 0;
 
-
+public:
     GeneralCapabilitySet() = default;
 
     GeneralCapabilitySet(uint32_t version, uint32_t generalFlags) {
@@ -597,59 +661,60 @@ public:
     }
 
     void emit(OutStream & stream) const {
-        stream.out_uint16_le(this->capabilitySetType);
+        stream.out_uint16_le(this->capabilitySetType_);
         stream.out_uint16_le(this->lengthCapability);
         stream.out_uint32_le(this->version_);
         stream.out_uint32_le(this->generalFlags_);
     }
 
     void recv(InStream & stream, const CapabilitySetRecvFactory & recv_factory) {
-        assert(recv_factory.capabilitySetType == CB_CAPSTYPE_GENERAL);
+        this->capabilitySetType_ = recv_factory.capabilitySetType();
+        assert(this->capabilitySetType_ == CB_CAPSTYPE_GENERAL);
 
-        const unsigned expected = 10;   // lengthCapability(2) + version(4) +
-                                        //     generalFlags(4)
+        const unsigned expected = this->size() -
+                                  2;    // capabilitySetType(2)
         if (!stream.in_check_rem(expected)) {
             LOG( LOG_INFO
-               , "RDPECLIP::GeneralCapabilitySet::recv truncated data, need=%u remains=%zu"
+               , "RDPECLIP::GeneralCapabilitySet::recv (1) truncated data, need=%u remains=%zu"
                , expected, stream.in_remain());
             throw Error(ERR_RDP_DATA_TRUNCATED);
         }
 
-        this->capabilitySetType = recv_factory.capabilitySetType;
         this->lengthCapability  = stream.in_uint16_le();
-
-        assert(this->lengthCapability == size());
+        assert(this->size() == this->lengthCapability);
 
         this->version_      = stream.in_uint32_le();
         this->generalFlags_ = stream.in_uint32_le();
     }
 
     void recv(InStream & stream) {
-        const unsigned expected = 12;   // capabilitySetType(2) + lengthCapability(2) + version(4) +
-                                        //     generalFlags(4)
+        const unsigned expected = this->size(); // capabilitySetType(2) + lengthCapability(2) + version(4) +
+                                                //     generalFlags(4)
 
         if (!stream.in_check_rem(expected)) {
             LOG( LOG_INFO
-               , "RDPECLIP::GeneralCapabilitySet::recv truncated data, need=%u remains=%zu"
+               , "RDPECLIP::GeneralCapabilitySet::recv (2) truncated data, need=%u remains=%zu"
                , expected, stream.in_remain());
             throw Error(ERR_RDP_DATA_TRUNCATED);
         }
 
-        this->capabilitySetType = stream.in_uint16_le();
-        this->lengthCapability  = stream.in_uint16_le();
+        this->capabilitySetType_ = stream.in_uint16_le();
+//         assert(this->capabilitySetType == CB_CAPSTYPE_GENERAL);
 
-        assert(this->lengthCapability == size());
+        this->lengthCapability  = stream.in_uint16_le();
+//         assert(this->size() == this->lengthCapability);
 
         this->version_      = stream.in_uint32_le();
         this->generalFlags_ = stream.in_uint32_le();
     }
 
-
     uint32_t version() const { return this->version_; }
 
     uint32_t generalFlags() const { return this->generalFlags_; }
 
-    static size_t size() {
+    uint32_t capabilitySetType() const { return this->capabilitySetType_;}
+
+    static constexpr size_t size() {
         return 12;  // capabilitySetType(2) + lengthCapability(2) + version(4) +
                     //     generalFlags(4)
     }
@@ -665,15 +730,17 @@ private:
     }
 
     size_t str(char * buffer, size_t size) const {
+        std::string const generalFlags_string = generalFlags_to_string(this->generalFlags_);
         size_t length = ::snprintf(buffer, size,
             "RDPECLIP::GeneralCapabilitySet: "
-                "capabilitySetType=%s(%d) lengthCapability=%u version=%s(0x%08X) generalFlags=0x%08X",
-            CapabilitySetRecvFactory::get_capabilitySetType_name(this->capabilitySetType),
-            this->capabilitySetType,
+                "capabilitySetType=%s(%d) lengthCapability=%u version=%s(0x%08X) generalFlags=<%s>",
+            CapabilitySetRecvFactory::get_capabilitySetType_name(this->capabilitySetType_),
+            this->capabilitySetType_,
             unsigned(this->lengthCapability),
             this->get_version_name(this->version_),
             this->version_,
-            this->generalFlags_);
+            generalFlags_string.c_str()
+            );
         return ((length < size) ? length : size - 1);
     }
 
@@ -686,11 +753,7 @@ public:
     }
 
     void log() const {
-        LOG(LOG_INFO, "     General Capability Set:");
-        LOG(LOG_INFO, "          * capabilitySetType = 0x%04x (2 bytes): CB_CAPSTYPE_GENERAL", this->capabilitySetType);
-        LOG(LOG_INFO, "          * lengthCapability  = 0x%04x (2 bytes)", this->lengthCapability);
-        LOG(LOG_INFO, "          * version           = 0x%08x (4 bytes)", this->version_);
-        LOG(LOG_INFO, "          * generalFlags      = 0x%08x (4 bytes): %s", this->generalFlags_, get_generalFlags_names(this->generalFlags_));
+        LOG(LOG_INFO, "GeneralCapabilitySet: capabilitySetType=0x%04x(2 bytes):CB_CAPSTYPE_GENERAL lengthCapability=0x%04x(2 bytes) version=0x%08x(4 bytes) generalFlags=0x%08x(4 bytes):%s", this->capabilitySetType_, this->lengthCapability, this->version_, this->generalFlags_, generalFlags_to_string(this->generalFlags_));
     }
 };  // GeneralCapabilitySet
 
@@ -714,28 +777,20 @@ public:
 //  Clipboard PDU Header MUST be set to CB_MONITOR_READY (0x0001), while the
 //  msgFlags field MUST be set to 0x0000.
 
-struct ServerMonitorReadyPDU
+class ServerMonitorReadyPDU
 {
-    CliprdrHeader header;
+public:
+    void emit(OutStream &/* stream*/) const {}
 
-    ServerMonitorReadyPDU() : header(CB_MONITOR_READY, 0, 0) {
-    }   // ServerMonitorReadyPDU(bool response_ok)
+    void recv(InStream &/* stream*/) {}
 
-    void emit(OutStream & stream) const
-    {
-        this->header.emit(stream);
+    static constexpr size_t size() {
+        return 0;
     }
 
-    void recv(InStream & stream)
-    {
-        this->header.recv(stream);
+    void log(int level = LOG_INFO) const {
+        LOG(level, "ServerMonitorReadyPDU");
     }
-
-    void log() const {
-        this->header.log();
-        LOG(LOG_INFO, "     Server Monitor Ready PDU");
-    }
-
 };  // struct ServerMonitorReadyPDU
 
 // [MS-RDPECLIP] 2.2.2.3 Client Temporary Directory PDU (CLIPRDR_TEMP_DIRECTORY)
@@ -771,27 +826,22 @@ struct ServerMonitorReadyPDU
 //  The supplied path MUST be absolute and relative to the local client system, for example,
 //  "c:\temp\clipdata". Any space not used in this field SHOULD be filled with null characters.
 
-struct ClientTemporaryDirectoryPDU
+class ClientTemporaryDirectoryPDU
 {
-    CliprdrHeader header;
-
     std::string temp_dir;
 
-    explicit ClientTemporaryDirectoryPDU()
-    : header(CB_TEMP_DIRECTORY, 0, 520) {}
+public:
+    explicit ClientTemporaryDirectoryPDU() = default;
 
     explicit ClientTemporaryDirectoryPDU(const char* temp_dir)
-    : header(CB_TEMP_DIRECTORY, 0, 520),
-    temp_dir(temp_dir) {}
+    : temp_dir(temp_dir) {}
 
     void emit(OutStream & stream) const
     {
-        this->header.emit(stream);
-
         uint8_t tempDir_unicode_data[520]; // wszTempDir(520)
 
         size_t size_of_tempDir_unicode_data = ::UTF8toUTF16(
-            byte_ptr_cast(this->temp_dir.c_str()),
+            this->temp_dir,
             tempDir_unicode_data, sizeof(tempDir_unicode_data));
 
         stream.out_copy_bytes(tempDir_unicode_data,
@@ -803,9 +853,7 @@ struct ClientTemporaryDirectoryPDU
 
     void recv(InStream & stream)
     {
-        this->header.recv(stream);
-
-        const unsigned expected = 520;  // wszTempDir(520)
+        const unsigned expected = this->size(); // wszTempDir(520)
         if (!stream.in_check_rem(expected)) {
             LOG( LOG_INFO, "RDPECLIP::ClientTemporaryDirectoryPDU::recv truncated data, need=%u remains=%zu"
                , expected, stream.in_remain());
@@ -814,21 +862,24 @@ struct ClientTemporaryDirectoryPDU
 
         uint8_t const * const tempDir_unicode_data = stream.get_current();
         uint8_t tempDir_utf8_string[520 /* wszTempDir(520) */ / sizeof(uint16_t) * maximum_length_of_utf8_character_in_bytes];
-        ::UTF16toUTF8(tempDir_unicode_data, 520 /* wszTempDir(520) */ / 2,
+        ::UTF16toUTF8(tempDir_unicode_data, 520 /* wszTempDir(520) */ / sizeof(uint16_t),
             tempDir_utf8_string, sizeof(tempDir_utf8_string));
         // The null-terminator is included.
         this->temp_dir = ::char_ptr_cast(tempDir_utf8_string);
 
-        stream.in_skip_bytes(520);       // wszTempDir(520)
+        stream.in_skip_bytes(520);  // wszTempDir(520)
     }
 
-    void log() const {
-        this->header.log();
-        LOG(LOG_INFO, "     Client Temporary Directory PDU:");
-        LOG(LOG_INFO, "          * wszTempDir = \"%s\"", this->temp_dir.c_str());
+    const char * wszTempDir() const { return this->temp_dir.c_str(); }
+
+    static constexpr size_t size() {
+        return 520;  // wszTempDir(520)
     }
 
-};  // struct ServerMonitorReadyPDU
+    void log(int level = LOG_INFO) const {
+        LOG(level, "ClientTemporaryDirectoryPDU: wszTempDir=\"%s\"", temp_dir.c_str());
+    }
+};  // struct ClientTemporaryDirectoryPDU
 
 // [MS-RDPECLIP] 2.2.3.1 Format List PDU (CLIPRDR_FORMAT_LIST)
 // ===========================================================
@@ -866,438 +917,326 @@ struct ClientTemporaryDirectoryPDU
 //  names are in ASCII 8 format, then the msgFlags field of the clipHeader
 //  must contain the CB_ASCII_NAMES (0x0004) flag.
 
-enum : size_t {
-    FORMAT_LIST_MAX_SIZE = 32
-  , SHORT_NAME_MAX_SIZE  = 32
-};
+class FormatName {
+    uint32_t    formatId_ = 0;
+    std::string format_name_;
 
-struct FormatListPDU
-{
-    CliprdrHeader header;
-    bool contains_data_in_text_format        = false;
-    bool contains_data_in_unicodetext_format = false;
+public:
+    explicit FormatName(uint32_t formatId, const char * format_name)
+    : formatId_(formatId)
+    , format_name_(format_name) {}
 
-    uint32_t const    * formatListDataIDs;
-    std::string const * formatListDataName;
-    std::size_t         formatListDataSize;
+    explicit FormatName(uint32_t formatId, std::string && format_name)
+    : formatId_(formatId)
+    , format_name_(std::move(format_name)) {}
 
+    uint32_t formatId() const { return this->formatId_; }
 
-    FormatListPDU( uint32_t const * formatListDataIDs
-                 , std::string const * formatListDataName
-                 , std::size_t formatListDataSize)
-        : header(CB_FORMAT_LIST, 0, 0)
-        , formatListDataIDs(formatListDataIDs)
-        , formatListDataName(formatListDataName)
-        , formatListDataSize(formatListDataSize)
-        {
-            assert(this->formatListDataSize <= FORMAT_LIST_MAX_SIZE);
-        }
+    void formatId(uint32_t formatId) { this->formatId_ = formatId; }
 
-    FormatListPDU()
-        : header(CB_FORMAT_LIST, 0, 0)
+    std::string const& format_name() const { return this->format_name_; }
 
-        {}
+    void format_name(const char * format_name) { this->format_name_ = format_name; }
 
-    void emit(OutStream & stream) /* TODO const*/ {
-        this->header.dataLen_ = 36;    /* formatId(4) + formatName(32) */
-        this->header.emit(stream);
+    size_t format_name_length() const { return this->format_name_.length(); }
 
-        // 1 CLIPRDR_SHORT_FORMAT_NAMES structures.
-        stream.out_uint32_le(CF_TEXT);
-        stream.out_clear_bytes(SHORT_NAME_MAX_SIZE); // formatName(32)
+    size_t str(char * buffer, size_t size) const {
+        size_t length = 0;
+
+        size_t result = ::snprintf(buffer + length, size - length,
+            "{formatId=%s(%u) formatName=\"%s\"}",
+            get_FormatId_name(this->formatId_), this->formatId_, this->format_name_.c_str());
+        length += ((result < size - length) ? result : (size - length - 1));
+
+        return length;
     }
 
-    void log() const {
-        this->header.log();
-
+    void log(int level) const {
+        char buffer[2048];
+        this->str(buffer, sizeof(buffer));
+        buffer[sizeof(buffer) - 1] = 0;
+        LOG(level, "%s", buffer);
     }
+};  // class FormatName
 
-    void emit_ex(OutStream & stream, bool unicodetext) /* TODO const*/ {
-        this->header.dataLen_ = 36;    /* formatId(4) + formatName(32) */
-        this->header.emit(stream);
+class FormatListPDUEx {
+    std::vector<FormatName> format_names;
 
-        // 1 CLIPRDR_SHORT_FORMAT_NAMES structures.
-        stream.out_uint32_le(unicodetext ? CF_UNICODETEXT : CF_TEXT);
-        stream.out_clear_bytes(32); // formatName(32)
-    }
+public:
+    auto begin() const { return this->format_names.begin(); }
+    auto end() const { return this->format_names.end(); }
 
-    void emit_long(OutStream & stream, bool unicodetext) /* TODO const*/ {
-        this->header.dataLen_ = 6; /* formatId(4) + formatName(2) */
-        this->header.emit(stream);
-
-        // 1 CLIPRDR_LONG_FORMAT_NAMES structures.
-        stream.out_uint32_le(unicodetext ? CF_UNICODETEXT : CF_TEXT);
-        stream.out_clear_bytes(2); // formatName(2) - a single Unicode null character.
-    }
-
-    void emit_2(OutStream & stream, bool unicodetext, bool use_long_format_names) /* TODO const*/ {
+    void emit(OutStream & stream, bool use_long_format_names) const {
         if (use_long_format_names) {
-            this->emit_long(stream, unicodetext);
+            for (auto & format_name : this->format_names) {
+                stream.out_uint32_le(format_name.formatId());
+
+                const size_t formatName_unicode_data_size =
+                    (format_name.format_name_length() + 1) * maximum_length_of_utf8_character_in_bytes;
+
+                std::unique_ptr<uint8_t[]> formatName_unicode_data = std::make_unique<uint8_t[]>(
+                    formatName_unicode_data_size);
+
+                const size_t size_of_formatName_unicode_data = ::UTF8toUTF16(
+                    format_name.format_name(),
+                    formatName_unicode_data.get(), formatName_unicode_data_size);
+                assert(size_of_formatName_unicode_data + 2 < formatName_unicode_data_size);
+
+                if (size_of_formatName_unicode_data < formatName_unicode_data_size) {
+                    ::memset(formatName_unicode_data.get() + size_of_formatName_unicode_data,
+                        0, formatName_unicode_data_size - size_of_formatName_unicode_data);
+                }
+
+                stream.out_copy_bytes(formatName_unicode_data.get(),
+                    size_of_formatName_unicode_data + 2);
+            }
         }
         else {
-            this->emit_ex(stream, unicodetext);
-        }
-    }
+            bool   all_format_names_are_ASCII_strings = true;
+            size_t max_format_name_len_in_char        = 0;
+            for (auto & format_name : this->format_names) {
+                if (!::is_ASCII_string(byte_ptr_cast(format_name.format_name().c_str()))) {
+                    all_format_names_are_ASCII_strings = false;
+                }
 
-    void emit_empty(OutStream & stream) /* TODO const*/ {
-        this->header.dataLen_ = 0;
-        this->header.emit(stream);
-    }
-
-    void recv(InStream & stream) {
-//        LOG(LOG_INFO, "RDPECLIP::FormatListPDU::recv");
-        this->header.recv(stream);
-
-        // [MS-RDPECLIP] 2.2.3.1.1.1 Short Format Name (CLIPRDR_SHORT_FORMAT_NAME)
-        // =======================================================================
-
-        // The CLIPRDR_SHORT_FORMAT_NAME structure holds a Clipboard Format ID
-        //  and Clipboard Format name pair.
-
-        // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-        // | | | | | | | | | | |1| | | | | | | | | |2| | | | | | | | | |3| |
-        // |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5|6|7|8|9|0|1|
-        // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-        // |                            formatId                           |
-        // +---------------------------------------------------------------+
-        // |                      formatName (32 bytes)                    |
-        // +---------------------------------------------------------------+
-        // |                              ...                              |
-        // +---------------------------------------------------------------+
-        // |                              ...                              |
-        // +---------------------------------------------------------------+
-        // |                              ...                              |
-        // +---------------------------------------------------------------+
-        // |                              ...                              |
-        // +---------------------------------------------------------------+
-        // |                              ...                              |
-        // +---------------------------------------------------------------+
-        // |                              ...                              |
-        // +---------------------------------------------------------------+
-        // |                              ...                              |
-        // +---------------------------------------------------------------+
-
-        // formatId (4 bytes): An unsigned, 32-bit integer specifying the
-        //  Clipboard Format ID.
-
-        // formatName (32 bytes): A 32-byte block containing the
-        //  null-terminated name assigned to the Clipboard Format (32 ASCII 8
-        //  characters or 16 Unicode characters). If the name does not fit, it
-        //  MUST be truncated. Not all Clipboard Formats have a name, and in
-        //  that case the formatName field MUST contain only zeros.
-        const uint32_t short_format_name_structure_size = 36; /* formatId(4) + formatName(32) */
-
-        // Parse PDU to find if clipboard data is available in a TEXT format.
-        for (uint32_t i = 0; i < (this->header.dataLen() / short_format_name_structure_size); i++) {
-            if (!stream.in_check_rem(short_format_name_structure_size)) {
-                LOG( LOG_INFO
-                   , "RDPECLIP::FormatListPDU truncated CLIPRDR_SHORT_FORMAT_NAME structure, need=%u remains=%zu"
-                   , short_format_name_structure_size, stream.in_remain());
-                throw Error(ERR_RDP_DATA_TRUNCATED);
+                const size_t format_name_len_in_char = ::UTF8StrLenInChar(byte_ptr_cast(format_name.format_name().c_str()));
+                if (max_format_name_len_in_char < format_name_len_in_char) {
+                    max_format_name_len_in_char = format_name_len_in_char;
+                }
             }
 
-            uint32_t formatId = stream.in_uint32_le();
-            //LOG(LOG_INFO, "RDPECLIP::FormatListPDU formatId=%u", formatId);
+            if (!all_format_names_are_ASCII_strings ||
+                (max_format_name_len_in_char < (32 /* formatName(32) */ / sizeof(uint16_t))))
+            {
+                // Unicode
 
-            if (formatId == CF_TEXT) {
-                this->contains_data_in_text_format = true;
+                for (auto & format_name : this->format_names) {
+                    stream.out_uint32_le(format_name.formatId());
+
+                    constexpr size_t formatName_unicode_data_size = 32; // formatName(32)
+
+                    uint8_t formatName_unicode_data[formatName_unicode_data_size];
+
+                    const size_t size_of_formatName_unicode_data = ::UTF8toUTF16(
+                        format_name.format_name(),
+                        formatName_unicode_data, formatName_unicode_data_size - sizeof(uint16_t));
+                    assert(size_of_formatName_unicode_data + 2 <= formatName_unicode_data_size);
+
+                    if (size_of_formatName_unicode_data < formatName_unicode_data_size) {
+                        ::memset(formatName_unicode_data + size_of_formatName_unicode_data,
+                            0, formatName_unicode_data_size - size_of_formatName_unicode_data);
+                    }
+
+                    stream.out_copy_bytes(formatName_unicode_data,
+                        formatName_unicode_data_size);
+                }
             }
-            else if (formatId == CF_UNICODETEXT) {
-                this->contains_data_in_unicodetext_format = true;
+            else {
+                // ASCII
+
+                for (auto & format_name : this->format_names) {
+                    stream.out_uint32_le(format_name.formatId());
+
+                    const size_t size_of_formatName_ASCII_data = std::min<size_t>(
+                            format_name.format_name_length(),
+                            32 /* formatName(32) */ - sizeof(uint8_t));
+
+                    stream.out_copy_bytes(format_name.format_name().c_str(),
+                        size_of_formatName_ASCII_data);
+
+                    stream.out_clear_bytes(32 /* formatName(32) */ - size_of_formatName_ASCII_data);
+                }
+            }
+        }
+    }
+
+    void recv(InStream & stream, bool use_long_format_names, bool in_ASCII_8_) {
+        this->format_names.clear();
+
+        if (use_long_format_names) {
+            constexpr size_t min_long_format_name_data_length = 6;  // formatId(4) + wszFormatName(variable, min = "\x00\x00" => 2)
+            while (stream.in_remain() >= min_long_format_name_data_length) {
+                const uint32_t formatId = stream.in_uint32_le();
+
+                const size_t format_name_UTF16_length = ::UTF16StrLen(stream.get_current());
+
+                const size_t formatName_UTF8_data_size =
+                    (format_name_UTF16_length + 1) * maximum_length_of_utf8_character_in_bytes;
+
+                std::string format_name(formatName_UTF8_data_size, 0);
+
+                const size_t size_of_formatName_UTF8_data = ::UTF16toUTF8(
+                    stream.get_current(), (format_name_UTF16_length + 1),
+                    byte_ptr_cast(format_name.data()), formatName_UTF8_data_size);
+
+                if (not (size_of_formatName_UTF8_data + 1 < formatName_UTF8_data_size)){
+                    LOG(LOG_WARNING, "utf16 to utf8 conversion failed in FormatListPDUEx::recv %lu %lu",
+                        size_of_formatName_UTF8_data + 1, formatName_UTF8_data_size);
+                } else {
+                    format_name.resize(size_of_formatName_UTF8_data-1);
+                }
+
+                this->format_names.emplace_back(
+                        formatId,
+                        std::move(format_name)
+                    );
+
+                stream.in_skip_bytes((format_name_UTF16_length + 1) * sizeof(uint16_t));
+            }
+        }
+        else {
+            constexpr size_t short_format_name_data_length = 36;  // formatId(4) + formatName(32)
+            if (in_ASCII_8_) {
+                while (stream.in_remain() >= short_format_name_data_length) {
+                    const uint32_t formatId = stream.in_uint32_le();
+
+                    this->format_names.emplace_back(
+                            formatId,
+                            char_ptr_cast(stream.get_current())
+                        );
+
+                    stream.in_skip_bytes(short_format_name_data_length - 4 /* formatId(4) */);
+                }
+            }
+            else {
+                while (stream.in_remain() >= short_format_name_data_length) {
+                    const uint32_t formatId = stream.in_uint32_le();
+
+                    const size_t format_name_UTF16_length = (32 /* formatName(32) */ / sizeof(uint16_t));
+
+                    const size_t formatName_UTF8_data_size =
+                        format_name_UTF16_length * maximum_length_of_utf8_character_in_bytes;
+
+                    std::string format_name(formatName_UTF8_data_size, 0);
+
+                    const size_t size_of_formatName_UTF8_data = ::UTF16toUTF8(
+                        stream.get_current(), format_name_UTF16_length,
+                        byte_ptr_cast(format_name.data()), formatName_UTF8_data_size);
+
+                    if (not (size_of_formatName_UTF8_data + 1 < formatName_UTF8_data_size)){
+                        LOG(LOG_WARNING, "utf16 to utf8 conversion failed in FormatListPDUEx::recv %lu %lu",
+                        size_of_formatName_UTF8_data + 1, formatName_UTF8_data_size);
+                    }
+
+                    if (size_of_formatName_UTF8_data) {
+                        format_name.resize(size_of_formatName_UTF8_data-1);
+                    }
+
+                    this->format_names.emplace_back(
+                            formatId,
+                            std::move(format_name)
+                        );
+
+                    stream.in_skip_bytes(short_format_name_data_length - 4 /* formatId(4) */);
+                }
+            }
+        }
+    }
+
+    void add_format_name(uint32_t formatId, const char * format_name = "") {
+        this->format_names.emplace_back(formatId, format_name);
+    }
+
+    size_t num_format_names() const { return this->format_names.size(); }
+
+    FormatName const & format_name(size_t idx_format_name) const { return this->format_names[idx_format_name]; }
+
+    size_t size(bool use_long_format_names) const {
+        size_t sz = 0;
+
+        if (use_long_format_names) {
+            for (auto & format_name : this->format_names) {
+                sz += 4;    // formatId(4)
+
+                const size_t formatName_unicode_data_size =
+                    (format_name.format_name_length() + 1) * maximum_length_of_utf8_character_in_bytes;
+
+                std::unique_ptr<uint8_t[]> formatName_unicode_data = std::make_unique<uint8_t[]>(
+                    formatName_unicode_data_size);
+
+                const size_t size_of_formatName_unicode_data = ::UTF8toUTF16(
+                    format_name.format_name(),
+                    formatName_unicode_data.get(), formatName_unicode_data_size);
+                sz += (size_of_formatName_unicode_data + 2);    // wszFormatName (variable)
+            }
+        }
+        else {
+            sz = this->format_names.size() * (
+                      4     // formatId(4)
+                    + 32    // formatName(32)
+                );
+        }
+
+        return sz;
+    }
+
+    bool will_be_sent_in_ASCII_8(bool use_long_format_names) {
+        if (!use_long_format_names) {
+            bool   all_format_names_are_ASCII_strings = true;
+            size_t max_format_name_len_in_char        = 0;
+            for (auto & format_name : this->format_names) {
+                if (!::is_ASCII_string(byte_ptr_cast(format_name.format_name().c_str()))) {
+                    all_format_names_are_ASCII_strings = false;
+                }
+
+                const size_t format_name_len_in_char = ::UTF8StrLenInChar(byte_ptr_cast(format_name.format_name().c_str()));
+                if (max_format_name_len_in_char < format_name_len_in_char) {
+                    max_format_name_len_in_char = format_name_len_in_char;
+                }
             }
 
-            stream.in_skip_bytes(32);   // formatName(32)
-        }
-    }   // void recv(InStream & stream)
-
-    void recv_long(InStream & stream) {
-        // 2.2.3.1.2 Long Format Names (CLIPRDR_LONG_FORMAT_NAMES)
-        // =======================================================
-
-        // The CLIPRDR_LONG_FORMAT_NAMES structure holds a collection of
-        // CLIPRDR_LONG_FORMAT_NAME structures.
-        // longFormatNames (variable): An array of CLIPRDR_LONG_FORMAT_NAME structures.
-
-        // 2.2.3.1.2.1 Long Format Name (CLIPRDR_LONG_FORMAT_NAME)
-        // =======================================================
-
-        // The CLIPRDR_LONG_FORMAT_NAME structure holds a Clipboard Format ID and a Clipboard Format name pair.
-
-        // formatId (4 bytes): An unsigned, 32-bit integer that specifies the Clipboard Format ID.
-
-        // wszFormatName (variable): A variable length null-terminated Unicode
-        // string name that contains the Clipboard Format name. Not all
-        // Clipboard Formats have a name; in such cases, the formatName field
-        // MUST consist of a single Unicode null character.
-
-// length: 0x24, 0x00, 0x00, 0x00,
-// flags:  0x13, 0x00, 0x00, 0x00,
-
-        this->header.recv(stream);
-// msgType:  2 = CB_FORMAT_LIST | 0x02, 0x00,
-// msgFlags: 0                  | 0x00, 0x00,
-// datalen: 24 (after headers)| 0x18, 0x00, 0x00, 0x00,
-
-        const size_t max_length_of_format_name = 256;
-// FormatId[]: CF_UNICODETEXT 0x0d, 0x00, 0x00, 0x00,
-// 0x00, 0x00,
-// FormatId[]: CF_LOCALE 0x10, 0x00, 0x00, 0x00,
-// 0x00, 0x00,
-// FormatId[]: CF_TEXT 0x01, 0x00, 0x00, 0x00,
-// 0x00, 0x00,
-// FormatId[]: CF_OEMTEXT 0x07, 0x00, 0x00, 0x00,
-// 0x00, 0x00,
-
-// Padding ? : 0x00, 0x00, 0x00, 0x00,
-
-        InStream fns(stream.get_current(), this->header.dataLen());
-        while (fns.in_remain()) {
-            if (fns.in_remain() < 6){
-                // Minimal Possible remaining data: FormatId + 0 + 0
-                // TODO: this should probably raise an error, as it is
-                // an incorrent clipboard format is we don't have exactly
-                // the expected datas
-                stream.in_skip_bytes(fns.in_remain());
-                return;
+            if (all_format_names_are_ASCII_strings &&
+                (max_format_name_len_in_char >= (32 /* formatName(32) */ / sizeof(uint16_t)))) {
+                return true;
             }
-            const uint32_t formatId = fns.in_uint32_le();
-            switch (formatId){
-            case CF_UNICODETEXT:
-                this->contains_data_in_unicodetext_format = true;
-            break;
-            case CF_TEXT:
-                this->contains_data_in_text_format = true;
-            break;
-            default:
-             ;   // other formats unsupported
-            }
-            uint16_t buffer[max_length_of_format_name];
-            (void)fns.in_utf16_sz(buffer,
-                    std::min(fns.in_remain(),max_length_of_format_name-2)/2);
         }
-    }   // void recv_long(InStream & stream)
-};  // struct FormatListPDU
 
+        return false;
+    }
 
+private:
+    size_t str(char * buffer, size_t size) const {
+        size_t length = 0;
 
-constexpr auto FILEGROUPDESCRIPTORW = cstr_array_view("FileGroupDescriptorW");
-constexpr auto FILECONTENTS         = cstr_array_view("FileContents");
-constexpr auto PREFERRED_DROPEFFECT = cstr_array_view("Preferred DropEffect");
-// constexpr const uint16_t * FILEGROUPDESCRIPTORW_UNICODE = "F\x00i\x00l\x00e\x00G\x00r\x00o\x00u\x00p\x00D\x00e\x00s\x00c\x00r\x00i\x00p\x00t\x00o\x00r\x00W\x00";
-// constexpr const uint16_t * FILECONTENTS_UNICODE         = "F\x00i\x00l\x00e\x00C\x00o\x00n\x00t\x00e\x00n\x00t\x00s\x00";
+        size_t result = ::snprintf(buffer + length, size - length,
+            "FormatListPDU:");
+        length += ((result < size - length) ? result : (size - length - 1));
 
+        for (auto & format_name : this->format_names) {
+            size_t result = ::snprintf(buffer + length, size - length, " ");
+            length += ((result < size - length) ? result : (size - length - 1));
 
+            result = format_name.str(buffer + length, size - length);
+            length += ((result < size - length) ? result : (size - length - 1));
+        }
 
-struct FormatListPDU_LongName {
+        return length;
+    }
 
-    //  FORMAT_LIST_MAX_SIZE
+public:
+    void log(int level) const {
+        char buffer[2048];
+        this->str(buffer, sizeof(buffer));
+        buffer[sizeof(buffer) - 1] = 0;
+        LOG(level, "%s", buffer);
+    }
+};  // FormatListPDUEx
 
-    uint32_t    formatID = 0;
-    uint8_t     formatUTF16Name[500] = {0};
-    uint8_t     formatUTF8Name[500] = {0};
-    std::size_t formatDataNameUTF8Len = 0;
-    std::size_t formatDataNameUTF16Len = 0;
-
-    explicit FormatListPDU_LongName( const uint32_t  formatID
-                                   , const char * formatUTF8Name
-                                   , const std::size_t formatNameUTF8Len)
-    : formatID(formatID)
-    , formatDataNameUTF8Len(formatNameUTF8Len > 500 ? 500:formatNameUTF8Len)
-    {
-         memcpy(this->formatUTF8Name, formatUTF8Name, this->formatDataNameUTF8Len);
-         this->formatDataNameUTF16Len = ::UTF8toUTF16(
-            byte_ptr_cast(formatUTF8Name),
-            this->formatUTF16Name, formatNameUTF8Len*2);
-
-        this->formatDataNameUTF16Len += 2;
-
-        if (this->formatDataNameUTF16Len > 500) {
-            this->formatUTF16Name[498] = 0x0;
-            this->formatUTF16Name[499] = 0x0;
-            this->formatDataNameUTF16Len = 500;
+inline static bool FormatListPDUEx_contains_data_in_format(const FormatListPDUEx & format_list_pdu, uint32_t formatId) {
+    for (size_t i = 0, c = format_list_pdu.num_format_names(); i < c; ++i) {
+        FormatName const & format_name = format_list_pdu.format_name(i);
+        if (format_name.formatId() == formatId) {
+            return true;
         }
     }
 
-    FormatListPDU_LongName() = default;
-
-    void emit(OutStream & stream) const {
-
-        stream.out_uint32_le(this->formatID);
-        stream.out_copy_bytes(this->formatUTF16Name, this->formatDataNameUTF16Len);
-    }
-
-    void recv(InStream & stream) {
-
-        this->formatID = stream.in_uint32_le();
-
-        uint16_t c = -1;
-
-        size_t name_len = 0;
-        while ((c != 0x00) && (stream.in_remain() >= 2) && (name_len <= 498)) {
-            c = stream.in_uint16_le();
-            this->formatUTF16Name[name_len] = c >> 8;
-            name_len ++;
-            this->formatUTF16Name[name_len] = c;
-            name_len ++;
-        }
-        this->formatDataNameUTF16Len = name_len;
-
-        this->formatDataNameUTF8Len = ::UTF16toUTF8(
-        this->formatUTF16Name+1,
-        this->formatDataNameUTF16Len,
-        this->formatUTF8Name,
-        500);
-
-        if (this->formatDataNameUTF8Len  > 500) {
-            this->formatDataNameUTF8Len  = 500;
-        }
-
-        this->formatUTF8Name[this->formatDataNameUTF8Len -1] = 0;
-    }
-
-    void log() const {
-        LOG(LOG_INFO, "     Format List PDU Long Name:");
-        LOG(LOG_INFO, "             * formatListDataIDs  = 0x%08x (4 bytes): %s", this->formatID, get_Format_name(this->formatID));
-        LOG(LOG_INFO, "             * formatListDataName = \"%s\" (%zu bytes)", this->formatUTF8Name, this->formatDataNameUTF16Len);
-    }
-
-};
-
-struct FormatListPDU_ShortName {
-
-    //  FORMAT_LIST_MAX_SIZE
-
-    uint32_t    formatID = 0;
-    uint8_t     formatUTF16Name[32] = {0};
-    uint8_t     formatUTF8Name[16] = {0};
+    return false;
+}
 
 
-    explicit FormatListPDU_ShortName( const uint32_t  formatID
-                                    , const char * formatUTF8Name
-                                    , const std::size_t )
-    : formatID(formatID)
-    {
-         memcpy(this->formatUTF8Name, formatUTF8Name, 16);
-         this->formatUTF8Name[15] = 0;
-         ::UTF8toUTF16(
-            byte_ptr_cast(formatUTF8Name),
-            this->formatUTF16Name, 32);
-    }
-
-    FormatListPDU_ShortName() = default;
-
-    void emit(OutStream & stream) const {
-
-        stream.out_uint32_le(this->formatID);
-        stream.out_copy_bytes(this->formatUTF16Name, 32);
-    }
-
-    void recv(InStream & stream) {
-
-        if (!stream.in_check_rem(36)) {
-            LOG( LOG_INFO
-                , "RDPECLIP::FormatListPDU truncated CLIPRDR_SHORT_FORMAT_NAME structure, need=%u remains=%zu"
-                , 36u, stream.in_remain());
-            throw Error(ERR_RDP_DATA_TRUNCATED);
-        }
-
-        this->formatID = stream.in_uint32_le();
-
-        stream.in_copy_bytes(this->formatUTF16Name, 32);
-
-        ::UTF16toUTF8(
-        this->formatUTF16Name+1,
-        32,
-        this->formatUTF8Name,
-        16);
-
-    }
-
-    void log() const {
-        LOG(LOG_INFO, "     Format List PDU Short Name:");
-        LOG(LOG_INFO, "             * formatListDataIDs  = 0x%08x (4 bytes): %s", this->formatID, get_Format_name(this->formatID));
-        LOG(LOG_INFO, "             * formatListDataName = \"%s\" (32 bytes)", this->formatUTF8Name);
-    }
-
-};
-
-// struct FormatListPDU_ShortName  {
-//
-//     CliprdrHeader header;
-//     uint32_t    formatListIDs[FORMAT_LIST_MAX_SIZE];
-//     uint16_t    formatListName[FORMAT_LIST_MAX_SIZE][SHORT_NAME_MAX_SIZE] = { {0} };
-//     std::size_t formatListSize = 0;
-//
-//     explicit FormatListPDU_ShortName( const uint32_t * formatListIDs
-//                                    , const uint16_t ** formatListName
-//                                    , const std::size_t * formatListNameLen
-//                                    , const std::size_t formatListSize)
-//     : header(CB_FORMAT_LIST, 0, 0)
-//     , formatListSize(formatListSize)
-//     {
-//         assert(this->formatListSize <= FORMAT_LIST_MAX_SIZE);
-//
-//         this->header.dataLen_ = this->formatListSize * (4 + SHORT_NAME_MAX_SIZE);    /* formatId(4) + formatName(32) */
-//
-//         for (std::size_t i = 0; i < this->formatListSize; i++) {
-//
-//             this->formatListIDs[i] = formatListIDs[i];
-//
-//             std::memcpy(this->formatListName[i], formatListName[i], formatListNameLen[i]);
-//         }
-//     }
-//
-//     FormatListPDU_ShortName() = default;
-//
-//     void emit(OutStream & stream) const {
-//
-//         this->header.emit(stream);
-//
-//         for (std::size_t i = 0; i < this->formatListSize; i++) {
-//
-//             stream.out_uint32_le(this->formatListIDs[i]);
-//
-//             stream.out_copy_bytes(reinterpret_cast<uint8_t const*>(this->formatListName[i]), SHORT_NAME_MAX_SIZE); /*NOLINT*/
-//         }
-//     }
-//
-//     void recv(InStream & stream) {
-//         this->header.recv(stream);
-//
-//         this->formatListSize = this->header.dataLen() / 36;
-//
-//         if (this->formatListSize > FORMAT_LIST_MAX_SIZE) {
-//             this->formatListSize = FORMAT_LIST_MAX_SIZE;
-//         }
-//
-//         LOG(LOG_INFO, " formatListSize =  %zu bytes", this->formatListSize);
-//
-//         for (size_t i = 0; i < this->formatListSize; i++) {
-//             this->formatListIDs[i] = stream.in_uint32_le();
-//             stream.in_copy_bytes(reinterpret_cast<uint8_t*>(this->formatListName[i]), SHORT_NAME_MAX_SIZE); /*NOLINT*/
-//         }
-//     }
-//
-//     void log() const {
-//         this->header.log();
-//         LOG(LOG_INFO, "     Format List PDU Short Name:");;
-//         for (size_t i = 0; i < this->formatListSize; i++) {
-//             LOG(LOG_INFO, "         Short Format Name:");
-//             uint8_t utf8_string[SHORT_NAME_MAX_SIZE * 4 + 1];
-//
-//             auto const len = ::UTF16toUTF8(
-//                 reinterpret_cast<uint8_t const*>(this->formatListName[i]), /*NOLINT*/
-//                 SHORT_NAME_MAX_SIZE,
-//                 utf8_string,
-//                 sizeof(utf8_string) - 1);
-//             utf8_string[len] = 0;
-//
-//             LOG(LOG_INFO, "             * formatListDataIDs  = 0x%08x (4 bytes): %s", this->formatListIDs[i], get_Format_name(this->formatListIDs[i]));
-//             LOG(LOG_INFO, "             * formatListDataName = \"%s\" (32 bytes)", char_ptr_cast(utf8_string));
-//         }
-//     }
-// };
-
+constexpr auto FILEGROUPDESCRIPTORW = cstr_array_view("FileGroupDescriptorW\0");
+constexpr auto FILECONTENTS         = cstr_array_view("FileContents\0");
+constexpr auto PREFERRED_DROPEFFECT = cstr_array_view("Preferred DropEffect\0");
 
 
 // [MS-RDPECLIP] 2.2.3.2 Format List Response PDU (FORMAT_LIST_RESPONSE)
@@ -1322,27 +1261,16 @@ struct FormatListPDU_ShortName {
 
 struct FormatListResponsePDU
 {
-    CliprdrHeader header;
-    explicit FormatListResponsePDU(bool response_ok)
-        : header( CB_FORMAT_LIST_RESPONSE
-                       , (response_ok ? CB_RESPONSE_OK : CB_RESPONSE_FAIL)
-                       , 0) {
-    }   // FormatListResponsePDU(bool response_ok)
+    void emit(OutStream & /*out_stream*/) const {}
 
-    FormatListResponsePDU() = default;
+    void recv(InStream & /*in_stream*/) {}
 
-    void emit(OutStream & stream) const {
-        this->header.emit(stream);
+    static constexpr size_t size() {
+        return 0;
     }
 
-    void recv(InStream & stream)
-    {
-        this->header.recv(stream);
-    }
-
-    void log() const {
-        this->header.log();
-        LOG(LOG_INFO, "     Format List Response PDU");
+    void log(int level = LOG_INFO) const {
+        LOG(level, "FormatListResponsePDU");
     }
 
 };  // struct FormatListResponsePDU
@@ -1375,27 +1303,20 @@ struct FormatListResponsePDU
 
 struct FormatDataRequestPDU
 {
-    CliprdrHeader header;
+
     uint32_t requestedFormatId{0};
 
-    FormatDataRequestPDU()
-            : header(CB_FORMAT_DATA_REQUEST, 0, 4)
-             {
-    }   // FormatDataRequestPDU()
+    FormatDataRequestPDU() = default;
 
     explicit FormatDataRequestPDU(uint32_t requestedFormatId)
-            : header(CB_FORMAT_DATA_REQUEST, 0, 4)
-            , requestedFormatId(requestedFormatId) {
+  :  requestedFormatId(requestedFormatId) {
     }   // FormatDataRequestPDU(uint32_t requestedFormatId)
 
     void emit(OutStream & stream) const {
-        this->header.emit(stream);
-
         stream.out_uint32_le(this->requestedFormatId);
     }   // void emit(OutStream & stream)
 
     void recv(InStream & stream) {
-        this->header.recv(stream);
         const unsigned expected = 4;   // requestedFormatId
         if (!stream.in_check_rem(expected)) {
             LOG(LOG_INFO
@@ -1408,9 +1329,11 @@ struct FormatDataRequestPDU
     }
 
     void log() const {
-        this->header.log();
-        LOG(LOG_INFO, "     Format Data Request PDU:");
-        LOG(LOG_INFO, "          * requestedFormatId = 0x%08x (4 bytes): %s", this->requestedFormatId, get_Format_name(this->requestedFormatId));
+        LOG(LOG_INFO, "FormatDataRequestPDU: requestedFormatId=0x%08x(4 bytes):%s", this->requestedFormatId, get_FormatId_name(this->requestedFormatId));
+    }
+
+    constexpr static size_t size() {
+       return 4;                                            // requestedFormatId(4)
     }
 
 };  // struct FormatDataRequestPDU
@@ -1447,7 +1370,6 @@ struct FormatDataRequestPDU
 // +---------------------------------------------------------------+
 // |                       clipDataId (optional)                   |
 // +---------------------------------------------------------------+
-
 
 // clipHeader (8 bytes): A Clipboard PDU Header. The msgType field of the Clipboard PDU Header MUST be set to CB_FILECONTENTS_REQUEST (0x0008), while the msgFlags field MUST be set to 0x0000.
 
@@ -1493,81 +1415,8 @@ enum : uint32_t {
   , FILECONTENTS_SIZE_CB_REQUESTED = 0x00000008
 };
 
-struct FileContentsRequestPDU     // Resquest RANGE
-{
-    CliprdrHeader header;
-    uint32_t streamID;
-    uint32_t flag;
-    uint32_t lindex;
-    uint64_t sizeRequested;
-    uint32_t cbRequested;
-    uint32_t clipDataId;
 
-    explicit FileContentsRequestPDU( int streamID
-                                   , int flag
-                                   , int lindex
-                                   , uint64_t sizeRequested
-                                   , uint32_t cbRequested)
-    : header(CB_FILECONTENTS_REQUEST, CB_RESPONSE_NONE, 28)
-    , streamID(streamID)
-    , flag(flag)
-    , lindex(lindex)
-    , sizeRequested(sizeRequested)
-    , cbRequested(cbRequested)
-    , clipDataId(0)
-    {}
-
-    explicit FileContentsRequestPDU()
-    : header( CB_FILECONTENTS_REQUEST, CB_RESPONSE_NONE, 28)
-    , clipDataId(0)
-    {}
-
-    void emit(OutStream & stream) const {
-        this->header.emit(stream);
-        stream.out_uint32_le(this->streamID);
-        stream.out_uint32_le(this->lindex);
-        stream.out_uint32_le(this->flag);
-        stream.out_uint32_le(this->sizeRequested);
-        stream.out_uint32_le(this->sizeRequested >> 32);
-        if (flag & FILECONTENTS_SIZE) {
-            stream.out_uint32_le(FILECONTENTS_SIZE_CB_REQUESTED);
-        } else {
-            stream.out_uint32_le(this->cbRequested);
-        }
-        stream.out_uint32_le(this->clipDataId);
-
-    }
-
-    void recv(InStream & stream) {
-        this->header.recv(stream);
-        this->streamID = stream.in_uint32_le();
-        this->lindex = stream.in_uint32_le();
-        this->flag = stream.in_uint32_le();
-        uint64_t low = stream.in_uint32_le();
-        uint64_t high = stream.in_uint32_le();
-        this->sizeRequested = low + (high << 32);
-        this->cbRequested = stream.in_uint32_le();
-        if (stream.in_remain() == 4) {
-            this->clipDataId = stream.in_uint32_le();
-        }
-    }
-
-    void log() const {
-        this->header.log();
-        LOG(LOG_INFO, "     File Contents Request PDU:");
-        LOG(LOG_INFO, "          * streamID      = %08x (4 bytes)", this->streamID);
-        LOG(LOG_INFO, "          * lindex        = %08x (4 bytes)", this->lindex);
-        LOG(LOG_INFO, "          * flag          = %08x (4 bytes)", this->flag);
-        LOG(LOG_INFO, "          * sizeRequested = %" PRIu64 " (8 bytes)", this->sizeRequested);
-        LOG(LOG_INFO, "          * cbRequested   = %u (4 bytes)", this->cbRequested);
-        if (this->clipDataId) {
-            LOG(LOG_INFO, "          * clipDataId    = %08x (4 bytes)", this->clipDataId);
-        }
-    }
-
-};
-
-class FileContentsRequestPDUEx {
+class FileContentsRequestPDU {
     uint32_t streamId_      = 0;
     uint32_t lindex_        = 0;
     uint32_t dwFlags_       = 0;
@@ -1579,28 +1428,37 @@ class FileContentsRequestPDUEx {
     bool has_optional_clipDataId_ = false;
 
 public:
-    explicit FileContentsRequestPDUEx() = default;
+    explicit FileContentsRequestPDU() = default;
 
-private:
-    FileContentsRequestPDUEx(uint32_t streamId, uint32_t lindex,
-        uint32_t dwFlags, uint32_t nPositionLow, uint32_t nPositionHigh,
-        uint32_t cbRequested, uint32_t clipDataId, bool has_optional_clipDataId) :
-            streamId_(streamId), lindex_(lindex), dwFlags_(dwFlags),
-            nPositionLow_(nPositionLow), nPositionHigh_(nPositionHigh),
-            cbRequested_(cbRequested), clipDataId_(clipDataId),
-            has_optional_clipDataId_(has_optional_clipDataId) {}
+    FileContentsRequestPDU(uint32_t streamId,
+                           uint32_t lindex,
+                           uint32_t dwFlags,
+                           uint32_t nPositionLow,
+                           uint32_t nPositionHigh,
+                           uint32_t cbRequested,
+                           uint32_t clipDataId,
+                           bool has_optional_clipDataId)
+        : streamId_(streamId)
+        , lindex_(lindex)
+        , dwFlags_(dwFlags)
+        , nPositionLow_(nPositionLow)
+        , nPositionHigh_(nPositionHigh)
+        , cbRequested_(cbRequested)
+        , clipDataId_(clipDataId)
+        , has_optional_clipDataId_(has_optional_clipDataId)
+    {}
 
 public:
-    FileContentsRequestPDUEx(uint32_t streamId, uint32_t lindex,
+    FileContentsRequestPDU(uint32_t streamId, uint32_t lindex,
         uint32_t dwFlags, uint32_t nPositionLow, uint32_t nPositionHigh,
         uint32_t cbRequested) :
-            FileContentsRequestPDUEx(streamId, lindex, dwFlags, nPositionLow,
+            FileContentsRequestPDU(streamId, lindex, dwFlags, nPositionLow,
                 nPositionHigh, cbRequested, 0, false) {}
 
-    FileContentsRequestPDUEx(uint32_t streamId, uint32_t lindex,
+    FileContentsRequestPDU(uint32_t streamId, uint32_t lindex,
         uint32_t dwFlags, uint32_t nPositionLow, uint32_t nPositionHigh,
         uint32_t cbRequested, uint32_t clipDataId) :
-            FileContentsRequestPDUEx(streamId, lindex, dwFlags, nPositionLow,
+            FileContentsRequestPDU(streamId, lindex, dwFlags, nPositionLow,
                 nPositionHigh, cbRequested, clipDataId, true) {}
 
     void emit(OutStream& stream) const {
@@ -1616,16 +1474,16 @@ public:
     }
 
     void receive(InStream& stream) {
-        {
-            const unsigned int expected = this->minimum_size();
-            if (!stream.in_check_rem(expected)) {
-                LOG(LOG_ERR,
-                    "FileContentsRequestPDUEx::recv: "
-                        "Truncated File Contents Request PDU, "
-                        "need=%u remains=%zu",
-                    expected, stream.in_remain());
-                throw Error(ERR_RDP_DATA_TRUNCATED);
-            }
+        LOG(LOG_INFO, "====================== Receive File Contents Request PDU ========================");
+
+        const unsigned int expected = this->minimum_size();
+        if (!stream.in_check_rem(expected)) {
+            LOG(LOG_ERR,
+                "FileContentsRequestPDUEx::recv: "
+                    "Truncated File Contents Request PDU, "
+                    "need=%u remains=%zu",
+                expected, stream.in_remain());
+            throw Error(ERR_RDP_DATA_TRUNCATED);
         }
 
         this->streamId_      = stream.in_uint32_le();
@@ -1637,13 +1495,11 @@ public:
 
         if (stream.in_remain() >= 4 /* clipDataId(4) */) {
             this->clipDataId_ = stream.in_uint32_le();
-
             this->has_optional_clipDataId_ = true;
         }
         else {
             this->has_optional_clipDataId_ = false;
         }
-
     }
 
     uint32_t streamId() const { return this->streamId_; }
@@ -1670,15 +1526,18 @@ public:
         return 24;  // streamId(4) + lindex(4) + dwFlags(4) +
                     //     nPositionLow(4) + nPositionHigh(4) +
                     //     cbRequested(4)
+
     }
+
+
 
 private:
     size_t str(char * buffer, size_t size) const {
         size_t length = 0;
 
         size_t result = ::snprintf(buffer + length, size - length,
-            "FileContentsRequestPDU: streamId=%u lindex=%u dwFlags=%u "
-                "nPositionLow=%u nPositionHigh=%u cbRequested=%u",
+            "FileContentsRequestPDU: streamId=%u(4 bytes) lindex=%u(4 bytes) dwFlags=%u(4 bytes) "
+                "nPositionLow=%u(4 bytes) nPositionHigh=%u(4 bytes) cbRequested=%u(4 bytes)",
             this->streamId_, this->lindex_, this->dwFlags_,
             this->nPositionLow_, this->nPositionHigh_, this->cbRequested_);
         length += ((result < size - length) ? result : (size - length - 1));
@@ -1707,7 +1566,11 @@ public:
 
     // 2.2.5.4 File Contents Response PDU (CLIPRDR_FILECONTENTS_RESPONSE)
 
-    // The File Contents Response PDU is sent as a reply to the File Contents Request PDU. It is used to indicate whether processing of the File Contents Request PDU was successful. If the processing was successful, the File Contents Response PDU includes either a file size or extracted file data, based on the operation requested in the corresponding File Contents Request PDU.
+    // The File Contents Response PDU is sent as a reply to the File Contents Request PDU.
+    // It is used to indicate whether processing of the File Contents Request PDU
+    // was successful. If the processing was successful, the File Contents Response PDU
+    // includes either a file size or extracted file data, based on the operation
+    // requested in the corresponding File Contents Request PDU.
 
     // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
     // | | | | | | | | | | |1| | | | | | | | | |2| | | | | | | | | |3| |
@@ -1724,90 +1587,84 @@ public:
     // |                             ...                               |
     // +---------------------------------------------------------------+
 
-    // clipHeader (8 bytes): A Clipboard PDU Header. The msgType field of the Clipboard PDU Header MUST be set to CB_FILECONTENTS_RESPONSE (0x0009). The CB_RESPONSE_OK (0x0001) or CB_RESPONSE_FAIL (0x0002) flag MUST be set in the msgFlags field of the Clipboard PDU Header.
+    // clipHeader (8 bytes): A Clipboard PDU Header. The msgType field of the
+    // Clipboard PDU Header MUST be set to CB_FILECONTENTS_RESPONSE (0x0009).
+    // The CB_RESPONSE_OK (0x0001) or CB_RESPONSE_FAIL (0x0002) flag MUST be set
+    // in the msgFlags field of the Clipboard PDU Header.
 
-    // streamId (4 bytes): An unsigned, 32-bit numeric ID used to associate the File Contents Response PDU with the corresponding File Contents Request PDU. The File Contents Request PDU that triggered the response MUST contain an identical value in the streamId field.
+    // streamId (4 bytes): An unsigned, 32-bit numeric ID used to associate the
+    // File Contents Response PDU with the corresponding File Contents Request PDU.
+    // The File Contents Request PDU that triggered the response MUST contain an
+    // identical value in the streamId field.
 
-    // requestedFileContentsData (variable): This field contains a variable number of bytes. If the response is to a FILECONTENTS_SIZE (0x00000001) operation, the requestedFileContentsData field holds a 64-bit, unsigned integer containing the size of the file. In the case of a FILECONTENTS_RANGE (0x00000002) operation, the requestedFileContentsData field contains a byte-stream of data extracted from the file.
+    // requestedFileContentsData (variable): This field contains a variable
+    // number of bytes. If the response is to a FILECONTENTS_SIZE (0x00000001)
+    // operation, the requestedFileContentsData field holds a 64-bit, unsigned
+    // integer containing the size of the file. In the case of a
+    // FILECONTENTS_RANGE (0x00000002) operation, the requestedFileContentsData
+    // field contains a byte-stream of data extracted from the file.
 
-struct FileContentsResponse
+struct FileContentsResponseSize
 {
-    CliprdrHeader header;
-
-    uint32_t streamID{0};
-    uint64_t size{0};
+   uint32_t streamID{0};
+   uint64_t _size{0};
 
 
-    explicit FileContentsResponse(const uint32_t streamID, const uint64_t size, uint32_t data_size)
-    : header( CB_FILECONTENTS_RESPONSE, CB_RESPONSE_OK, data_size)
-    , streamID(streamID)
-    , size(size)
-    {}
+   FileContentsResponseSize() = default;
 
-    explicit FileContentsResponse(bool response_ok = false)
-    : header( CB_FILECONTENTS_RESPONSE, (response_ok ? CB_RESPONSE_OK : CB_RESPONSE_FAIL), 4)
+   // SIZE (16 bytes)
+   explicit FileContentsResponseSize(const uint32_t streamID, const uint64_t size)
+   : streamID(streamID)
+   , _size(size)
+   {}
 
-    {}
+   void receive(InStream & stream) {
+       this->streamID = stream.in_uint32_le();
+        this->_size = stream.in_uint64_le();
+   }
 
-    void emit(OutStream & stream) const {
-        this->header.emit(stream);
-    }
+   void emit(OutStream & stream) const {
+       stream.out_uint32_le(this->streamID);
+       stream.out_uint64_le(this->_size);
+       stream.out_uint32_le(0);
+   }
 
+   void log() const {
+       LOG(LOG_INFO, "     File Contents Response Size: streamID = 0X%08x(4 bytes) size=%" PRIu64 "(8 bytes) Padding - (4 byte) NOT USED", this->streamID, this->_size);
+   }
+
+    size_t size() {
+        return 16;                                          // streamID(4) + size(8)
+   }
 };
 
-struct FileContentsResponse_Size : FileContentsResponse {
 
-    explicit FileContentsResponse_Size() = default;
+struct FileContentsResponseRange
+{
+   uint32_t streamID{0};
 
-    explicit FileContentsResponse_Size(const uint32_t streamID, const uint64_t size)
-    : FileContentsResponse(streamID, size, 16)
-    {}
+   FileContentsResponseRange() = default;
 
-    void emit(OutStream & stream) const {
-        this->header.emit(stream);
-        stream.out_uint32_le(this->streamID);
-        stream.out_uint64_le(this->size);
-        stream.out_uint32_le(0);
-    }
+   // RANGE (4 + Data_Len Bytes)
+   explicit FileContentsResponseRange(const uint32_t streamID)
+       : streamID(streamID)
+   {}
 
-    void recv(InStream & stream) {
-        this->header.recv(stream);
-        this->streamID = stream.in_uint32_le();
-        this->size = stream.in_uint64_le();
-    }
+   void receive(InStream & stream) {
+       this->streamID = stream.in_uint32_le();
+   }
 
-    void log() const {
-        this->header.log();
-        LOG(LOG_INFO, "     File Contents Response Size:");
-        LOG(LOG_INFO, "          * streamID = 0X%08x (4 bytes)", this->streamID);
-        LOG(LOG_INFO, "          * size     = %" PRIu64 " (8 bytes)", this->size);
-        LOG(LOG_INFO, "          * Padding - (4 byte) NOT USED");
-    }
-};
+   void emit(OutStream & stream) const {
+       stream.out_uint32_le(this->streamID);
+   }
 
-struct FileContentsResponse_Range : FileContentsResponse {
+   void log() const {
+       LOG(LOG_INFO, "     File Contents Response Size: streamID=0X%08x(4 bytes)", this->streamID);
+   }
 
-    explicit FileContentsResponse_Range() = default;
-
-    explicit FileContentsResponse_Range(const uint32_t streamID, const uint64_t size)
-    : FileContentsResponse(streamID, size, size+4)
-    {}
-
-    void emit(OutStream & stream) const {
-        this->header.emit(stream);
-        stream.out_uint32_le(this->streamID);
-    }
-
-    void recv(InStream & stream) {
-        this->header.recv(stream);
-        this->streamID = stream.in_uint32_le();
-    }
-
-    void log() const {
-        this->header.log();
-        LOG(LOG_INFO, "     File Contents Response Range:");
-        LOG(LOG_INFO, "          * streamID = 0X%08x (4 bytes)", this->streamID);
-    }
+   size_t size() {
+        return 4;                                          // streamID(4)
+   }
 };
 
 
@@ -1972,7 +1829,7 @@ public:
         uint8_t fileName_unicode_data[520]; // fileName(520)
 
         size_t size_of_fileName_unicode_data = ::UTF8toUTF16(
-            byte_ptr_cast(this->file_name.c_str()),
+            this->file_name,
             fileName_unicode_data, sizeof(fileName_unicode_data));
 
         stream.out_copy_bytes(fileName_unicode_data,
@@ -2054,7 +1911,7 @@ public:
         buffer[sizeof(buffer) - 1] = 0;
         LOG(level, "%s", buffer);
     }
-};  // class FileDescriptor
+};  // class file_descriptor
 
 
 
@@ -2091,7 +1948,7 @@ enum {
     MM_HIENGLISH   = 0x00000005, // Each logical unit is mapped to 0.001 inch. Positive x is to the right; positive y is up.
     MM_TWIPS       = 0x00000006, // Each logical unit is mapped to 1/20 of a printer's point (1/1440 of an inch), also called a twip. Positive x is to the right; positive y is up.
     MM_ISOTROPIC   = 0x00000007, // ogical units are mapped to arbitrary units with equally scaled axes; one unit along the x-axis is equal to one unit along the y-axis.
-    MM_ANISOTROPIC = 0x00000008  // Logical units are mapped to arbitrary units with arbitrarily scaled axes.
+    MM_ANISOTROPIC = 0x00000008  // LoFormatDataResponsePDUgical units are mapped to arbitrary units with arbitrarily scaled axes.
 };
 
 //    For MM_ISOTROPIC and MM_ANISOTROPIC modes, which can be scaled, the xExt and yExt fields contain an optional suggested size in MM_HIMETRIC units. For MM_ANISOTROPIC pictures, xExt and yExt SHOULD be zero when no suggested size is given. For MM_ISOTROPIC pictures, an aspect ratio MUST be supplied even when no suggested size is given. If a suggested size is given, the aspect ratio is implied by the size. To give an aspect ratio without implying a suggested size, the xExt and yExt fields are set to negative values whose ratio is the appropriate aspect ratio. The magnitude of the negative xExt and yExt values is ignored; only the ratio is used.
@@ -2101,11 +1958,6 @@ enum {
 //yExt (4 bytes): An unsigned, 32-bit integer that specifies the height of the rectangle within which the picture is drawn, except in the MM_ISOTROPIC and MM_ANISOTROPIC modes. The coordinates are in units that correspond to the mapping mode.
 
 //metaFileData (variable): The variable sized contents of the metafile as specified in [MS-WMF] section 2
-
-
-
-
-
 
 
 // [MS-RDPECLIP] 2.2.5.2 Format Data Response PDU (CLIPRDR_FORMAT_DATA_RESPONSE)
@@ -2161,73 +2013,30 @@ enum : int {
 
 };
 
+// TODO: We should only create a FormatDataResponsePDU when we have enough data to build it
+// this probably implies reading the header and checking if we received enough data
+
 struct FormatDataResponsePDU
 {
-    CliprdrHeader header;
-
-
-    FormatDataResponsePDU()
-        : header( CB_FORMAT_DATA_RESPONSE
-                , CB_RESPONSE_FAIL
-                , 0)
-    {
-    }
-
-    explicit FormatDataResponsePDU(std::size_t data_len)
-        : header( CB_FORMAT_DATA_RESPONSE
-                , CB_RESPONSE_OK
-                , data_len)
-    {
-    }
-
-    explicit FormatDataResponsePDU(bool response_ok)
-        : header( CB_FORMAT_DATA_RESPONSE
-                , (response_ok ? CB_RESPONSE_OK : CB_RESPONSE_FAIL)
-                , 0)
-    {
-    }
-
     void emit(OutStream & stream, const uint8_t * data, size_t data_length) const {
-        stream.out_uint16_le(this->header.msgType());
-        stream.out_uint16_le(this->header.msgFlags());
-
-        if (this->header.msgFlags() == CB_RESPONSE_OK) {
-            stream.out_uint32_le(data_length);  // dataLen(4)
-
-            if (data_length) {
-                stream.out_copy_bytes(data, data_length);
-            }
+        if (data_length
+        // in some case (VNC clipboard) we already have data inplace
+        // in these cases no need to copy anything
+        && data != stream.get_data())
+        {
+            stream.out_copy_bytes(data, data_length);
         }
-        else {
-            stream.out_uint32_le(0);    // dataLen(4)
-        }
-    }
-
-    void emit_ex(OutStream & stream, size_t data_length) const {
-        stream.out_uint16_le(this->header.msgType());
-        stream.out_uint16_le(this->header.msgFlags());
-
-        stream.out_uint32_le(                           // dataLen(4)
-                (this->header.msgFlags() == CB_RESPONSE_OK) ?
-                data_length :
-                0
-            );
-    }
-
-    void recv(InStream & stream) {
-        this->header.recv(stream);
     }
 
     void log() const {
-        this->header.log();
-        LOG(LOG_INFO, "     Format Data Response PDU:");
+        LOG(LOG_INFO, "FormatDataResponsePDU:");
     }
 
 
 }; // struct FormatDataResponsePDU
 
 
-struct FormatDataResponsePDU_MetaFilePic : FormatDataResponsePDU {
+struct FormatDataResponsePDU_MetaFilePic {
 
     // 2.2.5.2.1 Packed Metafile Payload
 
@@ -2328,7 +2137,7 @@ struct FormatDataResponsePDU_MetaFilePic : FormatDataResponsePDU {
     };
 
     void log() const {
-        this->header.log();
+//         this->header.log();
         LOG(LOG_INFO, "     Packed Metafile Payload:");
         LOG(LOG_INFO, "          * mappingMode = 0x%08x (4 bytes)", this->mappingMode);
         LOG(LOG_INFO, "          * xExt        = %d (4 bytes)", int(this->xExt));
@@ -2353,8 +2162,8 @@ struct FormatDataResponsePDU_MetaFilePic : FormatDataResponsePDU {
                                               , const uint16_t height
                                               , const uint16_t depth
                                               , const double ARBITRARY_SCALE)
-      : FormatDataResponsePDU(data_length + METAFILE_HEADERS_SIZE)
-      , mappingMode(MM_ANISOTROPIC)
+//       : FormatDataResponsePDU(data_length + METAFILE_HEADERS_SIZE)
+  :  mappingMode(MM_ANISOTROPIC)
       , xExt(int(double(width ) * ARBITRARY_SCALE))
       , yExt(int(double(height) * ARBITRARY_SCALE))
       , metaHeader(MFF::MEMORYMETAFILE, MFF::METAVERSION300, data_length)
@@ -2365,7 +2174,7 @@ struct FormatDataResponsePDU_MetaFilePic : FormatDataResponsePDU {
     {}
 
     void emit(OutStream & stream) const {
-        this->header.emit(stream);
+//         this->header.emit(stream);
 
         // 2.2.5.2.1 Packed Metafile Payload
         // 12 bytes
@@ -2386,7 +2195,7 @@ struct FormatDataResponsePDU_MetaFilePic : FormatDataResponsePDU {
 
 
     void recv(InStream & stream) {
-        this->header.recv(stream);
+//         this->header.recv(stream);
         this->mappingMode = stream.in_uint32_le();
         this->xExt = stream.in_uint32_le();
         this->yExt = stream.in_uint32_le();
@@ -2440,42 +2249,6 @@ struct FormatDataResponsePDU_MetaFilePic : FormatDataResponsePDU {
             }
         }
     }
-
-
-};
-
-struct FormatDataResponsePDU_Text : FormatDataResponsePDU {
-
-    struct Ender {
-        enum : uint32_t {
-            SIZE = 2
-        };
-
-        void emit (uint8_t * chunk, size_t data_len) {
-            chunk[data_len + 1] = 0;
-            chunk[data_len + 2] = 0;
-        }
-    };
-
-    explicit FormatDataResponsePDU_Text() = default;
-
-    explicit FormatDataResponsePDU_Text(std::size_t length)
-      : FormatDataResponsePDU(length)
-    {}
-
-    void emit(OutStream & stream) const {
-        this->header.emit(stream);
-    }
-
-    void recv(InStream & stream) {
-        this->header.recv(stream);
-    }
-
-    void log() const {
-        this->header.log();
-        LOG(LOG_INFO, "     Format Data Response Text PDU:");
-    }
-
 };
 
 
@@ -2499,30 +2272,25 @@ struct FormatDataResponsePDU_Text : FormatDataResponsePDU {
 
 // fileDescriptorArray (variable): An array of File Descriptors (section 2.2.5.2.3.1). The number of elements in the array is specified by the cItems field.
 
-struct FormatDataResponsePDU_FileList : FormatDataResponsePDU {
+struct FormatDataResponsePDU_FileList {
 
     int cItems{0};
 
     void log() const {
-        this->header.log();
-        LOG(LOG_INFO, "     Format Data Response File List PDU:");
-        LOG(LOG_INFO, "          * cItems       = %d (4 bytes)", this->cItems);
+        LOG(LOG_INFO, "FormatDataResponseFileListPDU: cItems=%d(4 bytes)", this->cItems);
     }
 
     explicit FormatDataResponsePDU_FileList() = default;
 
     explicit FormatDataResponsePDU_FileList(const std::size_t cItems)
-      : FormatDataResponsePDU((FileDescriptor::size() * cItems) + 4)
-      , cItems(cItems)
+    : cItems(cItems)
     {}
 
     void emit(OutStream & stream) const {
-        this->header.emit(stream);
         stream.out_uint32_le(this->cItems);
     }
 
     void recv(InStream & stream) {
-        this->header.recv(stream);
         this->cItems = stream.in_uint32_le();
     }
 };
@@ -2641,32 +2409,24 @@ public:
 
 struct LockClipboardDataPDU
 {
-    CliprdrHeader header;
-
     uint32_t streamDataID;
 
-    explicit LockClipboardDataPDU(): header(CB_UNLOCK_CLIPDATA, CB_RESPONSE_FAIL, 4)
-    {}
+    explicit LockClipboardDataPDU() = default;
 
     explicit LockClipboardDataPDU(uint32_t streamDataID)
-    : header(CB_LOCK_CLIPDATA, 0, 4)
-    , streamDataID(streamDataID)
+    : streamDataID(streamDataID)
     {}
 
     void emit(OutStream & stream) const {
-        this->header.emit(stream);
         stream.out_uint32_le(streamDataID);
     }
 
     void recv(InStream & stream) {
-        this->header.recv(stream);
         streamDataID = stream.in_uint32_le();
     }
 
     void log() const {
-        this->header.log();
-        LOG(LOG_INFO, "     Lock Clipboard Data PDU:");
-        LOG(LOG_INFO, "          * streamDataID = 0x%08x (4 bytes)", this->streamDataID);
+        LOG(LOG_INFO, "LockClipboardDataPDU: streamDataID=0x%08x(4 bytes)", this->streamDataID);
     }
 
 };
@@ -2694,35 +2454,27 @@ struct LockClipboardDataPDU
 
 struct UnlockClipboardDataPDU
 {
-    CliprdrHeader header;
-
     uint32_t streamDataID;
 
-    explicit UnlockClipboardDataPDU(): header(CB_UNLOCK_CLIPDATA, CB_RESPONSE_FAIL, 4)
-    {}
+     explicit UnlockClipboardDataPDU() = default;
 
     explicit UnlockClipboardDataPDU(uint32_t streamDataID)
-    : header(CB_UNLOCK_CLIPDATA, 0, 4)
-    , streamDataID(streamDataID)
+    : streamDataID(streamDataID)
     {}
 
     void emit(OutStream & stream) const
     {
-        this->header.emit(stream);
-        stream.out_uint32_le(streamDataID);
+        stream.out_uint32_le(this->streamDataID);
     }
 
     void recv(InStream & stream)
     {
-        this->header.recv(stream);
         streamDataID = stream.in_uint32_le();
     }
 
     void log() const
     {
-        this->header.log();
-        LOG(LOG_INFO, "     Unlock Clipboard Data PDU:");
-        LOG(LOG_INFO, "          * streamDataID = 0x%08x (4 bytes)", this->streamDataID);
+        LOG(LOG_INFO, "UnlockClipboardDataPDU: streamDataID=0x%08x(4 bytes)", this->streamDataID);
     }
 };
 
@@ -2735,10 +2487,10 @@ struct CliprdrLogState
 };
 
 
-static inline void streamLogCliprdr(InStream & stream, int flags, CliprdrLogState & state) {
+static inline void streamLogCliprdr(InStream & chunk, int flags, CliprdrLogState & state) {
     if (flags & CHANNELS::CHANNEL_FLAG_FIRST) {
-        LOG(LOG_INFO, "");
-        InStream chunk =  stream.clone();
+//         InStream chunk =  stream.clone();
+
         CliprdrHeader header;
         header.recv(chunk);
 
@@ -2746,8 +2498,10 @@ static inline void streamLogCliprdr(InStream & stream, int flags, CliprdrLogStat
 
             case CB_MONITOR_READY:
             {
+                header.log();
+
                 ServerMonitorReadyPDU pdu;
-                pdu.recv(stream);
+                pdu.recv(chunk);
                 pdu.log();
             }
                 break;
@@ -2755,26 +2509,19 @@ static inline void streamLogCliprdr(InStream & stream, int flags, CliprdrLogStat
             case CB_FORMAT_LIST:
             {
                 header.log();
-                if (state.use_long_format_names) {
-                    while (chunk.in_remain() >= 6) {
-                        FormatListPDU_LongName pdu;
-                        pdu.recv(chunk);
-                        pdu.log();
-                    }
-                } else {
-                    while (chunk.in_remain() >= 36) {
-                        FormatListPDU_ShortName pdu;
-                        pdu.recv(stream);
-                        pdu.log();
-                    }
-                }
+
+                FormatListPDUEx format_list_pdu;
+                format_list_pdu.recv(chunk, state.use_long_format_names, (header.msgFlags() & CB_ASCII_NAMES));
+                format_list_pdu.log(LOG_INFO);
             }
                 break;
 
             case CB_FORMAT_LIST_RESPONSE:
             {
+                header.log();
+
                 FormatListResponsePDU pdu;
-                pdu.recv(stream);
+                pdu.recv(chunk);
                 pdu.log();
             }
                 break;
@@ -2782,7 +2529,7 @@ static inline void streamLogCliprdr(InStream & stream, int flags, CliprdrLogStat
             case CB_FORMAT_DATA_REQUEST:
             {
                 FormatDataRequestPDU pdu;
-                pdu.recv(stream);
+                pdu.recv(chunk);
                 pdu.log();
 
                 state.requestedFormatId = pdu.requestedFormatId;
@@ -2796,7 +2543,7 @@ static inline void streamLogCliprdr(InStream & stream, int flags, CliprdrLogStat
                     case CF_METAFILEPICT:
                     {
                         FormatDataResponsePDU_MetaFilePic pdu;
-                        pdu.recv(stream);
+                        pdu.recv(chunk);
                         pdu.log();
                     }
                         break;
@@ -2804,37 +2551,41 @@ static inline void streamLogCliprdr(InStream & stream, int flags, CliprdrLogStat
                     case CF_TEXT:
                     case CF_UNICODETEXT:
                     {
-                        FormatDataResponsePDU_Text pdu;
-                        pdu.recv(stream);
-                        pdu.log();
+//                         FormatDataResponsePDU_Text pdu;
+//                         pdu.recv(stream);
+//                         pdu.log();
                     }
                         break;
 
-                    default: LOG(LOG_INFO, "CLIPRDR CB_FORMAT_DATA_RESPONSE format data id = %d %s", state.requestedFormatId, get_Format_name(state.requestedFormatId));
+                    default: LOG(LOG_INFO, "CLIPRDR CB_FORMAT_DATA_RESPONSE format data id = %d %s", state.requestedFormatId, get_FormatId_name(state.requestedFormatId));
                         break;
                 }
                 break;
 
             case CB_TEMP_DIRECTORY:
             {
+                header.log();
+
                 ClientTemporaryDirectoryPDU pdu;
-                pdu.recv(stream);
+                pdu.recv(chunk);
                 pdu.log();
             }
                 break;
 
             case CB_CLIP_CAPS:
             {
+                header.log();
+
                 ClipboardCapabilitiesPDU pdu;
-                pdu.recv(stream);
+                pdu.recv(chunk);
                 pdu.log();
 
-                GeneralCapabilitySet pdu2;
-                pdu2.recv(stream);
-                pdu2.log();
+                GeneralCapabilitySet caps;
+                caps.recv(chunk);
+                caps.log();
 
                 if (state.use_long_format_names) {
-                    state.use_long_format_names = bool(pdu2.generalFlags() & CB_USE_LONG_FORMAT_NAMES);
+                    state.use_long_format_names = bool(caps.generalFlags() & CB_USE_LONG_FORMAT_NAMES);
                 }
             }
                 break;
@@ -2842,10 +2593,10 @@ static inline void streamLogCliprdr(InStream & stream, int flags, CliprdrLogStat
             case CB_FILECONTENTS_REQUEST:
             {
                 FileContentsRequestPDU pdu;
-                pdu.recv(stream);
-                pdu.log();
+                pdu.receive(chunk);
+                pdu.log(LOG_INFO);
 
-                state.file_content_request_flag = pdu.flag;
+                state.file_content_request_flag = pdu.dwFlags();
             }
                 break;
 
@@ -2855,16 +2606,16 @@ static inline void streamLogCliprdr(InStream & stream, int flags, CliprdrLogStat
 
                     case FILECONTENTS_SIZE:
                     {
-                        FileContentsResponse_Size pdu;
-                        pdu.recv(stream);
+                        FileContentsResponseSize pdu;
+                        pdu.receive(chunk);
                         pdu.log();
                     }
                         break;
 
                     case FILECONTENTS_RANGE:
                     {
-                        FileContentsResponse_Range pdu;
-                        pdu.recv(stream);
+                        FileContentsResponseRange pdu;
+                        pdu.receive(chunk);
                         pdu.log();
                     }
                         break;
@@ -2877,7 +2628,7 @@ static inline void streamLogCliprdr(InStream & stream, int flags, CliprdrLogStat
             case CB_LOCK_CLIPDATA:
             {
                 LockClipboardDataPDU pdu;
-                pdu.recv(stream);
+                pdu.recv(chunk);
                 pdu.log();
             }
                 break;
@@ -2885,12 +2636,14 @@ static inline void streamLogCliprdr(InStream & stream, int flags, CliprdrLogStat
             case CB_UNLOCK_CLIPDATA:
             {
                 UnlockClipboardDataPDU pdu;
-                pdu.recv(stream);
+                pdu.recv(chunk);
                 pdu.log();
             }
                 break;
 
-            default: LOG(LOG_WARNING, "CLIPRDR Unknown PDU with length = %u", header.dataLen());
+            default:
+                header.log();
+                LOG(LOG_WARNING, "CLIPRDR Unknown PDU!");
                 break;
         }
     }

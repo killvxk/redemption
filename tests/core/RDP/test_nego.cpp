@@ -20,10 +20,8 @@
 */
 
 #define RED_TEST_MODULE TestNego
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
-
-#include "utils/log.hpp"
 #include "utils/difftimeval.hpp"
 #include "core/RDP/nego.hpp"
 #include "core/RDP/tpdu_buffer.hpp"
@@ -35,7 +33,6 @@
 
 RED_AUTO_TEST_CASE(TestNego)
 {
-    LOG(LOG_INFO, "============= Test Nego Client Side ===========");
     const char client[] =
 // RDP Negotiation Request
 /* 0000 */ "\x03\x00\x00\x2a\x25\xe0\x00\x00\x00\x00\x00\x43\x6f\x6f\x6b\x69" //...*%......Cooki
@@ -102,7 +99,7 @@ RED_AUTO_TEST_CASE(TestNego)
 
         ;
     TestTransport logtrans(server, sizeof(server)-1, client, sizeof(client)-1);
-    logtrans.set_public_key(reinterpret_cast<const uint8_t*>("1245789652325415"), 16);
+    logtrans.set_public_key(byte_ptr_cast("1245789652325415"), 16);
     char user[] = "Ulysse";
     char domain[] = "Ithaque";
     char pass[] = "Pénélope\x00";

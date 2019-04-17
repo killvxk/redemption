@@ -24,7 +24,10 @@
 #include <fstream>
 
 #include "utils/log.hpp"
-#include "client_redemption/client_input_output_api/client_sound_api.hpp"
+#include "utils/stream.hpp"
+// #include "client_redemption/client_input_output_api/client_sound_api.hpp"
+#include "client_redemption/client_channels/client_rdpsnd_channel.hpp"
+#include "client_redemption/client_redemption_api.hpp"
 
 #if REDEMPTION_QT_VERSION == 4
 #   define REDEMPTION_QT_INCLUDE_WIDGET(name) <QtGui/name>
@@ -60,14 +63,17 @@ REDEMPTION_DIAGNOSTIC_POP
     int total_wav_files;
     std::string wave_file_to_write;
 
+    std::string path;
+
 
 public:
-    QtOutputSound(QWidget * parent)
+    QtOutputSound(const std::string & path, QWidget * parent)
       : QObject(parent), ClientOutputSoundAPI()
       , media(nullptr)
       , audioOutput(nullptr)
       , current_wav_index(0)
       , total_wav_files(0)
+      , path(path)
     {
         this->media = new Phonon::MediaObject(this);
         this->audioOutput = new Phonon::AudioOutput(Phonon::MusicCategory, this);
@@ -78,8 +84,7 @@ public:
 
     ~QtOutputSound() {
         for (int i = 0; i <= total_wav_files; i++) {
-            std::string wav_file_name = this->path + std::string("/sound") + std::to_string(i) +std::string(".wav");
-            remove(wav_file_name.c_str());
+            remove(this->wav_file(i).c_str());
 //             LOG(LOG_INFO, "delete wav: \"%s\"", wav_file_name);
         }
     }
@@ -88,7 +93,7 @@ public:
 
         this->total_wav_files++;
 
-        this->wave_file_to_write = this->path + std::string("/sound") + std::to_string(this->total_wav_files) +std::string(".wav");
+        this->wave_file_to_write = this->wav_file(this->total_wav_files);
 
         StaticOutStream<64> out_stream;
         out_stream.out_copy_bytes("RIFF", 4);
@@ -120,29 +125,38 @@ public:
     }
 
     void play() override {
-        if (this->media->state() == Phonon::StoppedState) {
+        if (this->media) {
+            if (this->media->state() == Phonon::StoppedState) {
 
-            if (this->total_wav_files > this->current_wav_index) {
-                this->current_wav_index++;
+                if (this->total_wav_files > this->current_wav_index) {
+                    this->current_wav_index++;
+                    std::string wav_file_name = ":/DATA/sound_temp/sound";
+                    wav_file_name += std::to_string(this->current_wav_index) + ".wav";
 
-                std::string wav_file_name =  std::string(":/DATA/sound_temp/sound") + std::to_string(this->current_wav_index) +std::string(".wav");
-//                 LOG(LOG_INFO, "play wav: \"%s\"", wav_file_name);
+                    LOG(LOG_INFO, "play wav: \"%s\"", wav_file_name);
 
-                Phonon::MediaSource sources(QUrl(wav_file_name.c_str()));
-                this->media->setCurrentSource(sources);
-                this->media->play();
+                    Phonon::MediaSource sources(QUrl(wav_file_name.c_str()));
+                    this->media->setCurrentSource(sources);
+                    this->media->play();
+                }
             }
         }
     }
 
 private Q_SLOTS:
     void call_playback_over() {
-        std::string wav_file_name = this->path + std::string("/sound") + std::to_string(this->current_wav_index) +std::string(".wav");
 //         LOG(LOG_INFO, "remove wav: \"%s\"", wav_file_name);
-        remove(wav_file_name.c_str());
+//         remove(this->wav_file(this->current_wav_index).c_str());
 
         this->play();
     }
 
+    std::string wav_file(int i) const
+    {
+        std::string wav_file_name = this->path + "/sound";
+        wav_file_name += std::to_string(i);
+        wav_file_name += ".wav";
+        return wav_file_name;
+    }
 };
 

@@ -38,7 +38,7 @@
 #include "gdi/graphic_api.hpp"
 #include "mod/mod_api.hpp"
 
-#include "mod/internal/client_execute.hpp" // TODO only for BORDER_WIDTH_HEIGHT
+#include "RAIL/client_execute.hpp" // TODO only for BORDER_WIDTH_HEIGHT
 
 #include <type_traits>
 
@@ -47,7 +47,6 @@ class RDPEllipseCB;
 class RDPEllipseSC;
 class RDPPolygonCB;
 class RDPPolygonSC;
-class RDPBitmapData;
 
 
 WidgetModuleHost::ModuleHolder::ModuleHolder(
@@ -83,6 +82,11 @@ void WidgetModuleHost::ModuleHolder::send_auth_channel_data(const char * string_
     this->managed_mod->send_auth_channel_data(string_data);
 }
 
+void WidgetModuleHost::ModuleHolder::send_checkout_channel_data(const char * string_data)
+{
+    this->managed_mod->send_checkout_channel_data(string_data);
+}
+
 // mod_api
 
 void WidgetModuleHost::ModuleHolder::draw_event(time_t now, gdi::GraphicApi& gd)
@@ -94,7 +98,7 @@ void WidgetModuleHost::ModuleHolder::draw_event(time_t now, gdi::GraphicApi& gd)
     this->host.drawable_ptr = &this->host.drawable_ref;
 }
 
-bool WidgetModuleHost::ModuleHolder::is_up_and_running()
+bool WidgetModuleHost::ModuleHolder::is_up_and_running() const
 {
     return this->managed_mod->is_up_and_running();
 }
@@ -102,15 +106,6 @@ bool WidgetModuleHost::ModuleHolder::is_up_and_running()
 bool WidgetModuleHost::ModuleHolder::is_auto_reconnectable()
 {
     return this->managed_mod->is_auto_reconnectable();
-}
-
-void WidgetModuleHost::ModuleHolder::send_to_front_channel(
-    CHANNELS::ChannelNameId mod_channel_name,
-    const uint8_t* data, size_t length,
-    size_t chunk_size, int flags)
-{
-    this->managed_mod->send_to_front_channel(mod_channel_name,
-        data, length, chunk_size, flags);
 }
 
 // RdpInput

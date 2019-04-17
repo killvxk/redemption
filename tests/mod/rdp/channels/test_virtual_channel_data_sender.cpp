@@ -20,8 +20,8 @@
    Unit test to conversion of RDP drawing orders to PNG images
 */
 
-#define RED_TEST_MODULE TestXXXXXXXXXX
-#include "system/redemption_unit_tests.hpp"
+#define RED_TEST_MODULE TestVirtualChannelDataSender
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "mod/rdp/channels/virtual_channel_data_sender.hpp"

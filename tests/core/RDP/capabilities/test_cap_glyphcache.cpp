@@ -22,7 +22,7 @@
 */
 
 #define RED_TEST_MODULE TestCapabilityGlyphSupport
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "core/RDP/capabilities/cap_glyphcache.hpp"
@@ -47,7 +47,7 @@ RED_AUTO_TEST_CASE(TestCapabilityGlyphSupportEmit)
 
     RED_CHECK_EQUAL(out_stream.get_offset(), GlyphCacheCaps::LENGTH_CAPABILITY);
 
-    InStream stream(out_stream.get_data(), out_stream.get_offset());
+    InStream stream(out_stream.get_bytes());
 
     GlyphCacheCaps glyphcache_caps2;
 

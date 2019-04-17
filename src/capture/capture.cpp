@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <chrono>
 #include <string>
+#include <iterator>
 #include <type_traits>
 
 #include <ctime> // localtime_r
@@ -32,9 +33,11 @@
 
 #include "core/error.hpp"
 #include "core/window_constants.hpp"
+#include "core/RDP/RDPDrawable.hpp"
 
 #include "utils/log.hpp"
 
+#include "utils/sugar/algostring.hpp"
 #include "utils/sugar/array_view.hpp"
 #include "utils/sugar/unique_fd.hpp"
 #include "utils/sugar/not_null_ptr.hpp"
@@ -74,9 +77,10 @@ class SequencedVideoCaptureImpl {};
 #endif
 
 #include "utils/recording_progress.hpp"
-#include "utils/sugar/underlying_cast.hpp"
 
-//#include "configs/config_access.hpp"
+using std::begin;
+using std::end;
+
 
 class PatternSearcher
 {
@@ -132,7 +136,7 @@ class PatternSearcher
             if (static_cast<size_t>(this->data_end() - this->beg) < char_len + 1u) {
                 std::size_t pchar_len = 0;
                 do {
-                    size_t const len = get_utf8_char_size(this->beg);
+                    size_t const len = UTF8CharNbBytes(this->beg);
                     size_t const tailroom = this->data_end() - this->beg;
                     if (tailroom < len) {
                         this->beg = this->data_begin() + (len - tailroom);
@@ -216,7 +220,7 @@ public:
                     auto str = (!match_result.empty() && match_result[0].first)
                         ? match_result[0].first
                         : char_kbd_data;
-                    report(named_regex.name.c_str(), str);
+                    report(named_regex.name, str);
                     has_notify = true;
                 }
                 test_searcher_it->reset(named_regex.regex);
@@ -369,12 +373,19 @@ class SyslogKbd final : public gdi::KbdInputApi, public gdi::CaptureApi
     bool keyboard_input_mask_enabled = false;
     timeval last_snapshot;
 
+    bool keyboard_input_mask_hidden = false;
+    int hidden_masked_char_count = 0;
+
 private:
     void write_shadow_keys() {
         if (!this->kbd_stream.has_room(1)) {
             this->flush();
         }
-        this->kbd_stream.out_uint8('*');
+        if (this->keyboard_input_mask_hidden) {
+            this->hidden_masked_char_count++;
+        } else {
+            this->kbd_stream.out_uint8('*');
+        }
     }
 
     void write_keys(uint32_t uchar) {
@@ -428,7 +439,12 @@ public:
     }
 
     void flush() {
-        if (this->kbd_stream.get_offset()) {
+        if (this->kbd_stream.get_offset() || (!this->keyboard_input_mask_hidden && this->hidden_masked_char_count)) {
+            while (this->hidden_masked_char_count) {
+                this->kbd_stream.out_uint8('*');
+                this->hidden_masked_char_count--;
+            }
+            this->hidden_masked_char_count = 0;
             LOG(LOG_INFO, R"x(type="KBD input" data="%.*s")x",
                 int(this->kbd_stream.get_offset()),
                 char_ptr_cast(this->kbd_stream.get_data()));
@@ -473,6 +489,9 @@ class SessionLogKbd final : public gdi::KbdInputApi, public gdi::CaptureProbeApi
     bool is_probe_enabled_session = false;
     ReportMessageApi & report_message;
 
+    bool keyboard_input_mask_hidden = false;
+    int hidden_masked_char_count = 0;
+
     void copy_bytes(const_bytes_view bytes) {
         if (this->kbd_stream.tailroom() < bytes.size()) {
             this->flush();
@@ -484,7 +503,11 @@ class SessionLogKbd final : public gdi::KbdInputApi, public gdi::CaptureProbeApi
         if (!this->kbd_stream.has_room(1)) {
             this->flush();
         }
-        this->kbd_stream.out_uint8('*');
+        if (this->keyboard_input_mask_hidden) {
+            this->hidden_masked_char_count++;
+        } else {
+            this->kbd_stream.out_uint8('*');
+        }
     }
 
     void write_keys(uint32_t uchar) {
@@ -539,12 +562,25 @@ private:
 
 public:
     void flush() {
-        if (this->kbd_stream.get_offset()) {
+        if (this->kbd_stream.get_offset() || (!this->keyboard_input_mask_hidden && this->hidden_masked_char_count)) {
+            while (this->hidden_masked_char_count) {
+                this->kbd_stream.out_uint8('*');
+                this->hidden_masked_char_count--;
+            }
+            this->hidden_masked_char_count = 0;
+
             this->formatted_message.assign("KBD_INPUT", {
-                {"data", stream_to_avchar(this->kbd_stream)}
+                {"data", this->kbd_stream.get_bytes().as_chars()}
             });
 
-            this->report_message.log5(this->formatted_message.str());
+            ArcsightLogInfo arc_info;
+            arc_info.name = "KBD_INPUT";
+            arc_info.signatureID = ArcsightLogInfo::KBD_INPUT;
+            arc_info.message = this->formatted_message.str();
+
+            LOG(LOG_INFO, "capture::flush this->formatted_message.str()=%s", this->formatted_message.str());
+
+            this->report_message.log6(this->formatted_message.str(), arc_info, tvtime());
 
             this->kbd_stream.rewind();
         }
@@ -726,10 +762,8 @@ public:
 
                 return interval.count() ? interval - duration % interval : interval;
             }
-            else {
-                // Wait 0.3 x frame_interval.
-                return this->frame_interval / 3;
-            }
+            // Wait 0.3 x frame_interval.
+            return this->frame_interval / 3;
         }
         return interval - duration;
     }
@@ -753,25 +787,29 @@ public:
     , png_limit(png_params.png_limit)
     , enable_rt_display(png_params.rt_display)
     , smart_video_cropping(capture_params.smart_video_cropping)
-    {
-    }
+    {}
 
-    ~PngCaptureRT(){
+    ~PngCaptureRT() /*NOLINT*/
+    {
         this->clear_png_interval(this->num_start, this->trans.get_seqno() + 1);
     }
 
-    void update_config(bool enable_rt_display) {
+    Capture::RTDisplayResult set_rt_display(bool enable_rt_display) {
         if (enable_rt_display != this->enable_rt_display){
             LOG(LOG_INFO, "PngCaptureRT::enable_rt_display=%d", enable_rt_display);
             this->enable_rt_display = enable_rt_display;
             // clear files if we go from RT to non-RT
             if (!this->enable_rt_display) {
                 this->clear_png_interval(this->num_start, this->trans.get_seqno() + 1);
+                return Capture::RTDisplayResult::Disabled;
             }
+            return Capture::RTDisplayResult::Enabled;
         }
+
+        return Capture::RTDisplayResult::Unchanged;
     }
 
-     void clear_old() override {
+    void clear_old() override {
         if (this->trans.get_seqno() < this->png_limit) {
             return;
         }
@@ -846,7 +884,7 @@ namespace {
     }
 }
 
-inline void agent_data_extractor(KeyQvalueFormatter & message, array_view_const_char data)
+inline void agent_data_extractor(KeyQvalueFormatter & message, array_view_const_char data, MetaParams meta_params)
 {
     using Av = array_view_const_char;
 
@@ -922,6 +960,48 @@ inline void agent_data_extractor(KeyQvalueFormatter & message, array_view_const_
                 }
             }
         };
+        auto line_with_7_var = [&](Av var1, Av var2, Av var3, Av var4, Av var5, Av var6, Av var7) {
+            if (auto const subitem_separator = find(parameters, '\x01')) {
+                auto const text = left(parameters, subitem_separator);
+                auto const remaining = right(parameters, subitem_separator);
+                if (auto const subitem_separator2 = find(remaining, '\x01')) {
+                    auto const text2 = left(remaining, subitem_separator2);
+                    auto const remaining2 = right(remaining, subitem_separator2);
+                    if (auto const subitem_separator3 = find(remaining2, '\x01')) {
+                        auto const text3 = left(remaining2, subitem_separator3);
+                        auto const remaining3 = right(remaining2, subitem_separator3);
+                        if (auto const subitem_separator4 = find(remaining3, '\x01')) {
+
+                            auto const text4 = left(remaining3, subitem_separator4);
+                            auto const remaining4 = right(remaining3, subitem_separator4);
+                            if (auto const subitem_separator5 = find(remaining4, '\x01')) {
+
+                                auto const text5 = left(remaining4, subitem_separator5);
+                                auto const remaining5 = right(remaining4, subitem_separator5);
+                                if (auto const subitem_separator6 = find(remaining5, '\x01')) {
+
+
+                                    auto const text6 = left(remaining5, subitem_separator6);
+                                    auto const text7 = right(remaining5, subitem_separator6);
+                                    message.assign(order, {
+                                        {zstr(var1), text},
+                                        {zstr(var2), text2},
+                                        {zstr(var3), text3},
+                                        {zstr(var4), text4},
+                                        {zstr(var5), text5},
+                                        {zstr(var6), text6},
+                                        {zstr(var7), text7},
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        const char Format_PreferredDropEffect[]  = "Preferred DropEffect(";
+        const char Format_FileGroupDescriptorW[] = "FileGroupDescriptorW(";
 
         // TODO used string_id: switch (sid(order)) { case "string"_sid: ... }
         if (cstr_equal("PASSWORD_TEXT_BOX_GET_FOCUS", order)
@@ -948,32 +1028,33 @@ inline void agent_data_extractor(KeyQvalueFormatter & message, array_view_const_
         else if (cstr_equal("EDIT_CHANGED", order)) {
             line_with_2_var("windows", "edit");
         }
-
-        else if (cstr_equal("DRIVE_REDIRECTION_USE", order)) {
+        else if (underlying_cast(meta_params.log_file_system_activities) &&
+                 cstr_equal("DRIVE_REDIRECTION_USE", order)) {
             line_with_2_var("device_name", "device_type");
         }
-        else if (cstr_equal("DRIVE_REDIRECTION_READ", order)
-              || cstr_equal("DRIVE_REDIRECTION_WRITE", order)
-              || cstr_equal("DRIVE_REDIRECTION_DELETE", order)) {
+        else if (underlying_cast(meta_params.log_file_system_activities) &&
+                 (cstr_equal("DRIVE_REDIRECTION_READ", order)
+               || cstr_equal("DRIVE_REDIRECTION_WRITE", order)
+               || cstr_equal("DRIVE_REDIRECTION_DELETE", order))) {
             line_with_1_var("file_name");
         }
-        else if (cstr_equal("DRIVE_REDIRECTION_READ_EX", order)
-              || cstr_equal("DRIVE_REDIRECTION_WRITE_EX", order)) {
+        else if (underlying_cast(meta_params.log_file_system_activities) &&
+                 (cstr_equal("DRIVE_REDIRECTION_READ_EX", order)
+               || cstr_equal("DRIVE_REDIRECTION_WRITE_EX", order))) {
             line_with_3_var("file_name", "size", "sha256");
         }
-        else if (cstr_equal("DRIVE_REDIRECTION_RENAME", order)) {
+        else if (underlying_cast(meta_params.log_file_system_activities) &&
+                 cstr_equal("DRIVE_REDIRECTION_RENAME", order)) {
             line_with_2_var("old_file_name", "new_file_name");
         }
-
-        else if (cstr_equal("CB_COPYING_PASTING_FILE_TO_REMOTE_SESSION", order)
-              || cstr_equal("CB_COPYING_PASTING_FILE_FROM_REMOTE_SESSION", order)) {
+        else if (underlying_cast(meta_params.log_clipboard_activities) &&
+                 (cstr_equal("CB_COPYING_PASTING_FILE_TO_REMOTE_SESSION", order)
+               || cstr_equal("CB_COPYING_PASTING_FILE_FROM_REMOTE_SESSION", order))) {
             line_with_3_var("file_name", "size", "sha256");
         }
-
         else if (cstr_equal("CLIENT_EXECUTE_REMOTEAPP", order)) {
             line_with_1_var("exe_or_file");
         }
-
         else if (cstr_equal("CERTIFICATE_CHECK_SUCCESS", order)
               || cstr_equal("SERVER_CERTIFICATE_NEW", order)
               || cstr_equal("SERVER_CERTIFICATE_MATCH_SUCCESS", order)
@@ -981,16 +1062,13 @@ inline void agent_data_extractor(KeyQvalueFormatter & message, array_view_const_
               || cstr_equal("SERVER_CERTIFICATE_ERROR", order)) {
             line_with_1_var("description");
         }
-
         else if ((cstr_equal("OUTBOUND_CONNECTION_BLOCKED_2", order)) ||
                  (cstr_equal("OUTBOUND_CONNECTION_DETECTED_2", order))) {
             line_with_5_var("rule", "app_name", "app_cmd_line", "dst_addr", "dst_port");
         }
-
         else if (cstr_equal("STARTUP_APPLICATION_FAIL_TO_RUN", order)) {
             line_with_2_var("application_name", "raw_result");
         }
-
         else if (cstr_equal("STARTUP_APPLICATION_FAIL_TO_RUN_2", order)) {
             line_with_3_var("application_name", "raw_result", "raw_result_message");
         }
@@ -998,16 +1076,69 @@ inline void agent_data_extractor(KeyQvalueFormatter & message, array_view_const_
               || cstr_equal("PROCESS_DETECTED", order)) {
             line_with_3_var("rule", "app_name", "app_cmd_line");
         }
-
-        else if (cstr_equal("CB_COPYING_PASTING_DATA_TO_REMOTE_SESSION", order)
-              || cstr_equal("CB_COPYING_PASTING_DATA_FROM_REMOTE_SESSION", order)) {
-            line_with_2_var("format", "size");
+        else if (cstr_equal("KERBEROS_TICKET_CREATION", order)
+              || cstr_equal("KERBEROS_TICKET_DELETION", order)) {
+            line_with_7_var("encryption_type", "client_name", "server_name", "start_time", "end_time", "renew_time", "flags");
         }
-        else if (cstr_equal("CB_COPYING_PASTING_DATA_TO_REMOTE_SESSION_EX", order)
-              || cstr_equal("CB_COPYING_PASTING_DATA_FROM_REMOTE_SESSION_EX", order)) {
-            line_with_3_var("format", "size", "partial_data");
+        else if (underlying_cast(meta_params.log_clipboard_activities) &&
+                 (cstr_equal("CB_COPYING_PASTING_DATA_TO_REMOTE_SESSION", order)
+               || cstr_equal("CB_COPYING_PASTING_DATA_FROM_REMOTE_SESSION", order))) {
+            Av var1{"format"};
+            Av var2{"size"};
+            if (auto const subitem_separator = find(parameters, '\x01')) {
+                auto const format = left(parameters, subitem_separator);
+                if ((!underlying_cast(meta_params.log_only_relevant_clipboard_activities)) ||
+                    (strncasecmp(Format_PreferredDropEffect, format.data(), std::min<>(format.size(), sizeof(Format_PreferredDropEffect) - 1)) &&
+                     strncasecmp(Format_FileGroupDescriptorW, format.data(), std::min<>(format.size(), sizeof(Format_FileGroupDescriptorW) - 1)))) {
+                    message.assign(order, {
+                        {zstr(var1), format},
+                        {zstr(var2), right(parameters, subitem_separator)},
+                    });
+                }
+            }
         }
+        else if (underlying_cast(meta_params.log_clipboard_activities) &&
+                 (cstr_equal("CB_COPYING_PASTING_DATA_TO_REMOTE_SESSION_EX", order)
+               || cstr_equal("CB_COPYING_PASTING_DATA_FROM_REMOTE_SESSION_EX", order))) {
+            Av var1{"format"};
+            Av var2{"size"};
+            Av var3{"partial_data"};
+            if (auto const subitem_separator = find(parameters, '\x01')) {
+                auto const format = left(parameters, subitem_separator);
+                auto const remaining = right(parameters, subitem_separator);
+                if (auto const subitem_separator2 = find(remaining, '\x01')) {
+                    if ((!underlying_cast(meta_params.log_only_relevant_clipboard_activities)) ||
+                        (strncasecmp(Format_PreferredDropEffect, format.data(), std::min<>(format.size(), sizeof(Format_PreferredDropEffect) - 1)) &&
+                         strncasecmp(Format_FileGroupDescriptorW, format.data(), std::min<>(format.size(), sizeof(Format_FileGroupDescriptorW) - 1)))) {
 
+                        Av partial_data = right(remaining, subitem_separator2);
+
+                        {
+                            char const * tmp_d = partial_data.data();
+                            size_t tmp_l       = partial_data.size();
+
+                            while (tmp_l) {
+                                size_t nbb = ::UTF8CharNbBytes(::byte_ptr_cast(tmp_d));
+                                if (nbb > tmp_l) {
+                                    partial_data = partial_data.first(partial_data.size() - tmp_l);
+
+                                    break;
+                                }
+
+                                tmp_l -= nbb;
+                                tmp_d += nbb;
+                            }
+                        }
+
+                        message.assign(order, {
+                            {zstr(var1), format},
+                            {zstr(var2), left(remaining, subitem_separator2)},
+                            {zstr(var3), partial_data},
+                        });
+                    }
+                }
+            }
+        }
         else {
             message.clear();
             LOG(LOG_WARNING,
@@ -1025,8 +1156,8 @@ inline void agent_data_extractor(KeyQvalueFormatter & message, array_view_const_
 }
 
 namespace {
-    constexpr array_view_const_char session_meta_kbd_prefix() { return cstr_array_view("[Kbd]"); }
-    constexpr array_view_const_char session_meta_kbd_suffix() { return cstr_array_view("\n"); }
+    constexpr array_view_const_char session_meta_kbd_prefix() noexcept { return cstr_array_view("[Kbd]"); }
+    constexpr array_view_const_char session_meta_kbd_suffix() noexcept { return cstr_array_view("\n"); }
 }
 
 /*
@@ -1055,13 +1186,18 @@ class SessionMeta final : public gdi::KbdInputApi, public gdi::CaptureApi, publi
     bool is_probe_enabled_session = false;
     bool previous_char_is_event_flush = false;
     const bool key_markers_hidden_state;
+    const MetaParams meta_params;
+
+    bool keyboard_input_mask_hidden = false;
+    int hidden_masked_char_count = 0;
 
 public:
-    explicit SessionMeta(const timeval & now, Transport & trans, bool key_markers_hidden_state)
+    explicit SessionMeta(const timeval & now, Transport & trans, bool key_markers_hidden_state, MetaParams meta_params)
     : kbd_stream{this->kbd_buffer + session_meta_kbd_prefix().size(), kbd_buffer_usable_char}
     , last_time(now.tv_sec)
     , trans(trans)
     , key_markers_hidden_state(key_markers_hidden_state)
+    , meta_params(meta_params)
     {
         memcpy(this->kbd_buffer, session_meta_kbd_prefix().data(), session_meta_kbd_prefix().size());
 
@@ -1114,7 +1250,7 @@ public:
 
     void session_update(const timeval& now, array_view_const_char message) override {
         this->is_probe_enabled_session = (::strcasecmp(message.data(), "Probe.Status=Unknown") != 0);
-        agent_data_extractor(this->formatted_message, message);
+        agent_data_extractor(this->formatted_message, message, this->meta_params);
         if (!this->formatted_message.av().empty()) {
             this->send_line(now.tv_sec, this->formatted_message.av());
         }
@@ -1137,7 +1273,11 @@ private:
         if (!this->kbd_stream.has_room(1)) {
             this->send_kbd();
         }
-        this->kbd_stream.out_uint8('*');
+        if (this->keyboard_input_mask_hidden) {
+            this->hidden_masked_char_count++;
+        } else {
+            this->kbd_stream.out_uint8('*');
+        }
     }
 
     void write_keys(uint32_t uchar) {
@@ -1225,9 +1365,14 @@ private:
     }
 
     void send_kbd() {
-        if (this->kbd_stream.get_offset()) {
+          if (this->kbd_stream.get_offset() || (!this->keyboard_input_mask_hidden && this->hidden_masked_char_count)) {
+            while (this->hidden_masked_char_count) {
+                this->kbd_stream.out_uint8('*');
+                this->hidden_masked_char_count--;
+            }
+            this->hidden_masked_char_count = 0;
             this->formatted_message.assign("KBD_INPUT", {
-                {"data", stream_to_avchar(this->kbd_stream)}
+                {"data", this->kbd_stream.get_bytes().as_chars()}
             });
             this->send_data(this->last_time, this->formatted_message.av(), '-');
             this->kbd_stream.rewind();
@@ -1242,13 +1387,16 @@ class SessionLogAgent : public gdi::CaptureProbeApi
     KeyQvalueFormatter line;
     SessionMeta & session_meta;
 
+    MetaParams meta_params;
+
 public:
-    explicit SessionLogAgent(SessionMeta & session_meta)
+    explicit SessionLogAgent(SessionMeta & session_meta, MetaParams meta_params)
     : session_meta(session_meta)
+    , meta_params(meta_params)
     {}
 
     void session_update(const timeval& now, array_view_const_char message) override {
-        agent_data_extractor(this->line, message);
+        agent_data_extractor(this->line, message, this->meta_params);
         if (!this->line.str().empty()) {
             this->session_meta.send_line(now.tv_sec, this->line.av());
         }
@@ -1268,10 +1416,10 @@ public:
 
     explicit MetaCaptureImpl(CaptureParams const& capture_params, MetaParams const & meta_params)
     : meta_trans(unique_fd{[&](){
-        std::string record_path;
-        record_path += capture_params.record_tmp_path;
-        record_path += capture_params.basename;
-        record_path += ".meta";
+        std::string record_path = str_concat(
+            capture_params.record_tmp_path,
+            capture_params.basename,
+            ".meta");
         const char * filename = record_path.c_str();
         int const file_mode = capture_params.groupid ? (S_IRUSR|S_IRGRP) : S_IRUSR;
         int fd = ::open(filename, O_CREAT | O_TRUNC | O_WRONLY, file_mode);
@@ -1293,8 +1441,8 @@ public:
         }
         return fd;
     }()}, report_error_from_reporter(capture_params.report_message))
-    , meta(capture_params.now, this->meta_trans, underlying_cast(meta_params.hide_non_printable))
-    , session_log_agent(this->meta)
+    , meta(capture_params.now, this->meta_trans, underlying_cast(meta_params.hide_non_printable), meta_params)
+    , session_log_agent(this->meta, meta_params)
     , enable_agent(underlying_cast(meta_params.enable_session_log))
     {
     }
@@ -1359,7 +1507,13 @@ public:
                  && this->report_message)
                 {
                     this->formatted_message.assign("TITLE_BAR", {{"data", title}});
-                    this->report_message->log5(this->formatted_message.str());
+
+                    ArcsightLogInfo arc_info;
+                    arc_info.name = "TITLE_BAR";
+                    arc_info.signatureID = ArcsightLogInfo::TITLE_BAR;
+                    arc_info.message = this->formatted_message.str();
+
+                    this->report_message->log6(this->formatted_message.str(), arc_info, tvtime());
                 }
             }
 
@@ -1583,8 +1737,9 @@ Capture::Capture(
 
         if (capture_wrm) {
             this->gds.emplace_back(*this->wrm_capture_obj);
-            // TODO kbd_log_params.wrm_keyboard_log
-            this->kbds.emplace_back(*this->wrm_capture_obj);
+            if (kbd_log_params.wrm_keyboard_log) {
+                this->kbds.emplace_back(*this->wrm_capture_obj);
+            }
             this->caps.emplace_back(*this->wrm_capture_obj);
             this->ext_caps.emplace_back(*this->wrm_capture_obj);
             this->probes.emplace_back(*this->wrm_capture_obj);
@@ -1743,11 +1898,11 @@ void Capture::resize(uint16_t width, uint16_t height) {
 }
 
 // TODO: this could be done directly in external png_capture_real_time_obj object
-void Capture::update_config(bool enable_rt_display)
+Capture::RTDisplayResult Capture::set_rt_display(bool enable_rt_display)
 {
-    if (this->png_capture_real_time_obj) {
-        this->png_capture_real_time_obj->update_config(enable_rt_display);
-    }
+    return this->png_capture_real_time_obj
+        ? this->png_capture_real_time_obj->set_rt_display(enable_rt_display)
+        : Capture::RTDisplayResult::Unchanged;
 }
 
 void Capture::set_row(size_t rownum, const uint8_t * data, size_t data_length)
@@ -1791,7 +1946,7 @@ void Capture::visibility_rects_event(Rect rect) {
     uint16_t const drawable_width  = this->gd_drawable->width();
     uint16_t const drawable_height = this->gd_drawable->height();
 
-    Rect const image_frame_rect = this->video_cropper->get();
+    Rect const image_frame_rect = this->video_cropper->get_rect();
 
     assert((image_frame_rect.cx <= drawable_width) && (image_frame_rect.cy <= drawable_height));
 
@@ -1838,18 +1993,18 @@ Rect Capture::get_joint_visibility_rect() const
                         this->window_visibility_rects.cbegin(),
                         this->window_visibility_rects.cend(),
                         [&joint_visibility_rect, window, this](
-                                const WindowVisibilityRectRecord& window_visibility_rect) {
-                            if (window.window_id !=
-                                window_visibility_rect.window_id) {
+                            const WindowVisibilityRectRecord& window_visibility_rect
+                        ) {
+                            if (window.window_id != window_visibility_rect.window_id) {
                                 return;
                             }
 
                             assert(window.fields_present_flags &
-                                RDP::RAIL::WINDOW_ORDER_FIELD_VISOFFSET);
+                                   RDP::RAIL::WINDOW_ORDER_FIELD_VISOFFSET);
 
                             if (
                                 // Window is not IME icon.
-                                strcasecmp(window.title_info.c_str(), "CiceroUIWndFrame-TF_FloatingLangBar_WndTitle") &&
+                                0 != strcasecmp(window.title_info.c_str(), "CiceroUIWndFrame-TF_FloatingLangBar_WndTitle") &&
                                 ((((window.style & WS_DISABLED) || (window.style & WS_SYSMENU) || (window.style & WS_VISIBLE)) &&
                                   !(window.style & WS_ICONIC) &&
                                   (window.show_state != SW_FORCEMINIMIZE) &&
@@ -1860,7 +2015,7 @@ Rect Capture::get_joint_visibility_rect() const
                                     if (this->verbose) {
                                         LOG(LOG_INFO,
                                             "Capture::get_joint_visibility_rect(): + Title=\"%s\" Rect=%s ShowState=0x%X Style=0x%X",
-                                            window.title_info.c_str(),
+                                            window.title_info,
                                             window_visibility_rect.rect.offset(window.visible_offset_x, window.visible_offset_y),
                                             window.show_state, window.style);
                                     }
@@ -1872,16 +2027,13 @@ Rect Capture::get_joint_visibility_rect() const
                                                     window.visible_offset_y
                                                 ));
                             }
-                            else {
-                                if (this->verbose) {
-                                    LOG(LOG_INFO,
-                                        "Capture::get_joint_visibility_rect():   Title=\"%s\" Rect=%s ShowState=0x%X Style=0x%X",
-                                        window.title_info.c_str(),
-                                        window_visibility_rect.rect.offset(window.visible_offset_x, window.visible_offset_y),
-                                        window.show_state, window.style);
-                                }
+                            else if (this->verbose) {
+                                LOG(LOG_INFO,
+                                    "Capture::get_joint_visibility_rect():   Title=\"%s\" Rect=%s ShowState=0x%X Style=0x%X",
+                                    window.title_info,
+                                    window_visibility_rect.rect.offset(window.visible_offset_x, window.visible_offset_y),
+                                    window.show_state, window.style);
                             }
-
                         }
                     );
             }
@@ -2031,6 +2183,15 @@ void Capture::draw_impl(const RDP::RAIL::DeletedWindow & cmd)
 
     if (this->verbose) {
         LOG(LOG_INFO, "Capture::draw_impl(DeletedWindow): Done.");
+    }
+}
+
+void Capture::draw_impl(const RDP::RAIL::NonMonitoredDesktop & cmd)
+{
+    if (this->capture_drawable) {
+        this->graphic_api->draw(cmd);
+
+        this->visibility_rects_event(Rect(0, 0, this->gd_drawable->width(), this->gd_drawable->height()));
     }
 }
 

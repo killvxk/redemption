@@ -63,6 +63,10 @@ namespace trkeys
     TR_KV(minute, "minute", "minute");
     TR_KV(hour, "hour", "heure");
     TR_KV(before_closing, "before closing", "avant fermeture");
+
+    TR_KV(enable_rt_display, "Your session is observed by an administrator", "Votre session est observée par un administrateur.");
+    TR_KV(disable_rt_display, "Your session is no longer observed by an administrator.", "Votre session n'est plus observée par un administrateur.");
+
     TR_KV(manager_close_cnx,
         "Connection closed by manager.",
         "Le gestionnaire de session a coupé la connexion.");
@@ -108,7 +112,7 @@ namespace trkeys
         "Echec du service d'authentification");
     TR_KV(target_fail,
         "Failed to connect to remote host.",
-        "Echec de la connexion à l'hote distante.");
+        "Échec de la connexion à l'hôte distant.");
 
     TR_KV(authentification_rdp_fail,
         "Failed to authenticate with remote RDP host.",
@@ -264,8 +268,8 @@ namespace trkeys
         "(CBBL) Le cycle de lancement de Session Probe a été interrompu! La durée du délai d'attente de lancement peut être trop courte."
     );
     TR_KV(err_session_probe_cbbl_unknown_reason_refer_to_syslog,
-        "(ASBL) Session Probe launch has failed for unknown reason! Please refer to the syslog file for more detailed information regarding the error condition.",
-        "(ASBL) Le lancement de Session Probe a échoué pour une raison inconnue! Veuillez vous reporter au fichier syslog pour obtenir des informations plus détaillées concernant la condition d'erreur."
+        "(CBBL) Session Probe launch has failed for unknown reason! Please refer to the syslog file for more detailed information regarding the error condition.",
+        "(CBBL) Le lancement de Session Probe a échoué pour une raison inconnue! Veuillez vous reporter au fichier syslog pour obtenir des informations plus détaillées concernant la condition d'erreur."
     );
     TR_KV(err_session_probe_rp_launch_refer_to_syslog,
         "(RP) Could not launch Session Probe! Please refer to the syslog file for more detailed information regarding the error condition.",
@@ -323,7 +327,8 @@ class Inifile;
 
 struct Translation
 {
-    enum language_t {
+    enum language_t : unsigned char
+    {
         EN,
         FR,
         MAX_LANG

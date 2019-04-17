@@ -30,9 +30,11 @@
 #include "mod/rdp/rdp_params.hpp"
 #include "mod/rdp/rdp.hpp"
 #include "keyboard/keymap2.hpp"
-
 #include "acl/module_manager.hpp"
 
+#ifndef __EMSCRIPTEN__
+# include "mod/metrics_hmac.hpp"
+#endif
 
 void ModuleManager::create_mod_rdp(
     AuthApi& authentifier, ReportMessageApi& report_message,
@@ -58,7 +60,7 @@ void ModuleManager::create_mod_rdp(
     //}
 
     unique_fd client_sck = this->connect_to_target_host(
-        report_message, trkeys::authentification_rdp_fail);
+        report_message, trkeys::authentification_rdp_fail, "RDP");
 
     // BEGIN READ PROXY_OPT
     if (ini.get<cfg::globals::enable_wab_integration>()) {
@@ -70,6 +72,8 @@ void ModuleManager::create_mod_rdp(
     }
     // END READ PROXY_OPT
 
+
+
     ini.get_ref<cfg::context::close_box_extra_message>().clear();
     ModRDPParams mod_rdp_params(
         ini.get<cfg::globals::target_user>().c_str()
@@ -77,8 +81,8 @@ void ModuleManager::create_mod_rdp(
       , ini.get<cfg::context::target_host>().c_str()
       , "0.0.0.0"   // client ip is silenced
       , key_flags
-      , ini.get<cfg::font>()
-      , ini.get<cfg::theme>()
+      , this->load_font()
+      , this->load_theme()
       , server_auto_reconnect_packet
       , ini.get_ref<cfg::context::close_box_extra_message>()
       , to_verbose_flags(ini.get<cfg::debug::mod_rdp>())
@@ -133,10 +137,14 @@ void ModuleManager::create_mod_rdp(
     mod_rdp_params.session_probe_exe_or_file           = ini.get<cfg::mod_rdp::session_probe_exe_or_file>();
     mod_rdp_params.session_probe_arguments             = ini.get<cfg::mod_rdp::session_probe_arguments>();
 
-    mod_rdp_params.session_probe_clipboard_based_launcher_clipboard_initialization_delay = ini.get<cfg::mod_rdp::session_probe_clipboard_based_launcher_clipboard_initialization_delay>();
-    mod_rdp_params.session_probe_clipboard_based_launcher_start_delay                    = ini.get<cfg::mod_rdp::session_probe_clipboard_based_launcher_start_delay>();
-    mod_rdp_params.session_probe_clipboard_based_launcher_long_delay                     = ini.get<cfg::mod_rdp::session_probe_clipboard_based_launcher_long_delay>();
-    mod_rdp_params.session_probe_clipboard_based_launcher_short_delay                    = ini.get<cfg::mod_rdp::session_probe_clipboard_based_launcher_short_delay>();
+    mod_rdp_params.session_probe_clipboard_based_launcher.clipboard_initialization_delay_ms = ini.get<cfg::mod_rdp::session_probe_clipboard_based_launcher_clipboard_initialization_delay>();
+    mod_rdp_params.session_probe_clipboard_based_launcher.start_delay_ms                    = ini.get<cfg::mod_rdp::session_probe_clipboard_based_launcher_start_delay>();
+    mod_rdp_params.session_probe_clipboard_based_launcher.long_delay_ms                     = ini.get<cfg::mod_rdp::session_probe_clipboard_based_launcher_long_delay>();
+    mod_rdp_params.session_probe_clipboard_based_launcher.short_delay_ms                    = ini.get<cfg::mod_rdp::session_probe_clipboard_based_launcher_short_delay>();
+
+    mod_rdp_params.session_probe_ignore_ui_less_processes_during_end_of_session_check = ini.get<cfg::mod_rdp::session_probe_ignore_ui_less_processes_during_end_of_session_check>();
+
+    mod_rdp_params.session_probe_childless_window_as_unidentified_input_field = ini.get<cfg::mod_rdp::session_probe_childless_window_as_unidentified_input_field>();
 
     mod_rdp_params.session_probe_public_session        = ini.get<cfg::mod_rdp::session_probe_public_session>();
 
@@ -150,6 +158,9 @@ void ModuleManager::create_mod_rdp(
         ini.get<cfg::context::session_probe_outbound_connection_monitoring_rules>().c_str();
     mod_rdp_params.session_probe_process_monitoring_rules             =
         ini.get<cfg::context::session_probe_process_monitoring_rules>().c_str();
+
+    mod_rdp_params.session_probe_windows_of_these_applications_as_unidentified_input_field =
+        ini.get<cfg::context::session_probe_windows_of_these_applications_as_unidentified_input_field>().c_str();
 
     mod_rdp_params.session_probe_enable_log            = ini.get<cfg::mod_rdp::session_probe_enable_log>();
     mod_rdp_params.session_probe_enable_log_rotation   = ini.get<cfg::mod_rdp::session_probe_enable_log_rotation>();
@@ -252,14 +263,16 @@ void ModuleManager::create_mod_rdp(
 
     mod_rdp_params.experimental_fix_input_event_sync   = ini.get<cfg::mod_rdp::experimental_fix_input_event_sync>();
     mod_rdp_params.experimental_fix_too_long_cookie    = ini.get<cfg::mod_rdp::experimental_fix_too_long_cookie>();
+    mod_rdp_params.log_only_relevant_clipboard_activities
+                                                       = ini.get<cfg::mod_rdp::log_only_relevant_clipboard_activities>();
 
     try {
         const char * const name = "RDP Target";
 
         Rect const adjusted_client_execute_rect =
             client_execute.adjust_rect(get_widget_rect(
-                    client_info.width,
-                    client_info.height,
+                    client_info.screen_info.width,
+                    client_info.screen_info.height,
                     client_info.cs_monitor
                 ));
 
@@ -268,15 +281,61 @@ void ModuleManager::create_mod_rdp(
                 !mod_rdp_params.remote_program);
 
         if (host_mod_in_widget) {
-            client_info.width  = adjusted_client_execute_rect.cx / 4 * 4;
-            client_info.height = adjusted_client_execute_rect.cy;
+            client_info.screen_info.width  = adjusted_client_execute_rect.cx / 4 * 4;
+            client_info.screen_info.height = adjusted_client_execute_rect.cy;
             client_info.cs_monitor = GCC::UserData::CSMonitor{};
         }
         else {
             client_execute.reset(false);
         }
 
-        ModWithSocket<mod_rdp>* new_mod = new ModWithSocket<mod_rdp>(
+        const char * target_user = ini.get<cfg::globals::target_user>().c_str();
+
+#ifndef __EMSCRIPTEN__
+        struct ModRDPWithMetrics : public mod_rdp
+        {
+            std::unique_ptr<Metrics> metrics = nullptr;
+            std::unique_ptr<RDPMetrics> protocol_metrics = nullptr;
+            SessionReactor::TimerPtr metrics_timer;
+
+            using mod_rdp::mod_rdp;
+        };
+
+        bool const enable_metrics = (ini.get<cfg::metrics::enable_rdp_metrics>()
+            && create_metrics_directory(ini.get<cfg::metrics::log_dir_path>().to_string()));
+
+        std::unique_ptr<Metrics> metrics;
+        std::unique_ptr<RDPMetrics> protocol_metrics;
+
+        if (enable_metrics) {
+            metrics = std::make_unique<Metrics>(
+                ini.get<cfg::metrics::log_dir_path>().to_string(),
+                ini.get<cfg::context::session_id>(),
+                hmac_user(
+                    ini.get<cfg::globals::auth_user>(),
+                    ini.get<cfg::metrics::sign_key>()),
+                hmac_account(
+                    {target_user, strlen(target_user)},
+                    ini.get<cfg::metrics::sign_key>()),
+                hmac_device_service(
+                    ini.get<cfg::globals::target_device>(),
+                    ini.get<cfg::context::target_service>(),
+                    ini.get<cfg::metrics::sign_key>()),
+                hmac_client_info(
+                    ini.get<cfg::globals::host>(),
+                    client_info.screen_info,
+                    ini.get<cfg::metrics::sign_key>()),
+                this->timeobj.get_time(),
+                ini.get<cfg::metrics::log_file_turnover_interval>(),
+                ini.get<cfg::metrics::log_interval>());
+
+            protocol_metrics = std::make_unique<RDPMetrics>(metrics.get());
+        }
+#else
+        using ModRDPWithMetrics = mod_rdp;
+#endif
+
+        auto new_mod = std::make_unique<ModWithSocket<ModRDPWithMetrics>>(
             *this,
             authentifier,
             name,
@@ -293,29 +352,45 @@ void ModuleManager::create_mod_rdp(
             mod_rdp_params,
             authentifier,
             report_message,
-            ini
+            ini,
+            enable_metrics ? protocol_metrics.get() : nullptr
         );
-        std::unique_ptr<mod_api> managed_mod(new_mod);
+
+#ifndef __EMSCRIPTEN__
+        if (enable_metrics) {
+            new_mod->metrics = std::move(metrics);
+            new_mod->protocol_metrics = std::move(protocol_metrics);
+            new_mod->metrics_timer = session_reactor.create_timer()
+                .set_delay(std::chrono::seconds(ini.get<cfg::metrics::log_interval>()))
+                .on_action([mod = new_mod.get()](JLN_TIMER_CTX ctx){
+                    mod->metrics->log(ctx.get_current_time());
+                    return ctx.ready();
+                })
+            ;
+        }
+#endif
 
         if (host_mod_in_widget) {
             LOG(LOG_INFO, "ModuleManager::Creation of internal module 'RailModuleHostMod'");
 
-            std::string target_info
-              = ini.get<cfg::context::target_str>()
-              + ":"
-              + ini.get<cfg::globals::primary_user_id>();
+            std::string target_info = str_concat(
+                ini.get<cfg::context::target_str>(),
+                ':',
+                ini.get<cfg::globals::primary_user_id>());
 
-            client_execute.set_target_info(target_info.c_str());
+            client_execute.set_target_info(target_info);
 
             auto* host_mod = new RailModuleHostMod(
                 ini,
                 this->session_reactor,
                 front,
-                client_info.width,
-                client_info.height,
+                client_info.screen_info.width,
+                client_info.screen_info.height,
                 adjusted_client_execute_rect,
-                std::move(managed_mod),
+                std::move(new_mod),
                 client_execute,
+                this->load_font(),
+                this->load_theme(),
                 client_info.cs_monitor,
                 !ini.get<cfg::globals::is_rec>()
             );
@@ -325,16 +400,21 @@ void ModuleManager::create_mod_rdp(
             LOG(LOG_INFO, "ModuleManager::internal module 'RailModuleHostMod' ready");
         }
         else {
-            rdp_api*       rdpapi = new_mod;
+            rdp_api*       rdpapi = new_mod.get();
             windowing_api* winapi = new_mod->get_windowing_api();
-            this->set_mod(managed_mod.release(), rdpapi, winapi);
+            this->set_mod(new_mod.release(), rdpapi, winapi);
         }
 
         /* If provided by connection policy, session timeout update */
         report_message.update_inactivity_timeout();
     }
     catch (...) {
-        report_message.log5("type=\"SESSION_CREATION_FAILED\"");
+        ArcsightLogInfo arc_info;
+        arc_info.name = "SESSION_CREATION";
+        arc_info.signatureID = ArcsightLogInfo::SESSION_CREATION;
+        arc_info.ApplicationProtocol = "rdp";
+        arc_info.WallixBastionStatus = "FAIL";
+        report_message.log6("type=\"SESSION_CREATION_FAILED\"", arc_info, this->session_reactor.get_current_time());
 
         throw;
     }
@@ -344,9 +424,9 @@ void ModuleManager::create_mod_rdp(
         (client_info.cs_monitor.monitorCount > 1)) {
         this->mod->rdp_suppress_display_updates();
         this->mod->rdp_allow_display_updates(0, 0,
-            client_info.width, client_info.height);
+            client_info.screen_info.width, client_info.screen_info.height);
     }
-    this->mod->rdp_input_invalidate(Rect(0, 0, client_info.width, client_info.height));
+    this->mod->rdp_input_invalidate(Rect(0, 0, client_info.screen_info.width, client_info.screen_info.height));
     LOG(LOG_INFO, "ModuleManager::Creation of new mod 'RDP' suceeded\n");
     ini.get_ref<cfg::context::auth_error_message>().clear();
     this->connected = true;

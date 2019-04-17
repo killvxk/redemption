@@ -19,6 +19,7 @@ Author(s): Jonathan Poelen
 */
 
 #include "core/session_reactor.hpp"
+#include "gdi/screen_functions.hpp"
 #include "mod/rdp/rdp.hpp"
 #include "mod/rdp/rdp_negociation.hpp"
 
@@ -26,6 +27,7 @@ Author(s): Jonathan Poelen
 struct Private_RdpNegociation
 {
     RdpNegociation rdp_negociation;
+    SessionReactor::GraphicEventPtr graphic_event;
 
     template<class... Ts>
     explicit Private_RdpNegociation(char const* program, char const* directory, Ts&&... xs)
@@ -76,11 +78,7 @@ void mod_rdp::init_negociate_event_(
             #undef CASE
         }
 
-        this->close_box_extra_message_ref += " ";
-        this->close_box_extra_message_ref += statedescr;
-        this->close_box_extra_message_ref += " (";
-        this->close_box_extra_message_ref += statestr;
-        this->close_box_extra_message_ref += ")";
+        str_append(this->close_box_extra_message_ref, ' ', statedescr, " (", statestr, ')');
 
         LOG(LOG_ERR, "Creation of new mod 'RDP' failed at %s state. %s",
             statestr, statedescr);
@@ -91,13 +89,13 @@ void mod_rdp::init_negociate_event_(
     this->fd_event = this->session_reactor
     .create_graphic_fd_event(this->trans.get_fd(), jln::emplace<Private_RdpNegociation>(
         program, directory,
-        this->authorization_channels, this->mod_channel_list,
-        this->auth_channel, this->checkout_channel,
-        this->decrypt, this->encrypt, this->logon_info,
-        this->enable_auth_channel,
+        this->channels.authorization_channels, this->channels.mod_channel_list,
+        this->channels.auth_channel, this->channels.checkout_channel,
+        this->decrypt, this->stc.encrypt, this->logon_info,
+        this->channels.enable_auth_channel,
         this->trans, this->front, info, this->redir_info,
         this->gen, timeobj, mod_rdp_params, this->report_message,
-        (this->file_system_drive_manager.HasManagedDrive() || this->enable_session_probe)
+        (this->channels.file_system_drive_manager.has_managed_drive() || this->channels.enable_session_probe)
     ))
     .set_timeout(std::chrono::milliseconds(0))
     .on_exit(check_error)
@@ -108,8 +106,9 @@ void mod_rdp::init_negociate_event_(
         rdp_negociation.start_negociation();
 
         return ctx.replace_action([this](
-            JLN_TOP_CTX ctx, gdi::GraphicApi&, RdpNegociation& rdp_negociation
+            JLN_TOP_CTX ctx, gdi::GraphicApi&, Private_RdpNegociation& private_rdp_negociation
         ){
+            RdpNegociation& rdp_negociation = private_rdp_negociation;
             bool const is_finish = rdp_negociation.recv_data(this->buf);
 
             // RdpNego::recv_next_data set a new fd if tls
@@ -123,10 +122,18 @@ void mod_rdp::init_negociate_event_(
             }
 
             this->negociation_result = rdp_negociation.get_result();
+            if (this->buf.remaining()) {
+                private_rdp_negociation.graphic_event = ctx.get_reactor().create_graphic_event()
+                .on_action(jln::one_shot([this](gdi::GraphicApi& gd){
+                    this->draw_event_impl(this->session_reactor.get_current_time().tv_sec, gd);
+                }));
+            }
+
             // TODO replace_event()
             return ctx.disable_timeout()
             .replace_exit(jln::propagate_exit())
-            .replace_action([this](auto ctx, gdi::GraphicApi& gd, RdpNegociation&){
+            .replace_action([this](auto ctx, gdi::GraphicApi& gd, Private_RdpNegociation& private_rdp_negociation){
+                private_rdp_negociation.graphic_event.reset();
                 this->draw_event(ctx.get_current_time().tv_sec, gd);
                 return ctx.need_more_data();
             });
@@ -140,7 +147,7 @@ void mod_rdp::init_negociate_event_(
 
             this->report_message.report("CONNECTION_FAILED", "Logon timer expired.");
 
-            if (this->enable_session_probe) {
+            if (this->channels.enable_session_probe) {
                 const bool disable_input_event     = false;
                 const bool disable_graphics_update = false;
                 this->disable_input_event_and_graphics_update(

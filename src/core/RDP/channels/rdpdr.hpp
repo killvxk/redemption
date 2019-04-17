@@ -30,7 +30,6 @@
 #include "utils/stream.hpp"
 #include "utils/sugar/cast.hpp"
 #include "utils/sugar/noncopyable.hpp"
-#include "utils/sugar/underlying_cast.hpp"
 #include "utils/utf.hpp"
 
 #include <algorithm>
@@ -822,19 +821,6 @@ enum : uint32_t {
   , RDPDR_PRINTER_ANNOUNCE_FLAG_XPSFORMAT      = 0x00000010
 };
 
-static std::string get_rdpdr_printer_flags_name(uint32_t flags)
-{
-    std::string str;
-    #define ASTR(f) if (flags & f) str += #f " "
-    ASTR(RDPDR_PRINTER_ANNOUNCE_FLAG_ASCII);
-    ASTR(RDPDR_PRINTER_ANNOUNCE_FLAG_DEFAULTPRINTER);
-    ASTR(RDPDR_PRINTER_ANNOUNCE_FLAG_NETWORKPRINTER);
-    ASTR(RDPDR_PRINTER_ANNOUNCE_FLAG_TSPRINTER);
-    ASTR(RDPDR_PRINTER_ANNOUNCE_FLAG_XPSFORMAT);
-    #undef ASTR
-    return str;
-}
-
 
 // CodePage (4 bytes): A 32-bit unsigned integer. Reserved for future use. This field MUST be set to 0.
 //
@@ -981,7 +967,15 @@ struct DeviceAnnounceHeaderPrinterSpecificData {
 //         LOG(LOG_INFO, "          * DeviceId         = 0x%08x (4 bytes)", this->DeviceId);
 //         LOG(LOG_INFO, "          * DeviceName       = \"%.*s\" (8 bytes)", 8, this->PreferredDosName);
 //         LOG(LOG_INFO, "          * DeviceDataLength = %d (4 bytes)", int(this->DeviceDataLength));
-        LOG(LOG_INFO, "          * Flags           = 0x%08x (4 bytes): %s", this->Flags, get_rdpdr_printer_flags_name(this->Flags).c_str());
+#define ASTR(f) (this->Flags & f) ? " " #f : ""
+        LOG(LOG_INFO, "          * Flags           = 0x%08x (4 bytes):%s%s%s%s%s", this->Flags,
+            ASTR(RDPDR_PRINTER_ANNOUNCE_FLAG_ASCII),
+            ASTR(RDPDR_PRINTER_ANNOUNCE_FLAG_DEFAULTPRINTER),
+            ASTR(RDPDR_PRINTER_ANNOUNCE_FLAG_NETWORKPRINTER),
+            ASTR(RDPDR_PRINTER_ANNOUNCE_FLAG_TSPRINTER),
+            ASTR(RDPDR_PRINTER_ANNOUNCE_FLAG_XPSFORMAT)
+        );
+#undef ASTR
         LOG(LOG_INFO, "          * CodePage        = 0x%08x (4 bytes)", this->CodePage);
         LOG(LOG_INFO, "          * PnPNameLen      = %zu (4 bytes)", this->PnPNameLen);
         LOG(LOG_INFO, "          * DriverNameLen   = %zu (4 bytes)", this->DriverNameLen);
@@ -1359,13 +1353,11 @@ public:
         , CreateDisposition_(CreateDisposition)
         , CreateOptions_(CreateOptions)
        // , PathLength_UTF16(PathLength_UTF16)
-        , PathLength_UTF8(PathLength_UTF8)
+        // TODO if PathLength_UTF8 > sizeof(this->Path_) ?
+        , PathLength_UTF8(std::min(sizeof(this->Path_) - 1, PathLength_UTF8))
         {
-            if (PathLength_UTF8 > 65536) {
-                PathLength_UTF8 = 65536;
-            }
-
-            std::memcpy(this->Path_, Path_UTF8, PathLength_UTF8);
+            std::memcpy(this->Path_, Path_UTF8, this->PathLength_UTF8);
+            this->Path_[this->PathLength_UTF8] = 0;
         }
 
     void emit(OutStream & stream) const {
@@ -1378,9 +1370,9 @@ public:
 
         uint8_t Path_unicode_data[65536];
         size_t size_of_Path_unicode_data = ::UTF8toUTF16(
-            this->Path_,
-            Path_unicode_data,
-            sizeof(Path_unicode_data));
+        		this->Path(),
+				Path_unicode_data,
+				sizeof(Path_unicode_data));
 
         assert(size_of_Path_unicode_data <= 65534);
 
@@ -1442,8 +1434,9 @@ public:
 
             this->PathLength_UTF8 = ::UTF16toUTF8(Path_unicode_data, this->PathLength_UTF16, this->Path_,
                 65536);
-
-            this->Path_[this->PathLength_UTF8] = '\0';
+            if (this->PathLength_UTF8) {
+                this->PathLength_UTF8--;
+            }
 
             for (size_t i = 0; i < this->PathLength_UTF8; i++) {
                 if ('\\' == this->Path_[i]) {
@@ -1467,7 +1460,7 @@ public:
 
     uint32_t CreateOptions() const { return this->CreateOptions_; }
 
-    const char * Path() const { return char_ptr_cast(this->Path_); }
+    array_view_const_char Path() const { return {char_ptr_cast(this->Path_), this->PathLength_UTF8}; }
 
     size_t PathLength() const { return this->PathLength_UTF16; }
 
@@ -1489,7 +1482,7 @@ public:
             LOG(LOG_INFO, "          * DesiredAccess     = 0x%08x (4 bytes): %s", this->DesiredAccess_, smb2::get_File_Pipe_Printer_Access_Mask_name(this->DesiredAccess_));
         }
         LOG(LOG_INFO, "          * AllocationSize    = 0x%" PRIu64 " (8 bytes)", this->AllocationSize_);
-        LOG(LOG_INFO, "          * FileAttributes    = 0x%08x (4 bytes): %s", this->FileAttributes_, fscc::get_FileAttributes_name(this->FileAttributes_));
+        fscc::log_file_attributes(this->FileAttributes_);
         LOG(LOG_INFO, "          * SharedAccess      = 0x%08x (4 bytes): %s", this->SharedAccess_,  smb2::get_ShareAccess_name(this->SharedAccess_));
         LOG(LOG_INFO, "          * CreateDisposition = 0x%08x (4 bytes): %s", this->CreateDisposition_, smb2::get_CreateDisposition_name(this->CreateDisposition_));
         LOG(LOG_INFO, "          * CreateOptions     = 0x%08x (4 bytes): %s", this->CreateOptions_, smb2::get_CreateOptions_name(this->CreateOptions_));
@@ -1670,17 +1663,17 @@ public:
 
     uint64_t Offset() const { return this->Offset_; }
 
-    void log(int level) const {
-        LOG(level, "DeviceReadRequest: Length=%u Offset=%" PRIu64,
+    void log(int level = LOG_INFO) const {
+        LOG(level, "DeviceReadRequest: Length=%u(4 bytes) Offset=%" PRIu64 "(8 bytes) Padding(20 bytes) NOT USED",
             this->Length_, this->Offset_);
     }
 
-    void log() const {
-        LOG(LOG_INFO, "     Device Read Request:");
-        LOG(LOG_INFO, "          * Length = %u (4 bytes)", this->Length_);
-        LOG(LOG_INFO, "          * Offset = 0x%" PRIx64 " (8 bytes)", this->Offset_);
-        LOG(LOG_INFO, "          * Padding - (20 bytes) NOT USED");
-    }
+//     void log() const {
+//         LOG(LOG_INFO, "     Device Read Request:");
+//         LOG(LOG_INFO, "          * Length = %u (4 bytes)", this->Length_);
+//         LOG(LOG_INFO, "          * Offset = 0x%" PRIx64 " (8 bytes)", this->Offset_);
+//         LOG(LOG_INFO, "          * Padding - (20 bytes) NOT USED");
+//     }
 };
 
 
@@ -2625,7 +2618,7 @@ public:
     void emit(OutStream & stream) const {
         stream.out_uint16_le(this->VersionMajor_);
         stream.out_uint16_le(this->VersionMinor_);
-        stream.out_uint16_le(this->ClientId_);
+        stream.out_uint32_le(this->ClientId_);
     }
 
     void receive(InStream & stream) {
@@ -2854,7 +2847,7 @@ public:
             // The null-terminator is included.
             uint8_t ComputerName_unicode_data[65536];
             size_t size_of_ComputerName_unicode_data = ::UTF8toUTF16(
-                byte_ptr_cast(this->ComputerName),
+                {this->ComputerName, this->ComputerNameLen},
                 ComputerName_unicode_data, sizeof(ComputerName_unicode_data));
             // Writes null terminator.
             ComputerName_unicode_data[size_of_ComputerName_unicode_data    ] =
@@ -4064,7 +4057,7 @@ public:
 
         uint8_t FileName_unicode_data[1000];
         const size_t size_of_FileName_unicode_data = ::UTF8toUTF16(
-            byte_ptr_cast(this->FileName_),
+            {this->FileName_, this->FileNameLength},
             FileName_unicode_data, sizeof(FileName_unicode_data));
 
         uint8_t * temp_p = FileName_unicode_data;
@@ -4280,7 +4273,7 @@ public:
         // The null-terminator is included.
         uint8_t Path_unicode_data[65536];
         size_t size_of_Path_unicode_data = ::UTF8toUTF16(
-            byte_ptr_cast(this->Path_),
+            {this->Path_, this->PathLength},
             Path_unicode_data, sizeof(Path_unicode_data));
 
         assert(size_of_Path_unicode_data <= 65534);

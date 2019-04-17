@@ -25,16 +25,11 @@
 #pragma once
 
 #include "gdi/graphic_api.hpp"
-
 #include "utils/sugar/array_view.hpp"
-
-struct Capability;
-class InStream;
-struct OrderCaps;
 
 namespace CHANNELS {
     class ChannelDefArray;
-    struct ChannelDef;
+    class ChannelDef;
 }
 
 class FrontAPI : public gdi::GraphicApi
@@ -54,7 +49,7 @@ public:
         instant_done = 2,
         remoteapp = 3
     };
-    virtual ResizeResult server_resize(int width, int height, int bpp) = 0;
+    virtual ResizeResult server_resize(int width, int height, BitsPerPixel bpp) = 0;
 
     virtual void update_pointer_position(uint16_t /*unused*/, uint16_t /*unused*/) {}
 
@@ -66,6 +61,7 @@ public:
     virtual void session_probe_started(bool /*unused*/) {}
     virtual void set_keylayout(int LCID) { (void)LCID; }
     virtual void set_focus_on_password_textbox(bool /*unused*/) {}
+    virtual void set_focus_on_unidentified_input_field(bool /*unused*/) {}
     virtual void set_consent_ui_visible(bool /*unused*/) {}
     virtual void session_update(array_view_const_char message) { (void)message; }
 

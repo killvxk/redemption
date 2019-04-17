@@ -21,7 +21,7 @@
 */
 
 #define RED_TEST_MODULE TestPattern
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "utils/winpr/pattern.hpp"
@@ -31,7 +31,7 @@ RED_AUTO_TEST_CASE(TestFilePatternFindNextWildcardA)
     {
         unsigned int pFlags = 0;
         const char * posWildcard = FilePatternFindNextWildcardA("toto.exe", &pFlags);
-        RED_CHECK(reinterpret_cast<const void*>(posWildcard) == nullptr);
+        RED_CHECK(posWildcard == nullptr);
         RED_CHECK(pFlags == 0);
     }
 

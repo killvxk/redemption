@@ -25,8 +25,7 @@
 
 #include "utils/log.hpp"
 #include "core/session_reactor.hpp"
-//#include "client_redemption/client_redemption_api.hpp"
-#include "client_redemption/client_input_output_api/client_socket_api.hpp"
+#include "client_redemption/client_redemption_api.hpp"
 
 #if REDEMPTION_QT_VERSION == 4
 #   define REDEMPTION_QT_INCLUDE_WIDGET(name) <QtGui/name>
@@ -47,25 +46,27 @@ REDEMPTION_DIAGNOSTIC_CLANG_IGNORE("-Winconsistent-missing-override")
 Q_OBJECT
 REDEMPTION_DIAGNOSTIC_POP
 
+public:
     SessionReactor& session_reactor;
 
-public:
     QSocketNotifier           * _sckListener;
 
     QTimer timer;
 
+    ClientRedemptionAPI * client;
 
-    QtInputSocket(SessionReactor& session_reactor, QWidget * parent)
+
+    QtInputSocket(SessionReactor& session_reactor, ClientRedemptionAPI * client, QWidget * parent)
         : QObject(parent)
         , session_reactor(session_reactor)
         , _sckListener(nullptr)
         , timer(this)
+        , client(client)
     {}
 
     ~QtInputSocket() {
         this->disconnect();
     }
-
 
     void disconnect() override {
         if (this->_sckListener != nullptr) {
@@ -98,7 +99,7 @@ public:
 public Q_SLOTS:
     void call_draw_event_data() {
         // LOG(LOG_DEBUG, "draw_event_data");
-        if (this->_callback) {
+        if (this->_callback && this->client) {
             this->client->callback(false);
             this->prepare_timer_event();
         }
@@ -106,7 +107,7 @@ public Q_SLOTS:
 
     void call_draw_event_timer() {
         // LOG(LOG_DEBUG, "draw_event_timer");
-        if (this->_callback) {
+        if (this->_callback && this->client) {
             this->client->callback(true);
             this->prepare_timer_event();
         }
@@ -117,7 +118,7 @@ private:
 
         timeval now = tvtime();
         this->session_reactor.set_current_time(now);
-        timeval const tv = this->session_reactor.get_next_timeout(SessionReactor::EnableGraphics{true});
+        timeval const tv = this->session_reactor.get_next_timeout(SessionReactor::EnableGraphics{true}, std::chrono::milliseconds(1000));
         // LOG(LOG_DEBUG, "start timer: %ld %ld", tv.tv_sec, tv.tv_usec);
 
         if (tv.tv_sec > -1) {

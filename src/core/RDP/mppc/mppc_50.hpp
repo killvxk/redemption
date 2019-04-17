@@ -43,24 +43,6 @@ struct rdp_mppc_50_dec : public rdp_mppc_dec
     , history_ptr(this->history_buf)
     {}
 
-    void mini_dump() override
-    {
-        LOG(LOG_INFO, "Type=RDP 5.0 bulk decompressor");
-        LOG(LOG_INFO, "historyBuffer");
-        hexdump_d(this->history_buf,               16);
-        LOG(LOG_INFO, "historyPointerOffset=%" PRIdPTR,   this->history_ptr - this->history_buf);
-        LOG(LOG_INFO, "historyBufferEndOffset=%" PRIdPTR, this->history_buf_end - this->history_buf);
-    }
-
-    void dump() override
-    {
-        LOG(LOG_INFO, "Type=RDP 5.0 bulk decompressor");
-        LOG(LOG_INFO, "historyBuffer");
-        hexdump_d(this->history_buf,               RDP_50_HIST_BUF_LEN);
-        LOG(LOG_INFO, "historyPointerOffset=%" PRIdPTR,   this->history_ptr - this->history_buf);
-        LOG(LOG_INFO, "historyBufferEndOffset=%" PRIdPTR, this->history_buf_end - this->history_buf);
-    }
-
     /**
      * decompress RDP 5 data
      *
@@ -477,7 +459,9 @@ struct rdp_mppc_50_enc : public rdp_mppc_enc
     static const size_t MAXIMUM_HASH_BUFFER_UNDO_ELEMENT = 256;
 
     using offset_type = uint16_t;
-    using hash_table_manager = rdp_mppc_enc_hash_table_manager<offset_type>;
+    using hash_table_manager = rdp_mppc_enc_hash_table_manager<offset_type,
+                                                               RDP_40_50_COMPRESSOR_MINIMUM_MATCH_LENGTH,
+                                                               MAXIMUM_HASH_BUFFER_UNDO_ELEMENT>;
     using hash_type = hash_table_manager::hash_type;
 
     // TODO making it static and large enough should be good for both RDP4 and RDP5
@@ -499,29 +483,7 @@ struct rdp_mppc_50_enc : public rdp_mppc_enc
         , outputBuffer(this->outputBufferPlus + 64)  /* contains compressed data */
         , outputBufferPlus{0}
         , outputBufferSize(RDP_50_HIST_BUF_LEN - 1)
-        ,           hash_tab_mgr(RDP_40_50_COMPRESSOR_MINIMUM_MATCH_LENGTH,
-              MAXIMUM_HASH_BUFFER_UNDO_ELEMENT)
     {}
-
-    void dump(bool mini_dump) const override
-    {
-        LOG(LOG_INFO, "Type=RDP 5.0 bulk compressor");
-        LOG(LOG_INFO, "historyBuffer");
-        hexdump_d(this->historyBuffer, (mini_dump ? 16 : RDP_50_HIST_BUF_LEN));
-        if (mini_dump) {
-            LOG(LOG_INFO, "outputBuffer");
-            hexdump_d(this->outputBuffer, 16);
-        }
-        LOG(LOG_INFO, "outputBufferPlus");
-        hexdump_d(this->outputBufferPlus, (mini_dump ? 16 : RDP_50_HIST_BUF_LEN + 64 + 8));
-        LOG(LOG_INFO, "historyOffset=%u", this->historyOffset);
-        LOG(LOG_INFO, "bytes_in_opb=%u", this->bytes_in_opb);
-        LOG(LOG_INFO, "flags=0x%02X", this->flags);
-        LOG(LOG_INFO, "flagsHold=0x%02X", this->flagsHold);
-        LOG(LOG_INFO, "first_pkt=%s", (this->first_pkt ? "true" : "false"));
-
-        this->hash_tab_mgr.dump(mini_dump);
-    }
 
 // 3.1.8.4.2 RDP 5.0
 // =================
@@ -640,7 +602,7 @@ private:
             if (this->historyOffset == 0) {
                 /* encode first two bytes as literals */
                 ctr = RDP_40_50_COMPRESSOR_MINIMUM_MATCH_LENGTH - 1;
-                for (offset_type i = 0; i < ctr; i++) {
+                for (offset_type i = 0; i < ctr; ++i) {
                     ::encode_literal_40_50(this->historyBuffer[this->historyOffset + i],
                                            this->outputBuffer, bits_left, opb_index,
                                            this->outputBufferSize);
@@ -708,7 +670,7 @@ private:
             while (uncompressed_data_size - ctr > 0) {
                 ::encode_literal_40_50(uncompressed_data[ctr], this->outputBuffer,
                                        bits_left, opb_index, this->outputBufferSize);
-                ctr++;
+                ++ctr;
             }
         }
         catch (Error const &) {
@@ -745,16 +707,9 @@ private:
         uint8_t & compressedType, uint16_t & compressed_data_size,
         uint16_t max_compressed_data_size) override
     {
-        this->compress_50(uncompressed_data, uncompressed_data_size,
-            max_compressed_data_size);
-        if (this->flags & PACKET_COMPRESSED) {
-            compressedType       = this->flags;
-            compressed_data_size = this->bytes_in_opb;
-        }
-        else {
-            compressedType       = 0;
-            compressed_data_size = 0;
-        }
+        this->compress_50(uncompressed_data, uncompressed_data_size, max_compressed_data_size);
+        compressedType       = (this->flags & PACKET_COMPRESSED) ? this->flags        : 0;
+        compressed_data_size = (this->flags & PACKET_COMPRESSED) ? this->bytes_in_opb : 0;
     }
 
 public:

@@ -27,11 +27,12 @@
 #include "core/RDP/gcc/userdata/cs_monitor.hpp"
 #include "core/RDP/logon.hpp"
 #include "core/RDP/nego.hpp"
-#include "core/RDP/lic.hpp"
 #include "core/channel_names.hpp"
 #include "core/server_notifier_api.hpp"
-#include "mod/rdp/rdp_log.hpp"
+#include "gdi/screen_info.hpp"
+#include "mod/rdp/rdp_verbose.hpp"
 #include "mod/rdp/rdp_negociation_data.hpp"
+#include "utils/crypto/ssl_lib.hpp"
 #include "utils/key_qvalue_pairs.hpp"
 
 #include <functional> // std::reference_wrapper
@@ -47,6 +48,7 @@ class RedirectionInfo;
 class ReportMessageApi;
 class TimeObj;
 class Transport;
+class ArcsightLogInfo;
 namespace CHANNELS
 {
     class ChannelDefArray;
@@ -97,7 +99,7 @@ private:
         FrontAPI& front;
         ReportMessageApi& report_message;
 
-        void log5_server_cert(charp_or_string type, charp_or_string description);
+        void log6_server_cert(charp_or_string type, charp_or_string description, const ArcsightLogInfo & arc_info);
     };
 
 private:
@@ -128,7 +130,7 @@ private:
     uint8_t client_crypt_random[512] {};
 
     const bool console_session;
-    const uint8_t front_bpp;
+    const BitsPerPixel front_bpp;
     const uint32_t performanceFlags;
     const ClientTimeZone client_time_zone;
     Random& gen;
@@ -141,11 +143,11 @@ private:
     RdpNego nego;
 
     Transport& trans;
+    const uint32_t password_printing_mode;
     const bool enable_session_probe;
     const RdpCompression rdp_compression;
     const bool session_probe_use_clipboard_based_launcher;
     const bool remote_program;
-    const uint32_t password_printing_mode;
     const bool bogus_sc_net_size;
 
     const bool allow_using_multiple_monitors;

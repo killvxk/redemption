@@ -21,9 +21,7 @@
 */
 
 #define RED_TEST_MODULE TestCapture
-#include "system/redemption_unit_tests.hpp"
-
-#include "utils/log.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "capture/capture.hpp"
 #include "capture/capture.cpp" // Yeaaahh...
@@ -43,6 +41,7 @@
 #include "utils/png.hpp"
 #include "utils/stream.hpp"
 
+const auto file_not_exists = std::not_fn<bool(char const*)>(file_exist);
 
 RED_AUTO_TEST_CASE(TestSplittedCapture)
 {
@@ -50,17 +49,17 @@ RED_AUTO_TEST_CASE(TestSplittedCapture)
         const char * filename;
         ssize_t size;
     } fileinfo[] = {
-        {"./capture-000000.wrm", 1646},
-        {"./capture-000001.wrm", 3508},
-        {"./capture-000002.wrm", 3463},
-        {"./capture-000003.wrm", -1},
-        {"./capture.mwrm", 165},
+        {"./test_capture-000000.wrm", 1646},
+        {"./test_capture-000001.wrm", 3508},
+        {"./test_capture-000002.wrm", 3463},
+        {"./test_capture-000003.wrm", -1},
+        {"./test_capture.mwrm", 180},
         // hash
-        {"/tmp/capture-000000.wrm", 40},
-        {"/tmp/capture-000001.wrm", 40},
-        {"/tmp/capture-000002.wrm", 40},
-        {"/tmp/capture-000003.wrm", -1},
-        {"/tmp/capture.mwrm", 34},
+        {"/tmp/test_capture-000000.wrm", 45},
+        {"/tmp/test_capture-000001.wrm", 45},
+        {"/tmp/test_capture-000002.wrm", 45},
+        {"/tmp/test_capture-000003.wrm", -1},
+        {"/tmp/test_capture.mwrm", 39},
     };
 
     for (auto & f : fileinfo) {
@@ -92,7 +91,7 @@ RED_AUTO_TEST_CASE(TestSplittedCapture)
         ini.set<cfg::video::record_tmp_path>("./");
         ini.set<cfg::video::record_path>("./");
         ini.set<cfg::video::hash_path>("/tmp/");
-        ini.set<cfg::globals::movie_path>("capture");
+        ini.set<cfg::globals::movie_path>("test_capture");
 
         LCGRandom rnd(0);
         FakeFstat fstat;
@@ -127,19 +126,6 @@ RED_AUTO_TEST_CASE(TestSplittedCapture)
             ini.get<cfg::debug::ocr>()
         };
 
-//        if (ini.get<cfg::debug::capture>()) {
-            LOG(LOG_INFO, "Enable capture:  %s%s  kbd=%d %s%s%s  ocr=%d %s",
-                capture_wrm ?"wrm ":"",
-                capture_png ?"png ":"",
-                capture_kbd ? 1 : 0,
-                capture_video ?"video ":"",
-                capture_video_full ?"video_full ":"",
-                capture_pattern_checker ?"pattern ":"",
-                capture_ocr ? (ocr_params.ocr_version == OcrVersion::v2 ? 2 : 1) : 0,
-                capture_meta?"meta ":""
-            );
-//        }
-
         const int groupid = ini.get<cfg::video::capture_groupid>(); // www-data
         const char * hash_path = ini.get<cfg::video::hash_path>().c_str();
         const char * movie_path = ini.get<cfg::globals::movie_path>().c_str();
@@ -152,11 +138,7 @@ RED_AUTO_TEST_CASE(TestSplittedCapture)
         strcpy(basename, movie_path);
         strcpy(extension, "");          // extension is currently ignored
 
-        if (!canonical_path(movie_path, path, sizeof(path), basename, sizeof(basename), extension, sizeof(extension))
-        ) {
-            LOG(LOG_ERR, "Buffer Overflowed: Path too long");
-            throw Error(ERR_RECORDER_FAILED_TO_FOUND_PATH);
-        }
+        RED_CHECK(canonical_path(movie_path, path, sizeof(path), basename, sizeof(basename), extension, sizeof(extension)));
 
         PngParams png_params = {
             0, 0, std::chrono::milliseconds{60}, 100, 0, false,
@@ -166,7 +148,10 @@ RED_AUTO_TEST_CASE(TestSplittedCapture)
 
         MetaParams meta_params{
             MetaParams::EnableSessionLog::No,
-            MetaParams::HideNonPrintable::No
+            MetaParams::HideNonPrintable::No,
+            MetaParams::LogClipboardActivities::Yes,
+            MetaParams::LogFileSystemActivities::Yes,
+            MetaParams::LogOnlyRelevantClipboardActivities::Yes
         };
 
         KbdLogParams kbd_log_params = kbd_log_params_from_ini(ini);
@@ -179,7 +164,7 @@ RED_AUTO_TEST_CASE(TestSplittedCapture)
 
         cctx.set_trace_type(ini.get<cfg::globals::trace_type>());
 
-        WrmParams const wrm_params = wrm_params_from_ini(24, false, cctx, rnd, fstat, hash_path, ini);
+        WrmParams const wrm_params = wrm_params_from_ini(BitsPerPixel{24}, false, cctx, rnd, fstat, hash_path, ini);
 
         CaptureParams capture_params{
             now,
@@ -249,7 +234,7 @@ RED_AUTO_TEST_CASE(TestSplittedCapture)
         FilenameGenerator png_seq(
 //            FilenameGenerator::PATH_FILE_PID_COUNT_EXTENSION
             FilenameGenerator::PATH_FILE_COUNT_EXTENSION
-          , "./" , "capture", ".png"
+          , "./" , "test_capture", ".png"
         );
 
         const char * filename;
@@ -276,7 +261,7 @@ RED_AUTO_TEST_CASE(TestSplittedCapture)
         RED_CHECK_EQUAL(3223, ::filesize(filename));
         ::unlink(filename);
         filename = png_seq.get(7);
-        RED_CHECK_FILE_NOT_EXISTS((filename));
+        RED_CHECK_PREDICATE(file_not_exists, (filename));
     }
 
     for (auto x: fileinfo) {
@@ -319,7 +304,7 @@ RED_AUTO_TEST_CASE(TestBppToOtherBppCapture)
     ini.set<cfg::video::record_tmp_path>("./");
     ini.set<cfg::video::record_path>("./");
     ini.set<cfg::video::hash_path>("/tmp");
-    ini.set<cfg::globals::movie_path>("capture");
+    ini.set<cfg::globals::movie_path>("test_capture");
 
     LCGRandom rnd(0);
     Fstat fstat;
@@ -347,19 +332,6 @@ RED_AUTO_TEST_CASE(TestBppToOtherBppCapture)
 
     OcrParams const ocr_params = ocr_params_from_ini(ini);
 
-    if (ini.get<cfg::debug::capture>()) {
-        LOG(LOG_INFO, "Enable capture:  %s%s  kbd=%d %s%s%s  ocr=%d %s",
-            capture_wrm ?"wrm ":"",
-            capture_png ?"png ":"",
-            capture_kbd ? 1 : 0,
-            capture_video ?"video ":"",
-            capture_video_full ?"video_full ":"",
-            capture_pattern_checker ?"pattern ":"",
-            capture_ocr ? (ocr_params.ocr_version == OcrVersion::v2 ? 2 : 1) : 0,
-            capture_meta?"meta ":""
-        );
-    }
-
     const int groupid = ini.get<cfg::video::capture_groupid>(); // www-data
     const char * hash_path = ini.get<cfg::video::hash_path>().c_str();
     const char * movie_path = ini.get<cfg::globals::movie_path>().c_str();
@@ -372,11 +344,7 @@ RED_AUTO_TEST_CASE(TestBppToOtherBppCapture)
     strcpy(basename, movie_path);
     strcpy(extension, "");          // extension is currently ignored
 
-    if (!canonical_path(movie_path, path, sizeof(path), basename, sizeof(basename), extension, sizeof(extension))
-    ) {
-        LOG(LOG_ERR, "Buffer Overflowed: Path too long");
-        throw Error(ERR_RECORDER_FAILED_TO_FOUND_PATH);
-    }
+    RED_CHECK(canonical_path(movie_path, path, sizeof(path), basename, sizeof(basename), extension, sizeof(extension)));
 
     PngParams png_params = {
         0, 0, std::chrono::milliseconds{60}, 100, 0, false,
@@ -386,7 +354,10 @@ RED_AUTO_TEST_CASE(TestBppToOtherBppCapture)
 
     MetaParams meta_params{
         MetaParams::EnableSessionLog::No,
-        MetaParams::HideNonPrintable::No
+        MetaParams::HideNonPrintable::No,
+        MetaParams::LogClipboardActivities::Yes,
+        MetaParams::LogFileSystemActivities::Yes,
+        MetaParams::LogOnlyRelevantClipboardActivities::Yes
     };
 
     KbdLogParams kbd_log_params = kbd_log_params_from_ini(ini);
@@ -399,7 +370,7 @@ RED_AUTO_TEST_CASE(TestBppToOtherBppCapture)
 
     cctx.set_trace_type(ini.get<cfg::globals::trace_type>());
 
-    WrmParams const wrm_params = wrm_params_from_ini(24, false, cctx, rnd, fstat, hash_path, ini);
+    WrmParams const wrm_params = wrm_params_from_ini(BitsPerPixel{24}, false, cctx, rnd, fstat, hash_path, ini);
 
     CaptureParams capture_params{
         now,
@@ -436,11 +407,10 @@ RED_AUTO_TEST_CASE(TestBppToOtherBppCapture)
     now.tv_sec++;
     capture.periodic_snapshot(now, 0, 5, ignore_frame_in_timeval);
 
-    const char * filename = "./capture-000000.png";
+    const char * filename = "./test_capture-000000.png";
 
-    auto s = get_file_contents<std::string>(filename);
     RED_CHECK_SIG(
-        s, "\xbd\x6a\x84\x08\x3e\xe7\x19\xab\xb0\x67\xeb\x72\x94\x1f\xea\x26\xc4\x69\xe1\x37");
+        get_file_contents(filename), "\xbd\x6a\x84\x08\x3e\xe7\x19\xab\xb0\x67\xeb\x72\x94\x1f\xea\x26\xc4\x69\xe1\x37");
     ::unlink(filename);
 }
 
@@ -487,10 +457,18 @@ RED_AUTO_TEST_CASE(TestSessionMeta)
     BufTransport trans;
 
     {
+        MetaParams meta_params{
+            MetaParams::EnableSessionLog::No,
+            MetaParams::HideNonPrintable::No,
+            MetaParams::LogClipboardActivities::Yes,
+            MetaParams::LogFileSystemActivities::Yes,
+            MetaParams::LogOnlyRelevantClipboardActivities::Yes
+        };
+
         timeval now;
         now.tv_sec  = 1000;
         now.tv_usec = 0;
-        SessionMeta meta(now, trans, false);
+        SessionMeta meta(now, trans, false, meta_params);
 
         auto send_kbd = [&]{
             meta.kbd_input(now, 'A');
@@ -539,10 +517,18 @@ RED_AUTO_TEST_CASE(TestSessionMetaQuoted)
     BufTransport trans;
 
     {
+        MetaParams meta_params{
+            MetaParams::EnableSessionLog::No,
+            MetaParams::HideNonPrintable::No,
+            MetaParams::LogClipboardActivities::Yes,
+            MetaParams::LogFileSystemActivities::Yes,
+            MetaParams::LogOnlyRelevantClipboardActivities::Yes
+        };
+
         timeval now;
         now.tv_sec  = 1000;
         now.tv_usec = 0;
-        SessionMeta meta(now, trans, false);
+        SessionMeta meta(now, trans, false, meta_params);
 
         auto send_kbd = [&]{
             meta.kbd_input(now, 'A');
@@ -578,10 +564,18 @@ RED_AUTO_TEST_CASE(TestSessionMeta2)
     BufTransport trans;
 
     {
+        MetaParams meta_params{
+            MetaParams::EnableSessionLog::No,
+            MetaParams::HideNonPrintable::No,
+            MetaParams::LogClipboardActivities::Yes,
+            MetaParams::LogFileSystemActivities::Yes,
+            MetaParams::LogOnlyRelevantClipboardActivities::Yes
+        };
+
         timeval now;
         now.tv_sec  = 1000;
         now.tv_usec = 0;
-        SessionMeta meta(now, trans, false);
+        SessionMeta meta(now, trans, false, meta_params);
 
         auto send_kbd = [&]{
             meta.kbd_input(now, 'A');
@@ -617,10 +611,18 @@ RED_AUTO_TEST_CASE(TestSessionMeta3)
     BufTransport trans;
 
     {
+        MetaParams meta_params{
+            MetaParams::EnableSessionLog::No,
+            MetaParams::HideNonPrintable::No,
+            MetaParams::LogClipboardActivities::Yes,
+            MetaParams::LogFileSystemActivities::Yes,
+            MetaParams::LogOnlyRelevantClipboardActivities::Yes
+        };
+
         timeval now;
         now.tv_sec  = 1000;
         now.tv_usec = 0;
-        SessionMeta meta(now, trans, false);
+        SessionMeta meta(now, trans, false, meta_params);
 
         auto send_kbd = [&]{
             meta.kbd_input(now, 'A');
@@ -662,10 +664,18 @@ RED_AUTO_TEST_CASE(TestSessionMeta4)
     BufTransport trans;
 
     {
+        MetaParams meta_params{
+            MetaParams::EnableSessionLog::No,
+            MetaParams::HideNonPrintable::No,
+            MetaParams::LogClipboardActivities::Yes,
+            MetaParams::LogFileSystemActivities::Yes,
+            MetaParams::LogOnlyRelevantClipboardActivities::Yes
+        };
+
         timeval now;
         now.tv_sec  = 1000;
         now.tv_usec = 0;
-        SessionMeta meta(now, trans, false);
+        SessionMeta meta(now, trans, false, meta_params);
 
         auto send_kbd = [&]{
             meta.kbd_input(now, 'A');
@@ -711,10 +721,18 @@ RED_AUTO_TEST_CASE(TestSessionMeta5)
     BufTransport trans;
 
     {
+        MetaParams meta_params{
+            MetaParams::EnableSessionLog::No,
+            MetaParams::HideNonPrintable::No,
+            MetaParams::LogClipboardActivities::Yes,
+            MetaParams::LogFileSystemActivities::Yes,
+            MetaParams::LogOnlyRelevantClipboardActivities::Yes
+        };
+
         timeval now;
         now.tv_sec  = 1000;
         now.tv_usec = 0;
-        SessionMeta meta(now, trans, false);
+        SessionMeta meta(now, trans, false, meta_params);
 
         meta.kbd_input(now, 'A'); now.tv_sec += 1;
 
@@ -808,11 +826,19 @@ RED_AUTO_TEST_CASE(TestSessionSessionLog)
     BufTransport trans;
 
     {
+        MetaParams meta_params{
+            MetaParams::EnableSessionLog::No,
+            MetaParams::HideNonPrintable::No,
+            MetaParams::LogClipboardActivities::Yes,
+            MetaParams::LogFileSystemActivities::Yes,
+            MetaParams::LogOnlyRelevantClipboardActivities::Yes
+        };
+
         timeval now;
         now.tv_sec  = 1000;
         now.tv_usec = 0;
-        SessionMeta meta(now, trans, false);
-        SessionLogAgent log_agent(meta);
+        SessionMeta meta(now, trans, false, meta_params);
+        SessionLogAgent log_agent(meta, meta_params);
 
         log_agent.session_update(now, cstr_array_view("NEW_PROCESS=abc")); now.tv_sec += 1;
         log_agent.session_update(now, cstr_array_view("BUTTON_CLICKED=de\01fg")); now.tv_sec += 1;
@@ -831,10 +857,18 @@ RED_AUTO_TEST_CASE(TestSessionMetaHiddenKey)
     BufTransport trans;
 
     {
+        MetaParams meta_params{
+            MetaParams::EnableSessionLog::No,
+            MetaParams::HideNonPrintable::No,
+            MetaParams::LogClipboardActivities::Yes,
+            MetaParams::LogFileSystemActivities::Yes,
+            MetaParams::LogOnlyRelevantClipboardActivities::Yes
+        };
+
         timeval now;
         now.tv_sec  = 1000;
         now.tv_usec = 0;
-        SessionMeta meta(now, trans, true);
+        SessionMeta meta(now, trans, true, meta_params);
 
         meta.kbd_input(now, 'A'); now.tv_sec += 1;
 
@@ -1087,14 +1121,14 @@ RED_AUTO_TEST_CASE(Test6SecondsStrippedScreenToWrm)
     StaticOutStream<65536> stream;
     CheckTransport trans(expected_stripped_wrm, sizeof(expected_stripped_wrm)-1);
 
-    BmpCache bmp_cache(BmpCache::Recorder, 24, 3, false,
+    BmpCache bmp_cache(BmpCache::Recorder, BitsPerPixel{24}, 3, false,
                        BmpCache::CacheOption(600, 256, false),
                        BmpCache::CacheOption(300, 1024, false),
                        BmpCache::CacheOption(262, 4096, false));
     GlyphCache gly_cache;
     PointerCache ptr_cache;
     RDPDrawable drawable(screen_rect.cx, screen_rect.cy);
-    GraphicToFile consumer(now, trans, 24, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
+    GraphicToFile consumer(now, trans, BitsPerPixel{24}, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
     auto const color_ctx = gdi::ColorCtx::depth24();
 
     consumer.draw(RDPOpaqueRect(screen_rect, encode_color24()(GREEN)), screen_rect, color_ctx);
@@ -1263,14 +1297,14 @@ RED_AUTO_TEST_CASE(Test6SecondsStrippedScreenToWrmReplay2)
     Rect screen_rect(0, 0, 800, 600);
     StaticOutStream<65536> stream;
     CheckTransport trans(expected_stripped_wrm2, sizeof(expected_stripped_wrm2)-1);
-    BmpCache bmp_cache(BmpCache::Recorder, 24, 3, false,
+    BmpCache bmp_cache(BmpCache::Recorder, BitsPerPixel{24}, 3, false,
                        BmpCache::CacheOption(600, 256, false),
                        BmpCache::CacheOption(300, 1024, false),
                        BmpCache::CacheOption(262, 4096, false));
     GlyphCache gly_cache;
     PointerCache ptr_cache;
     RDPDrawable drawable(screen_rect.cx, screen_rect.cy);
-    GraphicToFile consumer(now, trans, 24, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
+    GraphicToFile consumer(now, trans, BitsPerPixel{24}, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
     auto const color_ctx = gdi::ColorCtx::depth24();
 
     consumer.draw(RDPOpaqueRect(screen_rect, encode_color24()(GREEN)), screen_rect, color_ctx);
@@ -1309,14 +1343,14 @@ RED_AUTO_TEST_CASE(TestCaptureToWrmReplayToPng)
 
     OutFileTransport trans(unique_fd{fd});
     RED_CHECK_EQUAL(0, 0);
-    BmpCache bmp_cache(BmpCache::Recorder, 24, 3, false,
+    BmpCache bmp_cache(BmpCache::Recorder, BitsPerPixel{24}, 3, false,
                        BmpCache::CacheOption(600, 256, false),
                        BmpCache::CacheOption(300, 1024, false),
                        BmpCache::CacheOption(262, 4096, false));
     GlyphCache gly_cache;
     PointerCache ptr_cache;
     RDPDrawable drawable(screen_rect.cx, screen_rect.cy);
-    GraphicToFile consumer(now, trans, 24, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
+    GraphicToFile consumer(now, trans, BitsPerPixel{24}, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
     auto const color_ctx = gdi::ColorCtx::depth24();
     RED_CHECK_EQUAL(0, 0);
     RDPOpaqueRect cmd0(screen_rect, encode_color24()(GREEN));
@@ -1356,7 +1390,7 @@ RED_AUTO_TEST_CASE(TestCaptureToWrmReplayToPng)
     begin_capture.tv_sec = 0; begin_capture.tv_usec = 0;
     timeval end_capture;
     end_capture.tv_sec = 0; end_capture.tv_usec = 0;
-    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, to_verbose_flags(0));
+    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, false, to_verbose_flags(0));
     RDPDrawable drawable1(player.screen_rect.cx, player.screen_rect.cy);
     DrawableToFile png_recorder(out_png_trans, drawable1.impl());
     player.add_consumer(&drawable1, nullptr, nullptr, nullptr, nullptr, nullptr);
@@ -1458,14 +1492,14 @@ RED_AUTO_TEST_CASE(TestSaveCache)
     Rect scr(0, 0, 100, 100);
     CheckTransport trans(expected_Red_on_Blue_wrm, sizeof(expected_Red_on_Blue_wrm)-1);
     trans.disable_remaining_error();
-    BmpCache bmp_cache(BmpCache::Recorder, 24, 3, false,
+    BmpCache bmp_cache(BmpCache::Recorder, BitsPerPixel{24}, 3, false,
                        BmpCache::CacheOption(2, 256, false),
                        BmpCache::CacheOption(2, 1024, false),
                        BmpCache::CacheOption(2, 4096, false));
     GlyphCache gly_cache;
     PointerCache ptr_cache;
     RDPDrawable drawable(scr.cx, scr.cy);
-    GraphicToFile consumer(now, trans, 24, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
+    GraphicToFile consumer(now, trans, BitsPerPixel{24}, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
     auto const color_ctx = gdi::ColorCtx::depth24();
     consumer.timestamp(now);
 
@@ -1476,7 +1510,7 @@ RED_AUTO_TEST_CASE(TestSaveCache)
         0x00, 0x94                    // FILL 9 * 20
     };
 
-    Bitmap bloc20x10(24, 24, nullptr, 20, 10, comp20x10RED, sizeof(comp20x10RED), true );
+    Bitmap bloc20x10(BitsPerPixel{24}, BitsPerPixel{24}, nullptr, 20, 10, comp20x10RED, sizeof(comp20x10RED), true );
     consumer.draw(
         RDPMemBlt(0, Rect(0, scr.cy - 10, bloc20x10.cx(), bloc20x10.cy()), 0xCC, 0, 0, 0),
         scr,
@@ -1498,7 +1532,7 @@ RED_AUTO_TEST_CASE(TestReloadSaveCache)
     begin_capture.tv_sec = 0; begin_capture.tv_usec = 0;
     timeval end_capture;
     end_capture.tv_sec = 0; end_capture.tv_usec = 0;
-    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, to_verbose_flags(0));
+    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, false, to_verbose_flags(0));
 
     const int groupid = 0;
     OutFilenameSequenceTransport out_png_trans(FilenameGenerator::PATH_FILE_PID_COUNT_EXTENSION, "./", "TestReloadSaveCache", ".png", groupid, ReportError{});
@@ -1599,14 +1633,14 @@ RED_AUTO_TEST_CASE(TestSaveOrderStates)
 
     Rect scr(0, 0, 100, 100);
     CheckTransport trans(expected_reset_rect_wrm, sizeof(expected_reset_rect_wrm)-1);
-    BmpCache bmp_cache(BmpCache::Recorder, 24, 3, false,
+    BmpCache bmp_cache(BmpCache::Recorder, BitsPerPixel{24}, 3, false,
                        BmpCache::CacheOption(2, 256, false),
                        BmpCache::CacheOption(2, 1024, false),
                        BmpCache::CacheOption(2, 4096, false));
     GlyphCache gly_cache;
     PointerCache ptr_cache;
     RDPDrawable drawable(scr.cx, scr.cy);
-    GraphicToFile consumer(now, trans, 24, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
+    GraphicToFile consumer(now, trans, BitsPerPixel{24}, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
     auto const color_cxt = gdi::ColorCtx::depth24();
     consumer.timestamp(now);
 
@@ -1631,7 +1665,7 @@ RED_AUTO_TEST_CASE(TestReloadOrderStates)
     begin_capture.tv_sec = 0; begin_capture.tv_usec = 0;
     timeval end_capture;
     end_capture.tv_sec = 0; end_capture.tv_usec = 0;
-    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, to_verbose_flags(0));
+    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, false, to_verbose_flags(0));
 
     const int groupid = 0;
     OutFilenameSequenceTransport out_png_trans(FilenameGenerator::PATH_FILE_PID_COUNT_EXTENSION, "./", "TestReloadOrderStates", ".png", groupid, ReportError{});
@@ -1722,7 +1756,7 @@ RED_AUTO_TEST_CASE(TestContinuationOrderStates)
     begin_capture.tv_sec = 0; begin_capture.tv_usec = 0;
     timeval end_capture;
     end_capture.tv_sec = 0; end_capture.tv_usec = 0;
-    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, to_verbose_flags(0));
+    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, false, to_verbose_flags(0));
 
     const int groupid = 0;
     OutFilenameSequenceTransport out_png_trans(FilenameGenerator::PATH_FILE_PID_COUNT_EXTENSION, "./", "TestContinuationOrderStates", ".png", groupid, ReportError{});
@@ -1784,14 +1818,14 @@ RED_AUTO_TEST_CASE(TestImageChunk)
 
     Rect scr(0, 0, 20, 10);
     CheckTransport trans(expected_stripped_wrm, sizeof(expected_stripped_wrm)-1);
-    BmpCache bmp_cache(BmpCache::Recorder, 24, 3, false,
+    BmpCache bmp_cache(BmpCache::Recorder, BitsPerPixel{24}, 3, false,
                         BmpCache::CacheOption(600, 256, false),
                         BmpCache::CacheOption(300, 1024, false),
                         BmpCache::CacheOption(262, 4096, false));
     PointerCache ptr_cache;
     GlyphCache gly_cache;
     RDPDrawable drawable(scr.cx, scr.cy);
-    GraphicToFile consumer(now, trans, 24, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
+    GraphicToFile consumer(now, trans, BitsPerPixel{24}, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
     auto const color_cxt = gdi::ColorCtx::depth24();
     drawable.draw(RDPOpaqueRect(scr, encode_color24()(RED)), scr, color_cxt);
     consumer.draw(RDPOpaqueRect(scr, encode_color24()(RED)), scr, color_cxt);
@@ -1858,14 +1892,14 @@ RED_AUTO_TEST_CASE(TestImagePNGMediumChunks)
 
     Rect scr(0, 0, 20, 10);
     CheckTransport trans(expected, sizeof(expected)-1);
-    BmpCache bmp_cache(BmpCache::Recorder, 24, 3, false,
+    BmpCache bmp_cache(BmpCache::Recorder, BitsPerPixel{24}, 3, false,
                        BmpCache::CacheOption(600, 256, false),
                        BmpCache::CacheOption(300, 1024, false),
                        BmpCache::CacheOption(262, 4096, false));
     GlyphCache gly_cache;
     PointerCache ptr_cache;
     RDPDrawable drawable(scr.cx, scr.cy);
-    GraphicToFile consumer(now, trans, 24, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
+    GraphicToFile consumer(now, trans, BitsPerPixel{24}, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
     auto const color_cxt = gdi::ColorCtx::depth24();
     drawable.draw(RDPOpaqueRect(scr, encode_color24()(RED)), scr, color_cxt);
     consumer.draw(RDPOpaqueRect(scr, encode_color24()(RED)), scr, color_cxt);
@@ -1942,14 +1976,14 @@ RED_AUTO_TEST_CASE(TestImagePNGSmallChunks)
 
     Rect scr(0, 0, 20, 10);
     CheckTransport trans(expected, sizeof(expected)-1);
-    BmpCache bmp_cache(BmpCache::Recorder, 24, 3, false,
+    BmpCache bmp_cache(BmpCache::Recorder, BitsPerPixel{24}, 3, false,
                        BmpCache::CacheOption(600, 256, false),
                        BmpCache::CacheOption(300, 1024, false),
                        BmpCache::CacheOption(262, 4096, false));
     GlyphCache gly_cache;
     PointerCache ptr_cache;
     RDPDrawable drawable(scr.cx, scr.cy);
-    GraphicToFile consumer(now, trans, 24, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
+    GraphicToFile consumer(now, trans, BitsPerPixel{24}, false, bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression);
     auto const color_cxt = gdi::ColorCtx::depth24();
     drawable.draw(RDPOpaqueRect(scr, encode_color24()(RED)), scr, color_cxt);
     consumer.draw(RDPOpaqueRect(scr, encode_color24()(RED)), scr, color_cxt);
@@ -2044,7 +2078,7 @@ RED_AUTO_TEST_CASE(TestExtractPNGImagesFromWRM)
     begin_capture.tv_sec = 0; begin_capture.tv_usec = 0;
     timeval end_capture;
     end_capture.tv_sec = 0; end_capture.tv_usec = 0;
-    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, to_verbose_flags(0));
+    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, false, to_verbose_flags(0));
 
     const int groupid = 0;
     OutFilenameSequenceTransport out_png_trans(FilenameGenerator::PATH_FILE_PID_COUNT_EXTENSION, "./", "testimg", ".png", groupid, ReportError{});
@@ -2116,7 +2150,7 @@ RED_AUTO_TEST_CASE(TestExtractPNGImagesFromWRMTwoConsumers)
     begin_capture.tv_sec = 0; begin_capture.tv_usec = 0;
     timeval end_capture;
     end_capture.tv_sec = 0; end_capture.tv_usec = 0;
-    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, to_verbose_flags(0));
+    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, false, to_verbose_flags(0));
     const int groupid = 0;
     OutFilenameSequenceTransport out_png_trans(FilenameGenerator::PATH_FILE_PID_COUNT_EXTENSION, "./", "testimg", ".png", groupid, ReportError{});
     RDPDrawable drawable1(player.screen_rect.cx, player.screen_rect.cy);
@@ -2198,7 +2232,7 @@ RED_AUTO_TEST_CASE(TestExtractPNGImagesThenSomeOtherChunk)
     begin_capture.tv_sec = 0; begin_capture.tv_usec = 0;
     timeval end_capture;
     end_capture.tv_sec = 0; end_capture.tv_usec = 0;
-    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, to_verbose_flags(0));
+    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, false, to_verbose_flags(0));
     const int groupid = 0;
     OutFilenameSequenceTransport out_png_trans(FilenameGenerator::PATH_FILE_PID_COUNT_EXTENSION, "./", "testimg", ".png", groupid, ReportError{});
     RDPDrawable drawable(player.screen_rect.cx, player.screen_rect.cy);
@@ -2221,7 +2255,7 @@ RED_AUTO_TEST_CASE(TestKbdCapture)
     struct : NullReportMessage {
         std::string s;
 
-        void log5(const std::string &info) override {
+        void log6(const std::string &info, const ArcsightLogInfo & , const timeval ) override {
             s += info;
         }
     } report_message;
@@ -2275,7 +2309,7 @@ RED_AUTO_TEST_CASE(TestKbdCapture2)
     struct : NullReportMessage {
         std::string s;
 
-        void log5(const std::string &info) override {
+        void log6(const std::string &info, const ArcsightLogInfo & , const timeval ) override {
             s += info;
         }
     } report_message;
@@ -2309,10 +2343,7 @@ RED_AUTO_TEST_CASE(TestKbdCapturePatternNotify)
 
         void report(const char* reason, const char* message) override
         {
-            s += reason;
-            s += " -- ";
-            s += message;
-            s += "\n";
+            str_append(s, reason, " -- ", message, "\n");
         }
     } report_message;
 
@@ -2375,7 +2406,7 @@ RED_AUTO_TEST_CASE(TestSample0WRM)
     begin_capture.tv_sec = 0; begin_capture.tv_usec = 0;
     timeval end_capture;
     end_capture.tv_sec = 0; end_capture.tv_usec = 0;
-    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, to_verbose_flags(0));
+    FileToGraphic player(in_wrm_trans, begin_capture, end_capture, false, false, to_verbose_flags(0));
 
     const int groupid = 0;
     OutFilenameSequenceTransport out_png_trans(FilenameGenerator::PATH_FILE_PID_COUNT_EXTENSION, "./", "first", ".png", groupid, ReportError{});
@@ -2410,7 +2441,7 @@ RED_AUTO_TEST_CASE(TestSample0WRM)
 
     RDPDrawable drawable(player.screen_rect.cx, player.screen_rect.cy);
     GraphicToFile graphic_to_file(
-        player.record_now, out_wrm_trans, 24, false,
+        player.record_now, out_wrm_trans, BitsPerPixel{24}, false,
         bmp_cache, gly_cache, ptr_cache, drawable, WrmCompressionAlgorithm::no_compression
     );
     WrmCaptureImpl::NativeCaptureLocal wrm_recorder(graphic_to_file, player.record_now, std::chrono::seconds{1}, std::chrono::seconds{20});
@@ -2508,11 +2539,12 @@ RED_AUTO_TEST_CASE(TestReadPNGFromChunkedTransport)
 RED_AUTO_TEST_CASE(TestPatternSearcher)
 {
     PatternSearcher searcher(utils::MatchFinder::KBD_INPUT, "$kbd:e");
-    auto u8p = [](char const * s) { return reinterpret_cast<const uint8_t*>(s); };
-    searcher.test_uchar(u8p("e"), 1, [](char const *, char const *){});
-    searcher.test_uchar(u8p("a"), 1, [](char const *, char const *){});
+    bool check = false;
+    auto report = [&](auto&, auto&){ check = true; };
+    searcher.test_uchar(byte_ptr_cast("e"), 1, report); RED_CHECK(check); check = false;
+    searcher.test_uchar(byte_ptr_cast("a"), 1, report); RED_CHECK(!check);
     // #15241: Pattern detection crash
-    searcher.test_uchar(u8p("e"), 1, [](char const *, char const *){});
+    searcher.test_uchar(byte_ptr_cast("e"), 1, report); RED_CHECK(check);
 }
 
 
@@ -2534,34 +2566,6 @@ RED_AUTO_TEST_CASE(TestOutFilenameSequenceTransport)
     unlink(fnt.seqgen()->get(0));
     unlink(fnt.seqgen()->get(1));
 }
-
-struct CoutBuf
-{
-    CoutBuf()
-    : oldbuf(std::cout.rdbuf(&sbuf))
-    , oldbuf_cerr(LOG__REDEMPTION__AS__LOGPRINT() ? std::cerr.rdbuf(nullptr) : nullptr)
-    {
-    }
-
-    ~CoutBuf()
-    {
-        std::cout.rdbuf(oldbuf);
-        if (oldbuf_cerr) {
-            std::cerr.rdbuf(oldbuf_cerr);
-        }
-    }
-
-    std::string str() const
-    {
-        std::cout.rdbuf(oldbuf);
-        return sbuf.str();
-    }
-
-private:
-    std::stringbuf sbuf;
-    std::streambuf * oldbuf;
-    std::streambuf * oldbuf_cerr;
-};
 
 extern "C" {
     inline int hmac_fn(uint8_t * buffer)
@@ -2604,18 +2608,18 @@ RED_AUTO_TEST_CASE(TestMetaCapture)
         const char * filename;
         ssize_t size;
     } fileinfo1[] = {
-        {"./capture-000000.wrm", 226},
-        {"./capture-000001.wrm", 174},
-        {"./capture.mwrm", 198},
+        {"./test_capture-000000.wrm", 226},
+        {"./test_capture-000001.wrm", 174},
+        {"./test_capture.mwrm", 198},
     };
 
     const struct CheckFiles fileinfo2[] = {
-        {"/tmp/capture-000000.mp4", 3565},
-        {"/tmp/capture-000000.png", 244},
-        {"/tmp/capture-000000.wrm", 80},
-        {"/tmp/capture-000001.wrm", 80},
-        {"/tmp/capture.mwrm", 74},
-        {"/tmp/capture.pgs", 37},
+        {"/tmp/test_capture-000000.mp4", 3565},
+        {"/tmp/test_capture-000000.png", 244},
+        {"/tmp/test_capture-000000.wrm", 80},
+        {"/tmp/test_capture-000001.wrm", 80},
+        {"/tmp/test_capture.mwrm", 74},
+        {"/tmp/test_capture.pgs", 37},
     };
 
     for (auto & f : fileinfo1) {
@@ -2649,7 +2653,7 @@ RED_AUTO_TEST_CASE(TestMetaCapture)
     ini.set<cfg::video::record_tmp_path>("./");
     ini.set<cfg::video::record_path>("./");
     ini.set<cfg::video::hash_path>("/tmp");
-    ini.set<cfg::globals::movie_path>("capture");
+    ini.set<cfg::globals::movie_path>("test_capture");
 
     LCGRandom rnd(0);
     Fstat fstat;
@@ -2679,19 +2683,6 @@ RED_AUTO_TEST_CASE(TestMetaCapture)
 
     OcrParams const ocr_params = ocr_params_from_ini(ini);
 
-    if (ini.get<cfg::debug::capture>()) {
-        LOG(LOG_INFO, "Enable capture:  %s%s  kbd=%d %s%s%s  ocr=%d %s",
-            capture_wrm ?"wrm ":"",
-            capture_png ?"png ":"",
-            capture_kbd ? 1 : 0,
-            capture_video ?"video ":"",
-            capture_video_full ?"video_full ":"",
-            capture_pattern_checker ?"pattern ":"",
-            capture_ocr ? (ocr_params.ocr_version == OcrVersion::v2 ? 2 : 1) : 0,
-            capture_meta?"meta ":""
-        );
-    }
-
     const int groupid = ini.get<cfg::video::capture_groupid>(); // www-data
     const char * hash_path = ini.get<cfg::video::hash_path>().c_str();
     const char * movie_path = ini.get<cfg::globals::movie_path>().c_str();
@@ -2704,11 +2695,7 @@ RED_AUTO_TEST_CASE(TestMetaCapture)
     strcpy(basename, movie_path);
     strcpy(extension, "");          // extension is currently ignored
 
-    if (!canonical_path(movie_path, path, sizeof(path), basename, sizeof(basename), extension, sizeof(extension))
-    ) {
-        LOG(LOG_ERR, "Buffer Overflowed: Path too long");
-        throw Error(ERR_RECORDER_FAILED_TO_FOUND_PATH);
-    }
+    RED_CHECK(canonical_path(movie_path, path, sizeof(path), basename, sizeof(basename), extension, sizeof(extension)));
 
     PngParams png_params = {
         0, 0, std::chrono::milliseconds{60}, 100, 0, false,
@@ -2718,7 +2705,10 @@ RED_AUTO_TEST_CASE(TestMetaCapture)
 
     MetaParams meta_params{
         MetaParams::EnableSessionLog::No,
-        MetaParams::HideNonPrintable::No
+        MetaParams::HideNonPrintable::No,
+        MetaParams::LogClipboardActivities::Yes,
+        MetaParams::LogFileSystemActivities::Yes,
+        MetaParams::LogOnlyRelevantClipboardActivities::Yes
     };
 
     KbdLogParams kbd_log_params = kbd_log_params_from_ini(ini);
@@ -2732,7 +2722,7 @@ RED_AUTO_TEST_CASE(TestMetaCapture)
 
     cctx.set_trace_type(ini.get<cfg::globals::trace_type>());
 
-    WrmParams const wrm_params = wrm_params_from_ini(24, false, cctx, rnd, fstat, hash_path, ini);
+    WrmParams const wrm_params = wrm_params_from_ini(BitsPerPixel{24}, false, cctx, rnd, fstat, hash_path, ini);
 
     CaptureParams capture_params{
         now,
@@ -2792,41 +2782,38 @@ RED_AUTO_TEST_CASE(TestMetaCapture)
 
 //        capture.periodic_snapshot(now, 0, 5, ignore_frame_in_timeval);
 
-    //    const char * filename = "./capture-000000.png";
+    //    const char * filename = "./test_capture-000000.png";
 
     //    auto s = get_file_contents<std::string>(filename);
     //    RED_CHECK_SIG2(
-    //        reinterpret_cast<const uint8_t*>(s.data()), s.size(),
+    //        byte_ptr_cast(s.data()), s.size(),
     //        "\xbd\x6a\x84\x08\x3e\xe7\x19\xab\xb0\x67\xeb\x72\x94\x1f\xea\x26\xc4\x69\xe1\x37"
     //    );
     //    ::unlink(filename);
     }
-
-
-    LOG(LOG_INFO, "=================== TestAppRecorder =============");
 
     {
         char const * argv[] {
             "recorder.py",
             "redrec",
             "-i",
-                "./capture.mwrm",
+                "./test_capture.mwrm",
             "--mwrm-path", FIXTURES_PATH,
             "-o",
-                "/tmp/capture",
+                "/tmp/test_capture",
             "--chunk",
             "--video-codec", "mp4",
             "--json-pgs",
         };
         int argc = sizeof(argv)/sizeof(char*);
 
-        CoutBuf cout_buf;
+        LOG__REDEMPTION__OSTREAM__BUFFERED cout_buf;
         int res = do_main(argc, argv, hmac_fn, trace_fn);
         EVP_cleanup();
-        RED_CHECK_EQUAL(cout_buf.str(), "Output file is \"/tmp/capture.mwrm\".\n\n");
+        RED_CHECK_EQUAL(cout_buf.str(), "Output file is \"/tmp/test_capture.mwrm\".\n\n");
         RED_CHECK_EQUAL(0, res);
 
-        RED_CHECK_FILE_CONTENTS("/tmp/capture.meta",
+        RED_CHECK_FILE_CONTENTS("/tmp/test_capture.meta",
             "1970-01-01 01:16:50 - type=\"NEW_PROCESS\" command_line=\"def\"\n"
             "1970-01-01 01:16:51 - type=\"COMPLETED_PROCESS\" command_line=\"def\"\n"
             "1970-01-01 01:16:53 - type=\"NEW_PROCESS\" command_line=\"abc\"\n"
@@ -2843,25 +2830,25 @@ RED_AUTO_TEST_CASE(TestMetaCapture)
             "recorder.py",
             "redrec",
             "-i",
-                "./capture.mwrm",
+                "./test_capture.mwrm",
             "--config-file",
                 FIXTURES_PATH "/disable_kbd_inpit_in_meta.ini",
             "--mwrm-path", FIXTURES_PATH,
             "-o",
-                "/tmp/capture",
+                "/tmp/test_capture",
             "--chunk",
             "--video-codec", "mp4",
             "--json-pgs",
         };
         int argc = sizeof(argv)/sizeof(char*);
 
-        CoutBuf cout_buf;
+        LOG__REDEMPTION__OSTREAM__BUFFERED cout_buf;
         int res = do_main(argc, argv, hmac_fn, trace_fn);
         EVP_cleanup();
-        RED_CHECK_EQUAL(cout_buf.str(), "Output file is \"/tmp/capture.mwrm\".\n\n");
+        RED_CHECK_EQUAL(cout_buf.str(), "Output file is \"/tmp/test_capture.mwrm\".\n\n");
         RED_CHECK_EQUAL(0, res);
 
-        RED_CHECK_FILE_CONTENTS("/tmp/capture.meta",
+        RED_CHECK_FILE_CONTENTS("/tmp/test_capture.meta",
             "1970-01-01 01:16:50 - type=\"NEW_PROCESS\" command_line=\"def\"\n"
             "1970-01-01 01:16:51 - type=\"COMPLETED_PROCESS\" command_line=\"def\"\n"
             "1970-01-01 01:16:53 - type=\"NEW_PROCESS\" command_line=\"abc\"\n"
@@ -2963,17 +2950,6 @@ RED_AUTO_TEST_CASE(TestResizingCapture)
             ini.get<cfg::debug::ocr>()
         };
 
-        LOG(LOG_INFO, "Enable capture:  %s%s  kbd=%d %s%s%s  ocr=%d %s",
-            capture_wrm ?"wrm ":"",
-            capture_png ?"png ":"",
-            capture_kbd ? 1 : 0,
-            capture_video ?"video ":"",
-            capture_video_full ?"video_full ":"",
-            capture_pattern_checker ?"pattern ":"",
-            capture_ocr ? (ocr_params.ocr_version == OcrVersion::v2 ? 2 : 1) : 0,
-            capture_meta?"meta ":""
-        );
-
         const int groupid = ini.get<cfg::video::capture_groupid>(); // www-data
         const char * hash_path = ini.get<cfg::video::hash_path>().c_str();
         const char * movie_path = ini.get<cfg::globals::movie_path>().c_str();
@@ -2986,11 +2962,7 @@ RED_AUTO_TEST_CASE(TestResizingCapture)
         strcpy(basename, movie_path);
         strcpy(extension, "");          // extension is currently ignored
 
-        if (!canonical_path(movie_path, path, sizeof(path), basename, sizeof(basename), extension, sizeof(extension))
-        ) {
-            LOG(LOG_ERR, "Buffer Overflowed: Path too long");
-            throw Error(ERR_RECORDER_FAILED_TO_FOUND_PATH);
-        }
+        RED_CHECK(canonical_path(movie_path, path, sizeof(path), basename, sizeof(basename), extension, sizeof(extension)));
 
         PngParams png_params = {
             0, 0, std::chrono::milliseconds{60}, 100, 0, false,
@@ -3000,7 +2972,10 @@ RED_AUTO_TEST_CASE(TestResizingCapture)
 
         MetaParams meta_params{
             MetaParams::EnableSessionLog::No,
-            MetaParams::HideNonPrintable::No
+            MetaParams::HideNonPrintable::No,
+            MetaParams::LogClipboardActivities::Yes,
+            MetaParams::LogFileSystemActivities::Yes,
+            MetaParams::LogOnlyRelevantClipboardActivities::Yes
         };
 
         KbdLogParams kbd_log_params = kbd_log_params_from_ini(ini);
@@ -3013,7 +2988,7 @@ RED_AUTO_TEST_CASE(TestResizingCapture)
 
         cctx.set_trace_type(ini.get<cfg::globals::trace_type>());
 
-        WrmParams const wrm_params = wrm_params_from_ini(24, false, cctx, rnd, fstat, hash_path, ini);
+        WrmParams const wrm_params = wrm_params_from_ini(BitsPerPixel{24}, false, cctx, rnd, fstat, hash_path, ini);
 
         CaptureParams capture_params{
             now,
@@ -3126,7 +3101,7 @@ RED_AUTO_TEST_CASE(TestResizingCapture)
         RED_CHECK_EQUAL(4136, ::filesize(filename));
         if (remove_files) { ::unlink(filename); }
         filename = png_seq.get(8);
-        RED_CHECK_FILE_NOT_EXISTS((filename));
+        RED_CHECK_PREDICATE(file_not_exists, (filename));
     }
 
     for (auto x: fileinfo) {
@@ -3225,17 +3200,6 @@ RED_AUTO_TEST_CASE(TestResizingCapture1)
             ini.get<cfg::debug::ocr>()
         };
 
-        LOG(LOG_INFO, "Enable capture:  %s%s  kbd=%d %s%s%s  ocr=%d %s",
-            capture_wrm ?"wrm ":"",
-            capture_png ?"png ":"",
-            capture_kbd ? 1 : 0,
-            capture_video ?"video ":"",
-            capture_video_full ?"video_full ":"",
-            capture_pattern_checker ?"pattern ":"",
-            capture_ocr ? (ocr_params.ocr_version == OcrVersion::v2 ? 2 : 1) : 0,
-            capture_meta?"meta ":""
-        );
-
         const int groupid = ini.get<cfg::video::capture_groupid>(); // www-data
         const char * hash_path = ini.get<cfg::video::hash_path>().c_str();
         const char * movie_path = ini.get<cfg::globals::movie_path>().c_str();
@@ -3248,11 +3212,7 @@ RED_AUTO_TEST_CASE(TestResizingCapture1)
         strcpy(basename, movie_path);
         strcpy(extension, "");          // extension is currently ignored
 
-        if (!canonical_path(movie_path, path, sizeof(path), basename, sizeof(basename), extension, sizeof(extension))
-        ) {
-            LOG(LOG_ERR, "Buffer Overflowed: Path too long");
-            throw Error(ERR_RECORDER_FAILED_TO_FOUND_PATH);
-        }
+        RED_CHECK(canonical_path(movie_path, path, sizeof(path), basename, sizeof(basename), extension, sizeof(extension)));
 
         PngParams png_params = {
             0, 0, std::chrono::milliseconds{60}, 100, 0, false,
@@ -3262,7 +3222,10 @@ RED_AUTO_TEST_CASE(TestResizingCapture1)
 
         MetaParams meta_params{
             MetaParams::EnableSessionLog::No,
-            MetaParams::HideNonPrintable::No
+            MetaParams::HideNonPrintable::No,
+            MetaParams::LogClipboardActivities::Yes,
+            MetaParams::LogFileSystemActivities::Yes,
+            MetaParams::LogOnlyRelevantClipboardActivities::Yes
         };
 
         KbdLogParams kbd_log_params = kbd_log_params_from_ini(ini);
@@ -3275,7 +3238,7 @@ RED_AUTO_TEST_CASE(TestResizingCapture1)
 
         cctx.set_trace_type(ini.get<cfg::globals::trace_type>());
 
-        WrmParams const wrm_params = wrm_params_from_ini(24, false, cctx, rnd, fstat, hash_path, ini);
+        WrmParams const wrm_params = wrm_params_from_ini(BitsPerPixel{24}, false, cctx, rnd, fstat, hash_path, ini);
 
         CaptureParams capture_params{
             now,
@@ -3384,7 +3347,7 @@ RED_AUTO_TEST_CASE(TestResizingCapture1)
         RED_CHECK_EQUAL(2341, ::filesize(filename));
         if (remove_files) { ::unlink(filename); }
         filename = png_seq.get(8);
-        RED_CHECK_FILE_NOT_EXISTS((filename));
+        RED_CHECK_PREDICATE(file_not_exists, (filename));
     }
 
     for (auto x: fileinfo) {

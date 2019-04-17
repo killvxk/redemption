@@ -23,7 +23,7 @@
 */
 
 #define RED_TEST_MODULE TestFrontMstscClient
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 // Comment the code block below to generate testing data.
 // Uncomment the code block below to generate testing data.
@@ -39,6 +39,7 @@
 //include "core/session.hpp"
 
 #include "test_only/lcg_random.hpp"
+#include "test_only/core/font.hpp"
 
 
 RED_AUTO_TEST_CASE(TestIncomingConnection)
@@ -121,10 +122,10 @@ RED_AUTO_TEST_CASE(TestIncomingConnection)
         front.incoming(no_mod, now);
     }
 
-    LOG(LOG_INFO, "hostname=%s", front.client_info.hostname);
+    // LOG(LOG_INFO, "hostname=%s", front.client_info.hostname);
 
     RED_CHECK_EQUAL(1, front.up_and_running);
-    TestCardMod mod(session_reactor, front, front.client_info.width, front.client_info.height, ini.get<cfg::font>());
+    TestCardMod mod(session_reactor, front, front.client_info.screen_info.width, front.client_info.screen_info.height, global_font());
     mod.draw_event(time(nullptr), front);
 
     // Uncomment the code block below to generate testing data.

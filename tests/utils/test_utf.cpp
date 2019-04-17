@@ -24,53 +24,38 @@
 */
 
 #define RED_TEST_MODULE TestLul
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
-#include "utils/sugar/cast.hpp"
 #include "utils/utf.hpp"
+#include "utils/sugar/cast.hpp"
 
-// RED_AUTO_TEST_CASE(TestUTF32isValid)
-// {
-//     RED_CHECK_EQUAL(true, UTF32isValid('a'));
-//     RED_CHECK_EQUAL(false, UTF32isValid(0x1FFFFF));
-//     RED_CHECK_EQUAL(false, UTF32isValid(0x00D800));
-//     RED_CHECK_EQUAL(false, UTF32isValid(0x00DBFF));
-//     RED_CHECK_EQUAL(false, UTF32isValid(0x00DC00));
-//     RED_CHECK_EQUAL(false, UTF32isValid(0x00DFFF));
-//
-//     RED_CHECK_EQUAL(true, UTF32isValid(0x00FFFE));
-//     RED_CHECK_EQUAL(true, UTF32isValid(0x00FFFF));
-//     RED_CHECK_EQUAL(true, UTF32isValid(0x01FFFF));
-//     RED_CHECK_EQUAL(true, UTF32isValid(0x10FFFF));
-//     RED_CHECK_EQUAL(true, UTF32isValid(0x11000));
-// }
 
 RED_AUTO_TEST_CASE(TestUTF8Len_2)
 {
     uint8_t source[] = { 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0};
 
-    RED_CHECK_EQUAL(11, UTF8Len(source));
+    RED_CHECK_EQUAL(11u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8Len)
 {
     uint8_t source[] = { 'a', 0xC3, 0xA9, 0};
 
-    RED_CHECK_EQUAL(2, UTF8Len(source));
+    RED_CHECK_EQUAL(2u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8LenChar)
 {
     uint8_t source[] = { 'a', 0xC3, 0xA9, 0};
 
-    RED_CHECK_EQUAL(2, UTF8Len(source));
+    RED_CHECK_EQUAL(2u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestString)
 {
     // toto is a 4 char length string
     std::string str1("toto");
-    RED_CHECK_EQUAL(str1.length(), 4);
+    RED_CHECK_EQUAL(str1.length(), 4u);
 
     // but we can get the true length
     int l = UTF8Len(byte_ptr_cast(str1.c_str()));
@@ -79,132 +64,12 @@ RED_AUTO_TEST_CASE(TestString)
     // olé is also a 4 char length string as it is internally UTF-8 encoded
     std::string str_unicode("olé");
     // It means length is the number of bytes
-    RED_CHECK_EQUAL(str_unicode.length(), 4);
+    RED_CHECK_EQUAL(str_unicode.length(), 4u);
 
     // but we can get the true length
     int len = UTF8Len(byte_ptr_cast(str_unicode.c_str()));
     RED_CHECK_EQUAL(len, 3);
-
 }
-
-// RED_AUTO_TEST_CASE(TestUTF8TruncateAtPos)
-// {
-//     uint8_t source[] = { 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0};
-//
-//     UTF8TruncateAtPos(source, 20);
-//     RED_CHECK_EQUAL(11, UTF8Len(source));
-// }
-//
-//
-// RED_AUTO_TEST_CASE(TestUTF8TruncateAtPos_0)
-// {
-//     uint8_t source[] = { 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0};
-//
-//     UTF8TruncateAtPos(source, 0);
-//     RED_CHECK_EQUAL(0, source[0]);
-//     RED_CHECK_EQUAL(0, UTF8Len(source));
-// }
-//
-// RED_AUTO_TEST_CASE(TestUTF8TruncateAtPos_0_v2)
-// {
-//     uint8_t source[] = { 0xC3, 0xA9, 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0};
-//
-//     UTF8TruncateAtPos(source, 0);
-//     RED_CHECK_EQUAL(0, source[0]);
-//     RED_CHECK_EQUAL(0, UTF8Len(source));
-// }
-//
-// RED_AUTO_TEST_CASE(TestUTF8TruncateAtPos_1)
-// {
-//     uint8_t source[] = { 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0};
-//
-//     UTF8TruncateAtPos(source, 1);
-//
-//     RED_CHECK_EQUAL('a', source[0]);
-//     RED_CHECK_EQUAL(0, source[1]);
-//     RED_CHECK_EQUAL(1, UTF8Len(source));
-// }
-//
-// RED_AUTO_TEST_CASE(TestUTF8TruncateAtPos_1_v2)
-// {
-//     uint8_t source[] = { 0xC3, 0xA9, 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0};
-//
-//     UTF8TruncateAtPos(source, 1);
-//
-//     RED_CHECK_EQUAL(0xC3, source[0]);
-//     RED_CHECK_EQUAL(0xA9, source[1]);
-//     RED_CHECK_EQUAL(0, source[2]);
-//     RED_CHECK_EQUAL(1, UTF8Len(source));
-// }
-//
-// RED_AUTO_TEST_CASE(TestUTF8TruncateAtPos_2)
-// {
-//     uint8_t source[] = { 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0};
-//
-//     UTF8TruncateAtPos(source, 2);
-//
-//     RED_CHECK_EQUAL('a', source[0]);
-//     RED_CHECK_EQUAL('b', source[1]);
-//     RED_CHECK_EQUAL(0, source[2]);
-//     RED_CHECK_EQUAL(2, UTF8Len(source));
-// }
-//
-// RED_AUTO_TEST_CASE(TestUTF8TruncateAtPos_2_v2)
-// {
-//     uint8_t source[] = { 0xC3, 0xA9, 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0};
-//
-//     UTF8TruncateAtPos(source, 2);
-//
-//     RED_CHECK_EQUAL(0xC3, source[0]);
-//     RED_CHECK_EQUAL(0xA9, source[1]);
-//     RED_CHECK_EQUAL('a', source[2]);
-//     RED_CHECK_EQUAL(0, source[3]);
-//     RED_CHECK_EQUAL(2, UTF8Len(source));
-// }
-//
-// RED_AUTO_TEST_CASE(TestUTF8TruncateAtPos_8)
-// {
-//     uint8_t source[] = { 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0};
-//
-//     UTF8TruncateAtPos(source, 8);
-//
-//     uint8_t expected_result[] = { 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0};
-//     RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-//     RED_CHECK_EQUAL(8, UTF8Len(source));
-// }
-//
-// RED_AUTO_TEST_CASE(TestUTF8TruncateAtPos_8_v2)
-// {
-//     uint8_t source[] = { 0xC3, 0xA9, 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0};
-//
-//     UTF8TruncateAtPos(source, 8);
-//
-//     uint8_t expected_result[] = {0xC3, 0xA9, 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0};
-//     RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-//     RED_CHECK_EQUAL(8, UTF8Len(source));
-// }
-//
-// RED_AUTO_TEST_CASE(TestUTF8TruncateAtPos_9)
-// {
-//     uint8_t source[] = { 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0};
-//
-//     UTF8TruncateAtPos(source, 9);
-//
-//     uint8_t expected_result[] = { 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0};
-//     RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-//     RED_CHECK_EQUAL(9, UTF8Len(source));
-// }
-//
-// RED_AUTO_TEST_CASE(TestUTF8TruncateAtPos_9_v2)
-// {
-//     uint8_t source[] = { 0xC3, 0xA9, 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0};
-//
-//     UTF8TruncateAtPos(source, 9);
-//
-//     uint8_t expected_result[] = {0xC3, 0xA9, 'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0};
-//     RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-//     RED_CHECK_EQUAL(9, UTF8Len(source));
-// }
 
 RED_AUTO_TEST_CASE(TestUTF8InsertAtPos_0)
 {
@@ -217,7 +82,7 @@ RED_AUTO_TEST_CASE(TestUTF8InsertAtPos_0)
     RED_CHECK_EQUAL(0xA9, source[1]);
     RED_CHECK_EQUAL(0, source[2]);
 
-    RED_CHECK_EQUAL(1, UTF8Len(source));
+    RED_CHECK_EQUAL(1u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8InsertAtPos_beyond_end)
@@ -231,9 +96,8 @@ RED_AUTO_TEST_CASE(TestUTF8InsertAtPos_beyond_end)
                                   0xC3, 0xA9, 'x', 0xC3, 0xA7, 0xC3, 0xA0, 'y', 'z', 0
     };
 
-    RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-
-    RED_CHECK_EQUAL(17, UTF8Len(source));
+    RED_CHECK_SMEM_AA(make_array_view(source, sizeof(expected_result)), expected_result);
+    RED_CHECK_EQUAL(17u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8InsertAtPos_at_start)
@@ -247,9 +111,8 @@ RED_AUTO_TEST_CASE(TestUTF8InsertAtPos_at_start)
                                  'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0
     };
 
-
-    RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-    RED_CHECK_EQUAL(17, UTF8Len(source));
+    RED_CHECK_SMEM_AA(make_array_view(source, sizeof(expected_result)), expected_result);
+    RED_CHECK_EQUAL(17u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8InsertAtPos_at_1)
@@ -263,8 +126,8 @@ RED_AUTO_TEST_CASE(TestUTF8InsertAtPos_at_1)
                                  'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0
     };
 
-    RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-    RED_CHECK_EQUAL(17, UTF8Len(source));
+    RED_CHECK_SMEM_AA(make_array_view(source, sizeof(expected_result)), expected_result);
+    RED_CHECK_EQUAL(17u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8InsertAtPos_at_8)
@@ -279,8 +142,8 @@ RED_AUTO_TEST_CASE(TestUTF8InsertAtPos_at_8)
                                  0xC3, 0xA7, 0xC3, 0xA0, '@', 0
     };
 
-    RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-    RED_CHECK_EQUAL(17, UTF8Len(source));
+    RED_CHECK_SMEM_AA(make_array_view(source, sizeof(expected_result)), expected_result);
+    RED_CHECK_EQUAL(17u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8InsertOneAtPos_at_8)
@@ -293,8 +156,8 @@ RED_AUTO_TEST_CASE(TestUTF8InsertOneAtPos_at_8)
                                  0xC3, 0xA9, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0
     };
 
-    RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-    RED_CHECK_EQUAL(12, UTF8Len(source));
+    RED_CHECK_SMEM_AA(make_array_view(source, sizeof(expected_result)), expected_result);
+    RED_CHECK_EQUAL(12u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos0)
@@ -305,8 +168,8 @@ RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos0)
 
     uint8_t expected_result[] = {'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA0, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0 };
 
-    RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-    RED_CHECK_EQUAL(10, UTF8Len(source));
+    RED_CHECK_SMEM_AA(make_array_view(source, sizeof(expected_result)), expected_result);
+    RED_CHECK_EQUAL(10u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos1)
@@ -317,8 +180,8 @@ RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos1)
 
     uint8_t expected_result[] = {'a', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA0, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0 };
 
-    RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-    RED_CHECK_EQUAL(10, UTF8Len(source));
+    RED_CHECK_SMEM_AA(make_array_view(source, sizeof(expected_result)), expected_result);
+    RED_CHECK_EQUAL(10u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos7)
@@ -329,8 +192,8 @@ RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos7)
 
     uint8_t expected_result[] = {'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA7, 0xC3, 0xA0, '@', 0 };
 
-    RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-    RED_CHECK_EQUAL(10, UTF8Len(source));
+    RED_CHECK_SMEM_AA(make_array_view(source, sizeof(expected_result)), expected_result);
+    RED_CHECK_EQUAL(10u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos8)
@@ -341,8 +204,8 @@ RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos8)
 
     uint8_t expected_result[] = {'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA0, 0xC3, 0xA0, '@', 0 };
 
-    RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-    RED_CHECK_EQUAL(10, UTF8Len(source));
+    RED_CHECK_SMEM_AA(make_array_view(source, sizeof(expected_result)), expected_result);
+    RED_CHECK_EQUAL(10u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos9)
@@ -353,8 +216,8 @@ RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos9)
 
     uint8_t expected_result[] = {'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA0, 0xC3, 0xA7, '@', 0 };
 
-    RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-    RED_CHECK_EQUAL(10, UTF8Len(source));
+    RED_CHECK_SMEM_AA(make_array_view(source, sizeof(expected_result)), expected_result);
+    RED_CHECK_EQUAL(10u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos10)
@@ -365,8 +228,8 @@ RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos10)
 
     uint8_t expected_result[] = {'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA0, 0xC3, 0xA7, 0xC3, 0xA0, 0 };
 
-    RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-    RED_CHECK_EQUAL(10, UTF8Len(source));
+    RED_CHECK_SMEM_AA(make_array_view(source, sizeof(expected_result)), expected_result);
+    RED_CHECK_EQUAL(10u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos11)
@@ -377,8 +240,8 @@ RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos11)
 
     uint8_t expected_result[] = {'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA0, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0 };
 
-    RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-    RED_CHECK_EQUAL(11, UTF8Len(source));
+    RED_CHECK_SMEM_AA(make_array_view(source, sizeof(expected_result)), expected_result);
+    RED_CHECK_EQUAL(11u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos12)
@@ -389,8 +252,8 @@ RED_AUTO_TEST_CASE(TestUTF8RemoveOneAtPos12)
 
     uint8_t expected_result[] = {'a', 'b', 'c', 'e', 'd', 'e', 'f', 0xC3, 0xA0, 0xC3, 0xA7, 0xC3, 0xA0, '@', 0 };
 
-    RED_CHECK_EQUAL(0, memcmp(source, expected_result, sizeof(expected_result)));
-    RED_CHECK_EQUAL(11, UTF8Len(source));
+    RED_CHECK_SMEM_AA(make_array_view(source, sizeof(expected_result)), expected_result);
+    RED_CHECK_EQUAL(11u, UTF8Len(source));
 }
 
 RED_AUTO_TEST_CASE(TestUTF8_UTF16)
@@ -405,7 +268,7 @@ RED_AUTO_TEST_CASE(TestUTF8_UTF16)
     const size_t target_length = sizeof(expected_target)/sizeof(expected_target[0]);
     uint8_t target[target_length];
 
-    size_t nbbytes_utf16 = UTF8toUTF16(source, target, target_length);
+    size_t nbbytes_utf16 = UTF8toUTF16({std::data(source), std::size(source)-1}, target, target_length);
 
     // Check result
     RED_CHECK_EQUAL(target_length, nbbytes_utf16);
@@ -414,7 +277,7 @@ RED_AUTO_TEST_CASE(TestUTF8_UTF16)
     uint8_t source_round_trip[15];
 
     size_t nbbytes_utf8 = UTF16toUTF8(target, nbbytes_utf16 / 2, source_round_trip, sizeof(source_round_trip));
-    RED_CHECK_EQUAL(14, nbbytes_utf8);
+    RED_CHECK_EQUAL(14u, nbbytes_utf8);
 }
 
 RED_AUTO_TEST_CASE(TestUTF8_UTF16_witch_control_character)
@@ -430,7 +293,7 @@ RED_AUTO_TEST_CASE(TestUTF8_UTF16_witch_control_character)
     const size_t target_length = sizeof(expected_target)/sizeof(expected_target[0]);
     uint8_t target[target_length];
 
-    size_t nbbytes_utf16 = UTF8toUTF16(source, target, target_length);
+    size_t nbbytes_utf16 = UTF8toUTF16({std::data(source), std::size(source)-1}, target, target_length);
 
     // Check result
     RED_CHECK_EQUAL(target_length, nbbytes_utf16);
@@ -439,7 +302,7 @@ RED_AUTO_TEST_CASE(TestUTF8_UTF16_witch_control_character)
     uint8_t source_round_trip[16];
 
     size_t nbbytes_utf8 = UTF16toUTF8(target, nbbytes_utf16 / 2, source_round_trip, sizeof(source_round_trip));
-    RED_CHECK_EQUAL(15, nbbytes_utf8);
+    RED_CHECK_EQUAL(15u, nbbytes_utf8);
 }
 
 RED_AUTO_TEST_CASE(TestUTF8_UTF16_witch_CrLf)
@@ -459,13 +322,13 @@ RED_AUTO_TEST_CASE(TestUTF8_UTF16_witch_CrLf)
     uint8_t targetCr[target_lengthCr];
     uint8_t targetCrLf[target_lengthCrLf];
 
-    size_t nbbytes_utf16 = UTF8toUTF16(source, targetCr, target_lengthCr);
+    size_t nbbytes_utf16 = UTF8toUTF16({std::data(source), std::size(source)-1}, targetCr, target_lengthCr);
 
     // Check result
     RED_CHECK_EQUAL(target_lengthCr, nbbytes_utf16);
     RED_CHECK_EQUAL_RANGES(targetCr, expected_targetCr);
 
-    nbbytes_utf16 = UTF8toUTF16_CrLf(source, targetCrLf, target_lengthCrLf);
+    nbbytes_utf16 = UTF8toUTF16_CrLf({std::data(source), std::size(source)-1}, targetCrLf, target_lengthCrLf);
 
     // Check result
     RED_CHECK_EQUAL(target_lengthCrLf, nbbytes_utf16);
@@ -474,119 +337,11 @@ RED_AUTO_TEST_CASE(TestUTF8_UTF16_witch_CrLf)
 
 RED_AUTO_TEST_CASE(TestUTF32toUTF8) {
     uint8_t buf[5]{};
-    RED_REQUIRE_EQUAL(1, UTF32toUTF8(reinterpret_cast<uint8_t const *>("a\0\0\0"), 1, buf, 5));
+    RED_REQUIRE_EQUAL(1u, UTF32toUTF8(byte_ptr_cast("a\0\0\0"), 1, buf, 5));
     RED_REQUIRE_EQUAL('a', buf[0]);
-    RED_REQUIRE_EQUAL(1, UTF32toUTF8('a', buf, 4));
+    RED_REQUIRE_EQUAL(1u, UTF32toUTF8('a', buf, 4));
     RED_REQUIRE_EQUAL('a', buf[0]);
 }
-
-//RED_AUTO_TEST_CASE(TestUTF8toUnicode)
-//{
-//    uint8_t source[16] = "Red";
-//    uint32_t uni[16];
-//
-//    // Check result
-//    RED_CHECK_EQUAL(3, UTF8toUnicode(source, uni, sizeof(uni)/sizeof(uni[0])));
-//}
-
-//RED_AUTO_TEST_CASE(TestUTF8Check_zero)
-//{
-//    uint8_t source[] = {0x00};
-//    size_t source_length = sizeof(source); // source_length is a buffer size, including trailing zero if any
-//    // returns number of valid UTF8 characters (source buffer unchanged, no trailing zero added after broken part)
-//
-//    // Check result
-//    RED_CHECK_EQUAL(1, UTF8Check(source, source_length));
-//}
-
-//RED_AUTO_TEST_CASE(TestUTF8Check_control_characters)
-//{
-//    uint8_t source[] = {0x20, 0x00};
-//    size_t source_length = sizeof(source); // source_length is a buffer size, including trailing zero if any
-//    // returns number of valid UTF8 characters (source buffer unchanged, no trailing zero added after broken part)
-//
-//    // Check result
-//    RED_CHECK_EQUAL(2, UTF8Check(source, source_length));
-//}
-
-//RED_AUTO_TEST_CASE(TestUTF8Check_continuation_at_start)
-//{
-//    uint8_t source[] = {0x82, 0x00};
-//    size_t source_length = sizeof(source); // source_length is a buffer size, including trailing zero if any
-//    // returns number of valid UTF8 characters (source buffer unchanged, no trailing zero added after broken part)
-//
-//   // Check result
-//    RED_CHECK_EQUAL(0, UTF8Check(source, source_length));
-// }
-
-// RED_AUTO_TEST_CASE(TestUTF8Check_tilde)
-// {
-//     uint8_t source[] = {126};
-//     size_t source_length = sizeof(source); // source_length is a buffer size, including trailing zero if any
-//     // returns number of valid UTF8 characters (source buffer unchanged, no trailing zero added after broken part)
-//
-//     // Check result
-//     RED_CHECK_EQUAL(1, UTF8Check(source, source_length));
-// }
-
-// RED_AUTO_TEST_CASE(TestUTF8Check_invalid_utf8)
-// {
-//     uint8_t source[] = {0xC3, 0xA9 /* é */, 0xC3 };
-//     size_t source_length = sizeof(source); // source_length is a buffer size, including trailing zero if any
-//     // returns number of valid UTF8 characters (source buffer unchanged, no trailing zero added after broken part)
-//
-//     // Check result
-//     RED_CHECK_EQUAL(2, UTF8Check(source, source_length));
-// }
-
-// RED_AUTO_TEST_CASE(TestUTF8Check_witch_control_character)
-// {
-//     uint8_t source[] = {0xC3, 0xA9 /* é */, 0x09, 0xC3, 0xA9 };
-//     size_t source_length = sizeof(source); // source_length is a buffer size, including trailing zero if any
-//     // returns number of valid UTF8 characters (source buffer unchanged, no trailing zero added after broken part)
-//
-//     // Check result
-//     RED_CHECK_EQUAL(5, UTF8Check(source, source_length));
-// }
-
-// RED_AUTO_TEST_CASE(TestUTF8Check_valid_utf8_no_trailing_zero)
-// {
-//     uint8_t source[] = {0xC3, 0xA9 /* é */, 0xC3, 0xA9 };
-//     size_t source_length = sizeof(source);
-//
-//     // Check result
-//     RED_CHECK_EQUAL(4, UTF8Check(source, source_length));
-//
-// }
-
-// RED_AUTO_TEST_CASE(TestUTF8Check_valid_utf8_trailing_zero)
-// {
-//     uint8_t source[] = {0xC3, 0xA9 /* é */, 0xC3, 0xA9, 0, 'a' };
-//     size_t source_length = sizeof(source);
-//
-//     // Check result
-//     RED_CHECK_EQUAL(5, UTF8Check(source, source_length));
-// }
-
-
-// RED_AUTO_TEST_CASE(TestUTF8GetFirstCharLen)
-// {
-//     uint8_t   source[] = "aÉ€𝄞";
-//     uint8_t * p        = source;
-//
-//     RED_CHECK_EQUAL(10, strlen(reinterpret_cast<char *>(p)));
-//
-//     RED_CHECK_EQUAL(1, UTF8GetFirstCharLen(p));
-//     p++;
-//
-//     RED_CHECK_EQUAL(2, UTF8GetFirstCharLen(p));
-//     p += 2;
-//
-//     RED_CHECK_EQUAL(3, UTF8GetFirstCharLen(p));
-//     p += 3;
-//
-//     RED_CHECK_EQUAL(4, UTF8GetFirstCharLen(p));
-// }
 
 RED_AUTO_TEST_CASE(TestUTF8ToUTF8LCopy)
 {
@@ -602,88 +357,68 @@ RED_AUTO_TEST_CASE(TestUTF8ToUTF8LCopy)
         uint8_t dest[11] = {};
         int res = UTF8ToUTF8LCopy(dest, sizeof(dest), source);
         RED_CHECK_EQUAL(4, res);
-        RED_CHECK_EQUAL(10, strlen(reinterpret_cast<char *>(dest)));
+        RED_CHECK_EQUAL(10u, strlen(char_ptr_cast(dest)));
     }
 
     {
         uint8_t dest[10] = {};
         int res = UTF8ToUTF8LCopy(dest, sizeof(dest), source);
         RED_CHECK_EQUAL(3, res);
-        RED_CHECK_EQUAL(6, strlen(reinterpret_cast<char *>(dest)));
+        RED_CHECK_EQUAL(6u, strlen(char_ptr_cast(dest)));
     }
 
     {
         uint8_t dest[9] = {};
         int res = UTF8ToUTF8LCopy(dest, sizeof(dest), source);
         RED_CHECK_EQUAL(3, res);
-        RED_CHECK_EQUAL(6, strlen(reinterpret_cast<char *>(dest)));
+        RED_CHECK_EQUAL(6u, strlen(char_ptr_cast(dest)));
     }
 
     {
         uint8_t dest[7] = {};
         int res = UTF8ToUTF8LCopy(dest, sizeof(dest), source);
         RED_CHECK_EQUAL(3, res);
-        RED_CHECK_EQUAL(6, strlen(reinterpret_cast<char *>(dest)));
+        RED_CHECK_EQUAL(6u, strlen(char_ptr_cast(dest)));
     }
 
     {
         uint8_t dest[6] = {};
         int res = UTF8ToUTF8LCopy(dest, sizeof(dest), source);
         RED_CHECK_EQUAL(2, res);
-        RED_CHECK_EQUAL(3, strlen(reinterpret_cast<char *>(dest)));
+        RED_CHECK_EQUAL(3u, strlen(char_ptr_cast(dest)));
     }
 
     {
         uint8_t dest[5] = {};
         int res = UTF8ToUTF8LCopy(dest, sizeof(dest), source);
         RED_CHECK_EQUAL(2, res);
-        RED_CHECK_EQUAL(3, strlen(reinterpret_cast<char *>(dest)));
+        RED_CHECK_EQUAL(3u, strlen(char_ptr_cast(dest)));
     }
 
     {
         uint8_t dest[2] = {};
         int res = UTF8ToUTF8LCopy(dest, sizeof(dest), source);
         RED_CHECK_EQUAL(1, res);
-        RED_CHECK_EQUAL(1, strlen(reinterpret_cast<char *>(dest)));
+        RED_CHECK_EQUAL(1u, strlen(char_ptr_cast(dest)));
     }
 
     {
         uint8_t dest[1] = {};
         int res = UTF8ToUTF8LCopy(dest, sizeof(dest), source);
         RED_CHECK_EQUAL(0, res);
-        RED_CHECK_EQUAL(0, strlen(reinterpret_cast<char *>(dest)));
+        RED_CHECK_EQUAL(0u, strlen(char_ptr_cast(dest)));
     }
 }
-
-// RED_AUTO_TEST_CASE(TestUpperFunctions)
-// {
-//     uint8_t word[] = "Traçâbèlëté_e";
-//     const size_t target_length = 13 * 2;
-//     uint8_t target[target_length];
-//     size_t nbbytes_utf16 = UTF8toUTF16(word, target, target_length);
-//     RED_CHECK_EQUAL(nbbytes_utf16, target_length);
-//     hexdump_c(target, target_length);
-//
-//     uint8_t uptarget[target_length];
-//     memcpy(uptarget, target, target_length);
-//     UTF16Upper(uptarget, target_length / 2);
-//     hexdump_c(uptarget, target_length);
-//
-//     uint8_t uptargetw[target_length];
-//     memcpy(uptargetw, target, target_length);
-//     UTF16UpperW(uptargetw, target_length / 2);
-//     hexdump_c(uptargetw, target_length);
-// }
 
 RED_AUTO_TEST_CASE(TestUTF8toUnicodeIterator) {
     const char * s = "Ëa\nŒo";
     UTF8toUnicodeIterator u(s);
     RED_CHECK(*u);            ++u;
-    RED_CHECK_EQUAL(*u, 'a'); ++u;
-    RED_CHECK_EQUAL(*u, '\n');++u;
+    RED_CHECK_EQUAL(*u, uint8_t('a')); ++u;
+    RED_CHECK_EQUAL(*u, uint8_t('\n'));++u;
     RED_CHECK(*u);            ++u;
-    RED_CHECK_EQUAL(*u, 'o'); ++u;
-    RED_CHECK_EQUAL(*u, 0);
+    RED_CHECK_EQUAL(*u, uint8_t('o')); ++u;
+    RED_CHECK_EQUAL(*u, uint8_t(0));
 }
 
 RED_AUTO_TEST_CASE(TestIsUtf8String) {
@@ -715,7 +450,7 @@ RED_AUTO_TEST_CASE(TestUTF16ToLatin1) {
         UTF16toLatin1(utf16_src, number_of_characters * 2, latin1_dst, sizeof(latin1_dst)),
         number_of_characters);
 
-    RED_CHECK_EQUAL(std::string(char_ptr_cast(latin1_dst)), "trap\xe9zo\xef" "dal");
+    RED_CHECK_EQ(char_ptr_cast(latin1_dst), "trap\xe9zo\xef" "dal");
 }
 
 RED_AUTO_TEST_CASE(TestUTF16ToLatin1_1) {
@@ -730,33 +465,35 @@ RED_AUTO_TEST_CASE(TestUTF16ToLatin1_1) {
 
     RED_CHECK_EQUAL(x, number_of_characters);
 
-    RED_CHECK_EQUAL(std::string(char_ptr_cast(latin1_dst)), "100 \x80");
+    RED_CHECK_EQ(char_ptr_cast(latin1_dst), "100 \x80");
 }
 
-RED_AUTO_TEST_CASE(TestLatin1ToUTF16) {
+RED_AUTO_TEST_CASE(TestLatin1ToUTF16)
+{
     const uint8_t latin1_src[] = "trap\xe9zo\xef" "dal";
+    const size_t number_of_characters = sizeof(latin1_src) - 1;
+    const size_t utf16_chars_count = number_of_characters * 2;
 
-    const size_t number_of_characters = strlen(char_ptr_cast(latin1_src)) + 1;
-
-    const uint8_t utf16_expected[] = "\x74\x00\x72\x00\x61\x00\x70\x00"  // "trapézoïdal"
-                                     "\xe9\x00\x7a\x00\x6f\x00\xef\x00"
-                                     "\x64\x00\x61\x00\x6c\x00\x00\x00";
+    // "trapézoïdal"
+    const auto utf16_expected = "\x74\x00\x72\x00\x61\x00\x70\x00"
+                                "\xe9\x00\x7a\x00\x6f\x00\xef\x00"
+                                "\x64\x00\x61\x00\x6c\x00\x00\x00"_av;
 
     uint8_t utf16_dst[32];
 
     RED_CHECK_EQUAL(
-        Latin1toUTF16(latin1_src, number_of_characters, utf16_dst, sizeof(utf16_dst)),
-        number_of_characters * 2);
+        Latin1toUTF16({latin1_src, number_of_characters+1}, utf16_dst, sizeof(utf16_dst)),
+        utf16_chars_count + 2);
 
-    RED_CHECK_EQUAL(memcmp(utf16_dst, utf16_expected, number_of_characters * 2), 0);
+    RED_CHECK_SMEM(make_array_view(utf16_dst, utf16_chars_count + 2), utf16_expected);
 
-    uint8_t utf8_dst[16];
+    uint8_t utf8_dst[16]{};
 
     RED_CHECK_EQUAL(
-        UTF16toUTF8(utf16_dst, number_of_characters * 2, utf8_dst, sizeof(utf8_dst)),
-        number_of_characters + 2 /* 'é' => 0xC3 0xA9, 'ï' => 0xC3 0xAF */);
+        UTF16toUTF8(utf16_dst, utf16_chars_count + 2, utf8_dst, sizeof(utf8_dst)),
+        number_of_characters + 1 + 2 /* 'é' => 0xC3 0xA9, 'ï' => 0xC3 0xAF */);
 
-    RED_CHECK_EQUAL(std::string(char_ptr_cast(utf8_dst)), "trapézoïdal");
+    RED_CHECK_EQ(char_ptr_cast(utf8_dst), "trapézoïdal");
 }
 
 RED_AUTO_TEST_CASE(TestLatin1ToUTF16_1) {
@@ -770,7 +507,7 @@ RED_AUTO_TEST_CASE(TestLatin1ToUTF16_1) {
     uint8_t utf16_dst[32];
 
     RED_CHECK_EQUAL(
-        Latin1toUTF16(latin1_src, number_of_characters, utf16_dst, sizeof(utf16_dst)),
+        Latin1toUTF16({latin1_src, number_of_characters}, utf16_dst, sizeof(utf16_dst)),
         number_of_characters * 2);
 
     RED_CHECK_EQUAL(memcmp(utf16_dst, utf16_expected, number_of_characters * 2), 0);
@@ -781,7 +518,7 @@ RED_AUTO_TEST_CASE(TestLatin1ToUTF16_1) {
         UTF16toUTF8(utf16_dst, number_of_characters * 2, utf8_dst, sizeof(utf8_dst)),
         number_of_characters + 2 /* '€' => 0xE2 0x82 0xAC */ );
 
-    RED_CHECK_EQUAL(std::string(char_ptr_cast(utf8_dst)), "100 €");
+    RED_CHECK_EQ(char_ptr_cast(utf8_dst), "100 €");
 }
 
 RED_AUTO_TEST_CASE(TestLatin1ToUTF16_2) {
@@ -801,7 +538,7 @@ RED_AUTO_TEST_CASE(TestLatin1ToUTF16_2) {
     uint8_t utf16_dst[64];
 
     RED_CHECK_EQUAL(
-        Latin1toUTF16(latin1_src, number_of_characters, utf16_dst, sizeof(utf16_dst)),
+        Latin1toUTF16({latin1_src, number_of_characters}, utf16_dst, sizeof(utf16_dst)),
         number_of_characters * 2 + 2 /* '\n' -> 0x0D 0x00 0x0A 0x00 */);
 
     RED_CHECK_EQUAL(memcmp(utf16_dst, utf16_expected,
@@ -816,7 +553,7 @@ RED_AUTO_TEST_CASE(TestLatin1ToUTF16_2) {
                              + 1 /* '\n' => 0x0D 0x0A */
                              + 2 /* 'é'  => 0xC3 0xA9, 'ï' => 0xC3 0xAF */);
 
-    RED_CHECK_EQUAL(std::string(char_ptr_cast(utf8_dst)), "100 €\r\ntrapézoïdal");
+    RED_CHECK_EQ(char_ptr_cast(utf8_dst), "100 €\r\ntrapézoïdal");
 }
 
 RED_AUTO_TEST_CASE(TestLatin1ToUTF8) {
@@ -840,23 +577,23 @@ RED_AUTO_TEST_CASE(TestLatin1ToUTF8) {
 }
 
 RED_AUTO_TEST_CASE(TestUTF8StringAdjustedNbBytes) {
-    RED_CHECK_EQUAL(UTF8StringAdjustedNbBytes(byte_ptr_cast(""), 6), 0);
+    RED_CHECK_EQUAL(UTF8StringAdjustedNbBytes(byte_ptr_cast(""), 6), 0u);
 
-    RED_CHECK_EQUAL(UTF8StringAdjustedNbBytes(byte_ptr_cast("èè"), 6), 4);
+    RED_CHECK_EQUAL(UTF8StringAdjustedNbBytes(byte_ptr_cast("èè"), 6), 4u);
 
-    RED_CHECK_EQUAL(UTF8StringAdjustedNbBytes(byte_ptr_cast("èè"), 3), 2);
+    RED_CHECK_EQUAL(UTF8StringAdjustedNbBytes(byte_ptr_cast("èè"), 3), 2u);
 
-    RED_CHECK_EQUAL(UTF8StringAdjustedNbBytes(byte_ptr_cast("èè"), 1), 0);
+    RED_CHECK_EQUAL(UTF8StringAdjustedNbBytes(byte_ptr_cast("èè"), 1), 0u);
 
-    RED_CHECK_EQUAL(UTF8StringAdjustedNbBytes(byte_ptr_cast("èè"), 0), 0);
+    RED_CHECK_EQUAL(UTF8StringAdjustedNbBytes(byte_ptr_cast("èè"), 0), 0u);
 }
 
 RED_AUTO_TEST_CASE(TestUTF16StrLen) {
-    RED_CHECK_EQUAL(UTF16StrLen(byte_ptr_cast("\x00\x00")), 0);
+    RED_CHECK_EQUAL(UTF16StrLen(byte_ptr_cast("\x00\x00")), 0u);
 
-    RED_CHECK_EQUAL(UTF16StrLen(byte_ptr_cast("\x31\x00\x30\x00\x30\x00\x00\x00")), 3);
+    RED_CHECK_EQUAL(UTF16StrLen(byte_ptr_cast("\x31\x00\x30\x00\x30\x00\x00\x00")), 3u);
 
-    RED_CHECK_EQUAL(UTF16StrLen(byte_ptr_cast("\x31\x00\x30\x00\x30\x00\x00\x00\x31\x00\x30\x00\x30\x00")), 3);
+    RED_CHECK_EQUAL(UTF16StrLen(byte_ptr_cast("\x31\x00\x30\x00\x30\x00\x00\x00\x31\x00\x30\x00\x30\x00")), 3u);
 }
 
 RED_AUTO_TEST_CASE(TestUtf16UpperCase)
@@ -897,20 +634,80 @@ RED_AUTO_TEST_CASE(TestUtf16UpperCase)
 }
 
 
-RED_AUTO_TEST_CASE(TestUTF8ToUTF16)
+RED_AUTO_TEST_CASE(TestUTF16ToUTF8)
 {
     {
         uint8_t u16_1[]{'a', 0, 'b', 0, 'c', 0, 0, 0};
         uint8_t dest[32]{'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'};
 
-        RED_CHECK_EQ(UTF16toUTF8(u16_1, 4, dest, sizeof(dest)), 4);
+        RED_CHECK_EQ(UTF16toUTF8(u16_1, 4, dest, sizeof(dest)), 4u);
         RED_CHECK_EQ(char_ptr_cast(dest), "abc");
     }
     {
         uint16_t u16_2[]{'a', 'b', 'c', 0};
         uint8_t dest[32]{'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'};
 
-        RED_CHECK_EQ(UTF16toUTF8(u16_2, 4, dest, sizeof(dest)), 4);
+        RED_CHECK_EQ(UTF16toUTF8(u16_2, 4, dest, sizeof(dest)), 4u);
         RED_CHECK_EQ(char_ptr_cast(dest), "abc");
     }
+}
+
+RED_AUTO_TEST_CASE(TestUTF8ToUTF16Limit)
+{
+    uint8_t expected_target[]{ 'a', 0, 'b', 0, 'c', 0, 'd', 0 };
+
+    const size_t target_length = 8;
+    uint8_t target[target_length];
+
+    memset(target, 0xfe, sizeof(target));
+
+    size_t nbbytes_utf16 = UTF8toUTF16("abcdef"_av, target, target_length);
+
+    // Check result
+    RED_CHECK_EQUAL(target_length, nbbytes_utf16);      // 8
+    RED_CHECK_EQUAL_RANGES(target, expected_target);    // "\x61\x00\x62\x00\x63\x00\x64\x00"
+}
+
+RED_AUTO_TEST_CASE(TestUTF8ToUTF16)
+{
+    uint8_t expected_target[]{ 'a', 0, 'b', 0, 'c', 0, 0xfe, 0xfe };
+
+    const size_t target_length = 8;
+    uint8_t target[target_length];
+
+    memset(target, 0xfe, sizeof(target));
+
+    size_t nbbytes_utf16 = UTF8toUTF16("abc"_av, target, target_length);
+
+    // Check result
+    RED_CHECK_EQUAL(6u, nbbytes_utf16);      // 6
+    RED_CHECK_EQUAL_RANGES(target, expected_target);    // "\x61\x00\x62\x00\x63\x00\x64\x00"
+}
+
+RED_AUTO_TEST_CASE(TestUTF8StrLenInChar)
+{
+    RED_CHECK_EQUAL(4u, UTF8StrLenInChar(byte_ptr_cast("abcd")));
+
+    RED_CHECK_EQUAL(0u, UTF8StrLenInChar(byte_ptr_cast("")));
+
+    {
+        const char * str = "éric";
+        RED_CHECK_EQUAL(5u, strlen(str));
+        RED_CHECK_EQUAL(4u, UTF8StrLenInChar(byte_ptr_cast(str)));
+    }
+
+    {
+        const char * str = "€uro";
+        RED_CHECK_EQUAL(6u, strlen(str));
+        RED_CHECK_EQUAL(4u, UTF8StrLenInChar(byte_ptr_cast(str)));
+    }
+}
+
+RED_AUTO_TEST_CASE(Testis_ASCII_string)
+{
+    RED_CHECK(is_ASCII_string(byte_ptr_cast("abcd")));
+
+    RED_CHECK(!is_ASCII_string(byte_ptr_cast("éric")));
+
+    RED_CHECK(is_ASCII_string(byte_ptr_cast("")));
 }

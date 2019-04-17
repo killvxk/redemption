@@ -21,7 +21,7 @@
 #include "cxx/diagnostic.hpp"
 #include "cxx/compiler_version.hpp"
 REDEMPTION_DIAGNOSTIC_PUSH
-#if REDEMPTION_COMP_CLANG >= REDEMPTION_COMP_VERSION_NUMBER(5, 0, 0)
+#if REDEMPTION_COMP_CLANG_VERSION >= REDEMPTION_COMP_VERSION_NUMBER(5, 0, 0)
     REDEMPTION_DIAGNOSTIC_CLANG_IGNORE("-Wunused-template")
 #endif
 #include "utils/log.hpp"
@@ -31,19 +31,6 @@ REDEMPTION_DIAGNOSTIC_POP
 #include <cstdio>
 
 void LOG__REDEMPTION__INTERNAL__IMPL(int priority, char const * format, ...) /*NOLINT(cert-dcl50-cpp)*/
-{
-    (void)priority;
-    va_list ap;
-    va_start(ap, format);
-    REDEMPTION_DIAGNOSTIC_PUSH
-    REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wformat-nonliteral")
-    std::vprintf(format, ap); /*NOLINT*/
-    REDEMPTION_DIAGNOSTIC_POP
-    std::puts("");
-    va_end(ap);
-}
-
-void LOG__SIEM__REDEMPTION__INTERNAL__IMPL(int priority, char const * format, ...) /*NOLINT(cert-dcl50-cpp)*/
 {
     (void)priority;
     va_list ap;

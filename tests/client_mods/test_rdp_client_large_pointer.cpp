@@ -22,28 +22,24 @@
 */
 
 #define RED_TEST_MODULE TestRdpClientLargePointer
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
-#include "system/redemption_unit_tests.hpp"
 
-// Comment the code block below to generate testing data.
-// Uncomment the code block below to generate testing data.
-
+#include "acl/auth_api.hpp"
 #include "configs/config.hpp"
-// Uncomment the code block below to generate testing data.
-// include "transport/socket_transport.hpp"
-#include "test_only/transport/test_transport.hpp"
-#include "test_only/session_reactor_executor.hpp"
 #include "core/client_info.hpp"
-#include "mod/rdp/rdp.hpp"
-
-#include "test_only/lcg_random.hpp"
-
+#include "core/report_message_api.hpp"
+#include "mod/rdp/new_mod_rdp.hpp"
+#include "utils/theme.hpp"
 #include "test_only/front/fake_front.hpp"
+#include "test_only/lcg_random.hpp"
+#include "test_only/session_reactor_executor.hpp"
+#include "test_only/transport/test_transport.hpp"
+#include "test_only/core/font.hpp"
+
 
 RED_AUTO_TEST_CASE(TestRdpClientLargePointerDisabled)
 {
-    int verbose = 256;
-
     // Uncomment the code block below to generate testing data.
     //SocketTransport::Verbose STVerbose = SocketTransport::Verbose::dump;
 
@@ -51,9 +47,9 @@ RED_AUTO_TEST_CASE(TestRdpClientLargePointerDisabled)
     info.keylayout             = 0x040C;
     info.console_session       = 0;
     info.brush_cache_code      = 0;
-    info.bpp                   = 16;
-    info.width                 = 1024;
-    info.height                = 768;
+    info.screen_info.bpp       = BitsPerPixel{16};
+    info.screen_info.width     = 1024;
+    info.screen_info.height    = 768;
     info.rdp5_performanceflags =   PERF_DISABLE_WALLPAPER
                                  | PERF_DISABLE_FULLWINDOWDRAG
                                  | PERF_DISABLE_MENUANIMATIONS;
@@ -64,7 +60,7 @@ RED_AUTO_TEST_CASE(TestRdpClientLargePointerDisabled)
     // Uncomment the code block below to generate testing data.
     //SSL_library_init();
 
-    FakeFront front(info, verbose);
+    FakeFront front(info.screen_info);
 
     // Uncomment the code block below to generate testing data.
     //const char * name       = "RDP W2012 Target";
@@ -84,13 +80,10 @@ RED_AUTO_TEST_CASE(TestRdpClientLargePointerDisabled)
     #include "fixtures/dump_large_pointer_disabled.hpp"
     TestTransport t(indata, sizeof(indata) - 1, outdata, sizeof(outdata) - 1);
 
-    if (verbose > 2) {
-        LOG(LOG_INFO, "--------- CREATION OF MOD ------------------------");
-    }
-
     snprintf(info.hostname, sizeof(info.hostname), "192-168-1-100");
 
     Inifile ini;
+    Theme theme;
 
     std::array<uint8_t, 28> server_auto_reconnect_packet {};
     ModRDPParams mod_rdp_params( "RED\\RDUser"
@@ -98,8 +91,8 @@ RED_AUTO_TEST_CASE(TestRdpClientLargePointerDisabled)
                                , "10.10.44.27"
                                , "192.168.1.100"
                                , 7
-                               , ini.get<cfg::font>()
-                               , ini.get<cfg::theme>()
+                               , global_font()
+                               , theme
                                , server_auto_reconnect_packet
                                , ini.get_ref<cfg::context::close_box_extra_message>()
                                , to_verbose_flags(511)
@@ -127,24 +120,20 @@ RED_AUTO_TEST_CASE(TestRdpClientLargePointerDisabled)
     NullAuthentifier authentifier;
     NullReportMessage report_message;
     SessionReactor session_reactor;
-    mod_rdp mod(t, session_reactor, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(),
-        gen, timeobj, mod_rdp_params, authentifier, report_message, ini);
+    auto mod = new_mod_rdp(t, session_reactor, front, info,
+        ini.get_ref<cfg::mod_rdp::redir_info>(), gen, timeobj,
+        mod_rdp_params, authentifier, report_message, ini, nullptr);
 
-    if (verbose > 2) {
-        LOG(LOG_INFO, "========= CREATION OF MOD DONE ====================\n\n");
-    }
-    RED_CHECK_EQUAL(front.info.width, 1024);
-    RED_CHECK_EQUAL(front.info.height, 768);
+    RED_CHECK_EQUAL(info.screen_info.width, 1024);
+    RED_CHECK_EQUAL(info.screen_info.height, 768);
 
-    execute_mod(session_reactor, mod, front, 72);
+    execute_mod(session_reactor, *mod, front, 72);
 
     //front.dump_png("trace_test_rdp_client_large_pointer_disabled_");
 }
 
 RED_AUTO_TEST_CASE(TestRdpClientLargePointerEnabled)
 {
-    int verbose = 256;
-
     // Uncomment the code block below to generate testing data.
     //SocketTransport::Verbose STVerbose = SocketTransport::Verbose::dump;
 
@@ -152,9 +141,9 @@ RED_AUTO_TEST_CASE(TestRdpClientLargePointerEnabled)
     info.keylayout             = 0x040C;
     info.console_session       = 0;
     info.brush_cache_code      = 0;
-    info.bpp                   = 16;
-    info.width                 = 1024;
-    info.height                = 768;
+    info.screen_info.bpp       = BitsPerPixel{16};
+    info.screen_info.width     = 1024;
+    info.screen_info.height    = 768;
     info.rdp5_performanceflags =   PERF_DISABLE_WALLPAPER
                                  | PERF_DISABLE_FULLWINDOWDRAG
                                  | PERF_DISABLE_MENUANIMATIONS;
@@ -169,7 +158,7 @@ RED_AUTO_TEST_CASE(TestRdpClientLargePointerEnabled)
     // Uncomment the code block below to generate testing data.
     //SSL_library_init();
 
-    FakeFront front(info, verbose);
+    FakeFront front(info.screen_info);
 
     // Uncomment the code block below to generate testing data.
     //const char * name       = "RDP W2012 Target";
@@ -189,13 +178,10 @@ RED_AUTO_TEST_CASE(TestRdpClientLargePointerEnabled)
     #include "fixtures/dump_large_pointer_enabled.hpp"
     TestTransport t(indata, sizeof(indata) - 1, outdata, sizeof(outdata) - 1);
 
-    if (verbose > 2) {
-        LOG(LOG_INFO, "--------- CREATION OF MOD ------------------------");
-    }
-
     snprintf(info.hostname, sizeof(info.hostname), "192-168-1-100");
 
     Inifile ini;
+    Theme theme;
 
     std::array<uint8_t, 28> server_auto_reconnect_packet {};
     ModRDPParams mod_rdp_params( "RED\\RDUser"
@@ -203,8 +189,8 @@ RED_AUTO_TEST_CASE(TestRdpClientLargePointerEnabled)
                                , "10.10.44.27"
                                , "192.168.1.100"
                                , 7
-                               , ini.get<cfg::font>()
-                               , ini.get<cfg::theme>()
+                               , global_font()
+                               , theme
                                , server_auto_reconnect_packet
                                , ini.get_ref<cfg::context::close_box_extra_message>()
                                , to_verbose_flags(511)
@@ -232,16 +218,14 @@ RED_AUTO_TEST_CASE(TestRdpClientLargePointerEnabled)
     NullAuthentifier authentifier;
     NullReportMessage report_message;
     SessionReactor session_reactor;
-    mod_rdp mod(t, session_reactor, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(),
-        gen, timeobj, mod_rdp_params, authentifier, report_message, ini);
+    auto mod = new_mod_rdp(t, session_reactor, front, info,
+        ini.get_ref<cfg::mod_rdp::redir_info>(), gen, timeobj,
+        mod_rdp_params, authentifier, report_message, ini, nullptr);
 
-    if (verbose > 2) {
-        LOG(LOG_INFO, "========= CREATION OF MOD DONE ====================\n\n");
-    }
-    RED_CHECK_EQUAL(front.info.width, 1024);
-    RED_CHECK_EQUAL(front.info.height, 768);
+    RED_CHECK_EQUAL(info.screen_info.width, 1024);
+    RED_CHECK_EQUAL(info.screen_info.height, 768);
 
-    execute_mod(session_reactor, mod, front, 72);
+    execute_mod(session_reactor, *mod, front, 72);
 
     //front.dump_png("trace_test_rdp_client_large_pointer_enabled_");
 }

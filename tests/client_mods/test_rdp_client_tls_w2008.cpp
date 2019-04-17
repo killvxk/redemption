@@ -22,38 +22,30 @@
 */
 
 #define RED_TEST_MODULE TestRdpClientTLSW2008
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
-
-#include "system/redemption_unit_tests.hpp"
-
-
-// Comment the code block below to generate testing data.
-// Uncomment the code block below to generate testing data.
-
+#include "acl/auth_api.hpp"
 #include "configs/config.hpp"
-// Uncomment the code block below to generate testing data.
-//include "transport/socket_transport.hpp"
-#include "test_only/transport/test_transport.hpp"
-#include "test_only/session_reactor_executor.hpp"
 #include "core/client_info.hpp"
-#include "mod/rdp/rdp.hpp"
-
-#include "test_only/lcg_random.hpp"
-
+#include "core/report_message_api.hpp"
+#include "mod/rdp/new_mod_rdp.hpp"
+#include "utils/theme.hpp"
 #include "test_only/front/fake_front.hpp"
+#include "test_only/lcg_random.hpp"
+#include "test_only/session_reactor_executor.hpp"
+#include "test_only/transport/test_transport.hpp"
+#include "test_only/core/font.hpp"
 
 
 RED_AUTO_TEST_CASE(TestDecodePacket)
 {
-    int verbose = 256;
-
     ClientInfo info;
     info.keylayout             = 0x040C;
     info.console_session       = 0;
     info.brush_cache_code      = 0;
-    info.bpp                   = 16;
-    info.width                 = 1024;
-    info.height                = 768;
+    info.screen_info.bpp       = BitsPerPixel{16};
+    info.screen_info.width     = 1024;
+    info.screen_info.height    = 768;
     info.rdp5_performanceflags =   PERF_DISABLE_WALLPAPER
                                  | PERF_DISABLE_FULLWINDOWDRAG
                                  | PERF_DISABLE_MENUANIMATIONS;
@@ -64,7 +56,7 @@ RED_AUTO_TEST_CASE(TestDecodePacket)
     // Uncomment the code block below to generate testing data.
     //SSL_library_init();
 
-    FakeFront front(info, verbose);
+    FakeFront front(info.screen_info);
 
     //const char * name       = "RDP W2008 TLS Target";
     // Uncomment the code block below to generate testing data.
@@ -84,13 +76,10 @@ RED_AUTO_TEST_CASE(TestDecodePacket)
     #include "fixtures/dump_TLSw2008.hpp"
     TestTransport t(indata, sizeof(indata) - 1, outdata, sizeof(outdata) - 1);
 
-    if (verbose > 2) {
-        LOG(LOG_INFO, "--------- CREATION OF MOD ------------------------");
-    }
-
     snprintf(info.hostname, sizeof(info.hostname), "192-168-1-100");
 
     Inifile ini;
+    Theme theme;
 
     std::array<uint8_t, 28> server_auto_reconnect_packet {};
     ModRDPParams mod_rdp_params( "administrateur"
@@ -98,8 +87,8 @@ RED_AUTO_TEST_CASE(TestDecodePacket)
                                , "10.10.47.35"
                                , "192.168.1.100"
                                , 7
-                               , ini.get<cfg::font>()
-                               , ini.get<cfg::theme>()
+                               , global_font()
+                               , theme
                                , server_auto_reconnect_packet
                                , ini.get_ref<cfg::context::close_box_extra_message>()
                                , to_verbose_flags(511)
@@ -127,18 +116,16 @@ RED_AUTO_TEST_CASE(TestDecodePacket)
     NullAuthentifier authentifier;
     NullReportMessage report_message;
     SessionReactor session_reactor;
-    mod_rdp mod(t, session_reactor, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(),
-        gen, timeobj, mod_rdp_params, authentifier, report_message, ini);
+    auto mod = new_mod_rdp(t, session_reactor, front, info,
+        ini.get_ref<cfg::mod_rdp::redir_info>(), gen, timeobj,
+        mod_rdp_params, authentifier, report_message, ini, nullptr);
 
-    if (verbose > 2) {
-        LOG(LOG_INFO, "========= CREATION OF MOD DONE ====================\n\n");
-    }
-    RED_CHECK_EQUAL(front.info.width, 1024);
-    RED_CHECK_EQUAL(front.info.height, 768);
+    RED_CHECK_EQUAL(info.screen_info.width, 1024);
+    RED_CHECK_EQUAL(info.screen_info.height, 768);
 
     t.disable_remaining_error();
 
-    execute_mod(session_reactor, mod, front, 70);
+    execute_mod(session_reactor, *mod, front, 70);
 
     // t.disable_remaining_error();
     //front.dump_png("trace_w2008_tls_");
@@ -146,15 +133,13 @@ RED_AUTO_TEST_CASE(TestDecodePacket)
 
 RED_AUTO_TEST_CASE(TestDecodePacket2)
 {
-    int verbose = 256;
-
     ClientInfo info;
     info.keylayout             = 0x040C;
     info.console_session       = 0;
     info.brush_cache_code      = 0;
-    info.bpp                   = 16;
-    info.width                 = 1024;
-    info.height                = 768;
+    info.screen_info.bpp       = BitsPerPixel{16};
+    info.screen_info.width     = 1024;
+    info.screen_info.height    = 768;
     info.rdp5_performanceflags =   PERF_DISABLE_WALLPAPER
                                  | PERF_DISABLE_FULLWINDOWDRAG | PERF_DISABLE_MENUANIMATIONS;
 
@@ -163,7 +148,7 @@ RED_AUTO_TEST_CASE(TestDecodePacket2)
 
     //SSL_library_init();
 
-    FakeFront front(info, verbose);
+    FakeFront front(info.screen_info);
 
     //const char * name       = "RDP W2008 TLS Target";
     //int          client_sck = ip_connect("10.10.47.16", 3389, 3, 1000);
@@ -177,16 +162,21 @@ RED_AUTO_TEST_CASE(TestDecodePacket2)
     //                     , &error_message
     //                     );
 
-    #include "fixtures/dump_TLSw2008_2.hpp"
-    TestTransport t(indata, sizeof(indata)-1, outdata, sizeof(outdata)-1);
+    class LimitedTestTransport : public TestTransport {
+        using TestTransport::TestTransport;
 
-    if (verbose > 2) {
-        LOG(LOG_INFO, "--------- CREATION OF MOD ------------------------");
-    }
+        size_t do_partial_read(uint8_t * buffer, size_t len) override {
+            return TestTransport::do_partial_read(buffer, std::min(len, size_t(11)));
+        }
+    };
+
+    #include "fixtures/dump_TLSw2008_2.hpp"
+    LimitedTestTransport t(indata, sizeof(indata)-1, outdata, sizeof(outdata)-1);
 
     snprintf(info.hostname, sizeof(info.hostname), "192-168-1-100");
 
     Inifile ini;
+    Theme theme;
 
     std::array<uint8_t, 28> server_auto_reconnect_packet {};
     ModRDPParams mod_rdp_params( "administrateur"
@@ -194,8 +184,8 @@ RED_AUTO_TEST_CASE(TestDecodePacket2)
                                , "10.10.47.16"
                                , "10.10.43.33"
                                , 7
-                               , ini.get<cfg::font>()
-                               , ini.get<cfg::theme>()
+                               , global_font()
+                               , theme
                                , server_auto_reconnect_packet
                                , ini.get_ref<cfg::context::close_box_extra_message>()
                                , to_verbose_flags(2023)
@@ -223,19 +213,16 @@ RED_AUTO_TEST_CASE(TestDecodePacket2)
     NullAuthentifier authentifier;
     NullReportMessage report_message;
     SessionReactor session_reactor;
-    mod_rdp mod(t, session_reactor, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(),
-        gen, timeobj, mod_rdp_params, authentifier, report_message, ini);
+    auto mod = new_mod_rdp(t, session_reactor, front, info,
+        ini.get_ref<cfg::mod_rdp::redir_info>(), gen, timeobj,
+        mod_rdp_params, authentifier, report_message, ini, nullptr);
 
-    if (verbose > 2) {
-        LOG(LOG_INFO, "========= CREATION OF MOD DONE ====================\n\n");
-    }
-
-    RED_CHECK_EQUAL(front.info.width, 1024);
-    RED_CHECK_EQUAL(front.info.height, 768);
+    RED_CHECK_EQUAL(info.screen_info.width, 1024);
+    RED_CHECK_EQUAL(info.screen_info.height, 768);
 
     t.disable_remaining_error();
 
-    execute_mod(session_reactor, mod, front, 40);
+    execute_mod(session_reactor, *mod, front, 40);
 
     // t.disable_remaining_error();
 //    front.dump_png("trace_w2008_tls_");

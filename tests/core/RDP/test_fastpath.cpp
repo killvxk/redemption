@@ -23,7 +23,7 @@
 
 #define RED_TEST_MODULE TestFastPath
 
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
 #include "utils/stream.hpp"
@@ -50,7 +50,7 @@ RED_AUTO_TEST_CASE(TestReceive_FastPathClientInputPDU) {
     X224::RecvFactory fx224(in_t, &end, array_size);
 
     InStream in_s(array, end - array);
-    FastPath::ClientInputEventPDU_Recv in_cie(in_s, decrypt, array);
+    FastPath::ClientInputEventPDU_Recv in_cie(in_s, decrypt);
 
     RED_CHECK_EQUAL(4, in_cie.numEvents);
 
@@ -95,8 +95,7 @@ RED_AUTO_TEST_CASE(TestReceive_FastPathClientInputPDU) {
             break;
 
             default:
-                LOG(LOG_INFO, "ERR FASTPATH");
-                throw Error(ERR_RDP_FASTPATH);
+                RED_CHECK(!"ERR FASTPATH");
         }
     }
 
@@ -107,8 +106,8 @@ RED_AUTO_TEST_CASE(TestReceive_FastPathClientInputPDU) {
     FastPath::ClientInputEventPDU_Send out_cie(
         out_s, out_payload.get_data(), out_payload.get_offset(), in_cie.numEvents, decrypt, 0, 0);
 
-    out_t.send(out_s.get_data(), out_s.get_offset());
-    out_t.send(out_payload.get_data(), out_payload.get_offset());
+    out_t.send(out_s.get_bytes());
+    out_t.send(out_payload.get_bytes());
 }
 
 RED_AUTO_TEST_CASE(TestReceive_FastPathClientInputPDU2) {
@@ -129,7 +128,7 @@ RED_AUTO_TEST_CASE(TestReceive_FastPathClientInputPDU2) {
     uint8_t * end = array;
     X224::RecvFactory fx224(in_t, &end, array_size);
     InStream in_s(array, end - array);
-    FastPath::ClientInputEventPDU_Recv in_cie(in_s, decrypt, array);
+    FastPath::ClientInputEventPDU_Recv in_cie(in_s, decrypt);
 
     RED_CHECK_EQUAL(6, in_cie.numEvents);
 
@@ -190,8 +189,8 @@ RED_AUTO_TEST_CASE(TestReceive_FastPathClientInputPDU2) {
     FastPath::ClientInputEventPDU_Send out_cie(
         out_s, out_payload.get_data(), out_payload.get_offset(), in_cie.numEvents, decrypt, 0, 0);
 
-    out_t.send(out_s.get_data(), out_s.get_offset());
-    out_t.send(out_payload.get_data(), out_payload.get_offset());
+    out_t.send(out_s.get_bytes());
+    out_t.send(out_payload.get_bytes());
 }
 
 RED_AUTO_TEST_CASE(TestReceive_FastPathServerUpdatePDU) {
@@ -342,8 +341,8 @@ RED_AUTO_TEST_CASE(TestReceive_FastPathServerUpdatePDU3) {
                 , decrypt
                 );
 
-            out_t.send(SvrUpdPDU_s.get_data(), SvrUpdPDU_s.get_offset()); // Server Fast-Path Update PDU (TS_FP_UPDATE_PDU)
-            out_t.send(out_s.get_data(), out_s.get_offset());           // Fast-Path Update (TS_FP_UPDATE)
+            out_t.send(SvrUpdPDU_s.get_bytes()); // Server Fast-Path Update PDU (TS_FP_UPDATE_PDU)
+            out_t.send(out_s.get_bytes());           // Fast-Path Update (TS_FP_UPDATE)
         }
     }
 

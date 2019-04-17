@@ -24,7 +24,6 @@
 
 #include "acl/module_manager/enums.hpp"
 #include "acl/module_manager/mm_ini.hpp"
-#include "acl/mm_api.hpp"
 #include "configs/config.hpp"
 #include "core/RDP/gcc/userdata/cs_monitor.hpp"
 #include "core/session_reactor.hpp"
@@ -78,12 +77,14 @@ void MMIni::invoke_close_box(
             LOG(LOG_INFO, "MMIni::invoke_close_box exception = %u!\n", e.id);
         }
     }
+
     this->remove_mod();
     if (this->ini.get<cfg::globals::enable_close_box>()) {
         this->new_mod(MODULE_INTERNAL_CLOSE, now, authentifier, report_message);
         signal = BACK_EVENT_NONE;
     }
     else {
+        detail::log_proxy_logout(this->ini.get<cfg::context::auth_error_message>().c_str());
         signal = BACK_EVENT_STOP;
     }
 }

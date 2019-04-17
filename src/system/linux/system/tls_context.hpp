@@ -23,13 +23,13 @@
 
 #pragma once
 
-#include "fcntl.h"
 #include "core/server_notifier_api.hpp"
 #include "core/app_path.hpp"
 #include "core/error.hpp"
 #include "utils/fileutils.hpp"
 #include "utils/file.hpp"
 #include "utils/log.hpp"
+#include "utils/sugar/algostring.hpp"
 
 #include "transport/transport.hpp" // Transport::TlsResult
 
@@ -37,6 +37,8 @@
 
 #include <memory>
 #include <cstring>
+
+#include <fcntl.h>
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -46,27 +48,24 @@
 REDEMPTION_DIAGNOSTIC_PUSH
 REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wold-style-cast")
 REDEMPTION_DIAGNOSTIC_GCC_ONLY_IGNORE("-Wzero-as-null-pointer-constant")
-#if REDEMPTION_COMP_CLANG >= REDEMPTION_COMP_VERSION_NUMBER(5, 0, 0)
+#if REDEMPTION_COMP_CLANG_VERSION >= REDEMPTION_COMP_VERSION_NUMBER(5, 0, 0)
     REDEMPTION_DIAGNOSTIC_CLANG_IGNORE("-Wzero-as-null-pointer-constant")
 #endif
 
-namespace
+inline bool tls_ctx_print_error(char const* error_msg, std::string* error_message)
 {
-    bool print_error(char const* error_msg, std::string* error_message)
-    {
-        LOG(LOG_ERR, "TLSContext::enable_client_tls: %s", error_msg);
-        unsigned long error;
-        char buf[1024];
-        while ((error = ERR_get_error()) != 0) {
-            ERR_error_string_n(error, buf, sizeof(buf));
-            LOG(LOG_ERR, "%s", buf);
-            if (error_message) {
-                *error_message += buf;
-            }
+    LOG(LOG_ERR, "TLSContext::enable_client_tls: %s", error_msg);
+    unsigned long error;
+    char buf[1024];
+    while ((error = ERR_get_error()) != 0) {
+        ERR_error_string_n(error, buf, sizeof(buf));
+        LOG(LOG_ERR, "print_error %s", buf);
+        if (error_message) {
+            *error_message += buf;
         }
-        return false;
     }
-}  // namespace
+    return false;
+}
 
 class TLSContext
 {
@@ -147,7 +146,7 @@ public:
         SSL_CTX* ctx = SSL_CTX_new(SSLv23_client_method());
 
         if (ctx == nullptr) {
-            return print_error("SSL_CTX_new returned NULL", error_message);
+            return tls_ctx_print_error("SSL_CTX_new returned NULL", error_message);
         }
 
         this->allocated_ctx = ctx;
@@ -167,18 +166,13 @@ public:
         SSL* ssl = SSL_new(ctx);
 
         if (ctx == nullptr) {
-            return print_error("SSL_new returned NULL", error_message);
+            return tls_ctx_print_error("SSL_new returned NULL", error_message);
         }
 
         this->allocated_ssl = ssl;
 
-        // TODO I should probably not be doing that here ? Is it really necessary
-        // TODO: Socket should be passed by caller
-        int flags = fcntl(sck, F_GETFL);
-        fcntl(sck, F_SETFL, flags & ~(O_NONBLOCK));
-
         if (0 == SSL_set_fd(ssl, sck)) {
-            return print_error("SSL_set_fd failed", error_message);
+            return tls_ctx_print_error("SSL_set_fd failed", error_message);
         }
 
         LOG(LOG_INFO, "SSL_connect()");
@@ -209,7 +203,7 @@ public:
                     error_msg = "Unknown error";
                     break;
             }
-            print_error(error_msg, error_message);
+            tls_ctx_print_error(error_msg, error_message);
             return Transport::TlsResult::Fail;
         }
 
@@ -269,9 +263,7 @@ public:
         if (recursive_create_directory(certif_path, S_IRWXU|S_IRWXG, -1) != 0) {
             LOG(LOG_WARNING, "Failed to create certificate directory: %s ", certif_path);
             if (error_message) {
-                *error_message = "Failed to create certificate directory: \"";
-                *error_message += certif_path;
-                *error_message += "\"\n";
+                str_assign(*error_message, "Failed to create certificate directory: \"", certif_path, "\"\n");
             }
             bad_certificate_path = true;
 
@@ -297,9 +289,7 @@ public:
                     // failed to open stored certificate file
                     LOG(LOG_WARNING, "Failed to open stored certificate: \"%s\"", filename);
                     if (error_message) {
-                        *error_message = "Failed to open stored certificate: \"";
-                        *error_message += filename;
-                        *error_message += "\"\n";
+                        str_assign(*error_message, "Failed to open stored certificate: \"", filename, "\"\n");
                     }
                     server_notifier.server_cert_error(strerror(errno));
                     checking_exception = ERR_TRANSPORT_TLS_CERTIFICATE_INACCESSIBLE;
@@ -309,9 +299,7 @@ public:
                 {
                     LOG(LOG_WARNING, "There's no stored certificate: \"%s\"", filename);
                     if (error_message) {
-                        *error_message = "There's no stored certificate: \"";
-                        *error_message += filename;
-                        *error_message += "\"\n";
+                        str_assign(*error_message, "There's no stored certificate: \"", filename, "\"\n");
                     }
 
                     if (ensure_server_certificate_exists) {
@@ -330,9 +318,7 @@ public:
                     // failed to read stored certificate file
                     LOG(LOG_WARNING, "Failed to read stored certificate: \"%s\"", filename);
                     if (error_message) {
-                        *error_message = "Failed to read stored certificate: \"";
-                        *error_message += filename;
-                        *error_message += "\"\n";
+                        str_assign(*error_message, "Failed to read stored certificate: \"", filename, "\"\n");
                     }
                     certificate_matches = false;
 
@@ -388,9 +374,7 @@ public:
                             fingerprint_existing.get(), issuer.get(),
                             subject.get(), fingerprint.get());
                         if (error_message) {
-                            *error_message = "The certificate has changed: \"";
-                            *error_message += filename;
-                            *error_message += "\"\n";
+                            str_assign(*error_message, "The certificate has changed: \"", filename, "\"\n");
                         }
                         certificate_exists  = true;
                         certificate_matches = false;
@@ -796,7 +780,8 @@ public:
                     return 0;
                 }
 
-                strcpy(buf, pass);
+                memcpy(buf, pass, pass_len);
+                buf[pass_len] = 0;
                 return int(pass_len);
             }
         );
@@ -866,10 +851,6 @@ public:
             EVP_PKEY_free(pkey);
         }
 
-        // TODO I should probably not be doing that here ? Is it really necessary
-        int flags = fcntl(sck, F_GETFL);
-        fcntl(sck, F_SETFL, flags & ~(O_NONBLOCK));
-
         SSL_set_bio(ssl, sbio, sbio);
 
         int r = SSL_accept(ssl);
@@ -890,7 +871,7 @@ public:
     ssize_t privpartial_recv_tls(uint8_t * data, size_t len)
     {
         for (;;) {
-            ssize_t rcvd = ::SSL_read(this->io, data, len);
+            int rcvd = ::SSL_read(this->io, data, len);
             if (rcvd > 0) {
                 return rcvd;
             }
@@ -925,12 +906,47 @@ public:
                 default:
                 {
                     do {
-                        LOG(LOG_INFO, "%s", ERR_error_string(error, nullptr));
+                        LOG(LOG_INFO, "partial_recv_tls %s", ERR_error_string(error, nullptr));
                     } while ((error = ERR_get_error()) != 0);
 
                     // TODO if recv fail with partial read we should return the amount of data received, close socket and store some delayed error value that will be sent back next call
                     // TODO replace this with actual error management, EOF is not even an option for sockets
                     // TODO Manage actual errors, check possible values
+                    return -1;
+                }
+            }
+        }
+    }
+
+    ssize_t privpartial_send_tls(const uint8_t * data, size_t len)
+    {
+        const uint8_t * const buffer = data;
+        size_t remaining_len = len;
+        for (;;){
+            int ret = SSL_write(this->io, buffer, remaining_len);
+            if (ret > 0) {
+                return ret;
+            }
+            unsigned long error = SSL_get_error(this->io, ret);
+            switch (error)
+            {
+                case SSL_ERROR_NONE:
+                    return ret;
+
+                case SSL_ERROR_WANT_READ:
+                    LOG(LOG_INFO, "send_tls WANT READ");
+                    continue;
+
+                case SSL_ERROR_WANT_WRITE:
+                    LOG(LOG_INFO, "send_tls WANT WRITE");
+                    continue;
+
+                default:
+                {
+                    LOG(LOG_INFO, "Failure in SSL library, error=%lu, %s [%d]", error, strerror(errno), errno);
+                    do {
+                        LOG(LOG_INFO, "partial_send_tls %s", ERR_error_string(error, nullptr));
+                    } while ((error = ERR_get_error()) != 0);
                     return -1;
                 }
             }
@@ -964,13 +980,9 @@ public:
                 default:
                 {
                     LOG(LOG_INFO, "Failure in SSL library, error=%lu, %s [%d]", error, strerror(errno), errno);
-                    uint32_t errcount = 0;
-                    errcount++;
-                    LOG(LOG_INFO, "%s", ERR_error_string(error, nullptr));
-                    while ((error = ERR_get_error()) != 0){
-                        errcount++;
-                        LOG(LOG_INFO, "%s", ERR_error_string(error, nullptr));
-                    }
+                    do {
+                        LOG(LOG_INFO, "send_tls %s", ERR_error_string(error, nullptr));
+                    } while ((error = ERR_get_error()) != 0);
                     return -1;
                 }
             }

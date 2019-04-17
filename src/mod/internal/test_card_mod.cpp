@@ -20,6 +20,7 @@
    Use (implemented) basic RDP orders to draw some known test pattern
 */
 
+#include "gdi/graphic_api.hpp"
 #include "keyboard/keymap2.hpp"
 #include "mod/internal/test_card_mod.hpp"
 #include "core/app_path.hpp"
@@ -29,6 +30,7 @@
 #include "core/RDP/orders/RDPOrdersPrimaryLineTo.hpp"
 #include "utils/bitmap_from_file.hpp"
 #include "utils/sugar/update_lock.hpp"
+#include "utils/sugar/algostring.hpp"
 
 
 TestCardMod::TestCardMod(
@@ -135,13 +137,13 @@ void TestCardMod::draw_event(time_t /*now*/, gdi::GraphicApi & gd)
         0xf0, 0xc0, 0x0f,
     };
 
-    Bitmap bloc64x64(24, 24, &this->palette332, 64, 64, comp64x64RED, sizeof(comp64x64RED), true);
+    Bitmap bloc64x64(BitsPerPixel{24}, BitsPerPixel{24}, &this->palette332, 64, 64, comp64x64RED, sizeof(comp64x64RED), true);
     gd.draw(RDPMemBlt(0,
         Rect(0, this->get_screen_rect().cy - 64, bloc64x64.cx(), bloc64x64.cy()), 0xCC,
             32, 32, 0), clip, bloc64x64);
 
     //Bitmap_PNG logo(app_path_s(AppPath::Share) + "/ad8b.bmp");
-    Bitmap logo = bitmap_from_file((app_path_s(AppPath::Share) + "/ad8b.png").c_str());
+    Bitmap logo = bitmap_from_file(str_concat(app_path(AppPath::Share), "/ad8b.png").c_str());
     gd.draw(RDPMemBlt(0,
         Rect(100, 100, 26, 32),
         0xCC,

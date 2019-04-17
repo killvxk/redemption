@@ -28,12 +28,15 @@
 
 #include "gdi/capture_api.hpp"
 
-#include "transport/transport.hpp"
-
 #include "utils/png.hpp"
 #include "utils/bitmap_shrink.hpp"
 #include "utils/difftimeval.hpp"
 #include "utils/log.hpp"
+#include "utils/strutils.hpp"
+
+#ifndef REDEMPTION_NO_FFMPEG
+#include <libavformat/avio.h> // AVSEEK_SIZE
+#endif
 
 #include <cerrno>
 #include <cstring>
@@ -224,6 +227,26 @@ void VideoCaptureCtx::next_video()
     }
 }
 
+uint16_t VideoCaptureCtx::width() const noexcept
+{
+    return this->drawable.width();
+}
+
+uint16_t VideoCaptureCtx::height() const noexcept
+{
+    return this->drawable.height();
+}
+
+size_t VideoCaptureCtx::pix_len() const noexcept
+{
+    return this->drawable.pix_len();
+}
+
+const uint8_t * VideoCaptureCtx::data() const noexcept
+{
+    return this->drawable.data();
+}
+
 Microseconds VideoCaptureCtx::snapshot(
     video_recorder & recorder, timeval const & now, bool /*ignore_frame_in_timeval*/
 )
@@ -313,11 +336,10 @@ FullVideoCaptureImpl::TmpFileTransport::TmpFileTransport(
 // IOVideoRecorderWithTransport
 //@{
 
-#include <libavformat/avio.h>
-
 template<class Transport>
 struct IOVideoRecorderWithTransport
 {
+#ifndef REDEMPTION_NO_FFMPEG
     static int write(void * opaque, uint8_t * buf, int buf_size)
     {
         Transport * trans       = static_cast<Transport*>(opaque);
@@ -364,6 +386,10 @@ struct IOVideoRecorderWithTransport
             return -1;
         };
     }
+#else
+    static int write(void * /*opaque*/, uint8_t * /*buf*/, int buf_size) { return buf_size; }
+    static int64_t seek(void * /*opaque*/, int64_t offset, int /*whence*/) { return offset; }
+#endif
 };
 
 //@}
@@ -454,15 +480,12 @@ SequencedVideoCaptureImpl::SequenceTransport::SequenceTransport(
     ReportMessageApi * report_message)
 : VideoTransportBase(groupid, report_message)
 {
-    if (strlen(prefix) > sizeof(this->filegen.path) - 1
-     || strlen(filename) > sizeof(this->filegen.base) - 1
-     || strlen(extension) > sizeof(this->filegen.ext) - 1) {
+    if (!utils::strbcpy(this->filegen.path, prefix)
+     || !utils::strbcpy(this->filegen.base, filename)
+     || !utils::strbcpy(this->filegen.ext, extension)) {
+        LOG(LOG_ERR, "Filename too long");
         throw Error(ERR_TRANSPORT);
     }
-
-    strcpy(this->filegen.path, prefix);
-    strcpy(this->filegen.base, filename);
-    strcpy(this->filegen.ext, extension);
 }
 
 bool SequencedVideoCaptureImpl::SequenceTransport::next()
@@ -592,7 +615,7 @@ void SequencedVideoCaptureImpl::VideoCapture::next_video()
         this->trans.next();
     }
 
-    this->recorder.reset(new video_recorder(
+    this->recorder = std::make_unique<video_recorder>(
         IOVideoRecorderWithTransport<SequenceTransport>::write,
         IOVideoRecorderWithTransport<SequenceTransport>::seek,
         &this->trans,
@@ -602,7 +625,7 @@ void SequencedVideoCaptureImpl::VideoCapture::next_video()
         this->video_params.qscale,
         this->video_params.codec.c_str(),
         this->video_params.verbosity
-    ));
+    );
     this->recorder->preparing_video_frame();
     this->video_cap_ctx.next_video();
 }
@@ -649,7 +672,7 @@ void SequencedVideoCaptureImpl::zoom(unsigned percent)
     this->ic_scaled_width = (zoom_width + 3) & 0xFFC;
     this->ic_scaled_height = zoom_height;
     if (this->ic_zoom_factor != 100) {
-        this->ic_scaled_buffer.reset(new uint8_t[this->ic_scaled_width * this->ic_scaled_height * 3]);
+        this->ic_scaled_buffer = std::make_unique<uint8_t[]>(this->ic_scaled_width * this->ic_scaled_height * 3);
     }
 }
 
@@ -743,7 +766,7 @@ SequencedVideoCaptureImpl::SequencedVideoCaptureImpl(
     this->ic_scaled_width = (zoom_width + 3) & 0xFFC;
     this->ic_scaled_height = zoom_height;
     if (this->ic_zoom_factor != 100) {
-        this->ic_scaled_buffer.reset(new uint8_t[this->ic_scaled_width * this->ic_scaled_height * 3]);
+        this->ic_scaled_buffer = std::make_unique<uint8_t[]>(this->ic_scaled_width * this->ic_scaled_height * 3);
     }
 }
 

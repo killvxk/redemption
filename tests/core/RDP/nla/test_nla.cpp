@@ -19,7 +19,7 @@
 */
 
 #define RED_TEST_MODULE TestNLA
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "core/RDP/nla/nla.hpp"
 #include "core/RDP/tpdu_buffer.hpp"
@@ -27,6 +27,10 @@
 #include "test_only/transport/test_transport.hpp"
 
 #include "test_only/lcg_random.hpp"
+
+RED_TEST_DELEGATE_PRINT(rdpCredsspClient::State, long(x))
+RED_TEST_DELEGATE_PRINT(rdpCredsspServer::State, long(x))
+
 
 RED_AUTO_TEST_CASE(TestNlaclient)
 {
@@ -87,10 +91,8 @@ RED_AUTO_TEST_CASE(TestNlaclient)
 /* 0020 */ "\x45\x3d\x1b\x05\x15\xce\x56\x0a\x54\xa1\xf1"                     //E=....V.T..
         ;
 
-    LOG(LOG_INFO, "TEST CLIENT SIDE");
-
     TestTransport logtrans(server, sizeof(server)-1, client, sizeof(client)-1);
-    logtrans.set_public_key(reinterpret_cast<const uint8_t*>("1245789652325415"), 16);
+    logtrans.set_public_key(byte_ptr_cast("1245789652325415"), 16);
     uint8_t user[] = "Ulysse";
     uint8_t domain[] = "Ithaque";
     uint8_t pass[] = "Pénélope";
@@ -176,13 +178,12 @@ RED_AUTO_TEST_CASE(TestNlaserver)
 /* 0020 */ "\x45\x3d\x1b\x05\x15\xce\x56\x0a\x54\xa1\xf1"                     //E=....V.T..
         ;
 
-    LOG(LOG_INFO, "TEST SERVER SIDE");
     TestTransport logtrans(client, sizeof(client)-1, server, sizeof(server)-1);
-    logtrans.set_public_key(reinterpret_cast<const uint8_t*>("1245789652325415"), 16);
-    uint8_t user[] = "Ulysse";
-    uint8_t domain[] = "Ithaque";
-    uint8_t pass[] = "Pénélope";
-    uint8_t host[] = "Télémaque";
+    logtrans.set_public_key(byte_ptr_cast("1245789652325415"), 16);
+    auto user = "Ulysse"_av;
+    auto domain = "Ithaque"_av;
+    auto pass = "Pénélope"_av;
+    auto host = "Télémaque"_av;
     LCGRandom rand(0);
     LCGTime timeobj;
     std::string extra_message;
@@ -192,17 +193,21 @@ RED_AUTO_TEST_CASE(TestNlaserver)
         [&](SEC_WINNT_AUTH_IDENTITY& identity){
             auto arr2av = [&](Array& arr){ return make_array_view(arr.get_data(), arr.size()); };
             std::vector<uint8_t> vec;
-            vec.resize((std::size(user) - 1) * 2);
+            vec.resize(user.size() * 2);
             UTF8toUTF16(user, vec.data(), vec.size());
             RED_CHECK_MEM_AA(arr2av(identity.User), vec);
-            vec.resize((std::size(domain) - 1) * 2);
+            vec.resize(domain.size() * 2);
             UTF8toUTF16(domain, vec.data(), vec.size());
             RED_CHECK_MEM_AA(arr2av(identity.Domain), vec);
-            identity.SetPasswordFromUtf8(pass);
+            identity.SetPasswordFromUtf8(byte_ptr_cast(pass.data()));
             return Ntlm_SecurityFunctionTable::PasswordCallback::Ok;
         }
     );
-    credssp.set_credentials(user, domain, pass, host);
+    credssp.set_credentials(
+        byte_ptr_cast(user.data()),
+        byte_ptr_cast(domain.data()),
+        byte_ptr_cast(pass.data()),
+        byte_ptr_cast(host.data()));
     RED_CHECK(credssp.credssp_server_authenticate_init());
 
     rdpCredsspServer::State st = rdpCredsspServer::State::Cont;

@@ -21,9 +21,12 @@
 #include "cxx/cxx.hpp"
 #include "gdi/graphic_api.hpp"
 #include "transport/transport.hpp"
+#include "utils/bitfu.hpp"
 #include "utils/file.hpp"
 #include "utils/image_data_view.hpp"
+#include "utils/log.hpp"
 #include "utils/png.hpp"
+#include "utils/stream.hpp"
 #include "utils/sugar/array_view.hpp"
 #include "utils/sugar/buf_maker.hpp"
 #include "utils/sugar/numerics/safe_conversions.hpp"
@@ -258,7 +261,7 @@ void dump_png24(
 void dump_png24(Transport & trans, ConstImageDataView const & image_view, bool bgr)
 {
     // TODO image_view.bytes_per_pixel(); isn't used
-    assert(3 == image_view.bytes_per_pixel());
+    assert(BytesPerPixel{3} == image_view.bytes_per_pixel());
 
     ::dump_png24(
         trans, image_view.data(),
@@ -270,7 +273,7 @@ void dump_png24(Transport & trans, ConstImageDataView const & image_view, bool b
 void dump_png24(std::FILE * file, ConstImageDataView const & image_view, bool bgr)
 {
     // TODO image_view.bytes_per_pixel(); isn't used
-    assert(3 == image_view.bytes_per_pixel());
+    assert(BytesPerPixel{3} == image_view.bytes_per_pixel());
 
     PngWriteStruct png;
 
@@ -290,7 +293,7 @@ void dump_png24(std::FILE * file, ConstImageDataView const & image_view, bool bg
 void dump_png24(const char * filename, ConstImageDataView const & image_view, bool bgr)
 {
     // TODO image_view.bytes_per_pixel(); isn't used
-    assert(3 == image_view.bytes_per_pixel());
+    assert(BytesPerPixel{3} == image_view.bytes_per_pixel());
 
     if (File f{filename, "wb"}) {
         dump_png24(f.get(), image_view, bgr);
@@ -301,7 +304,7 @@ void dump_png24(const char * filename, ConstImageDataView const & image_view, bo
 void read_png24(const char * filename, MutableImageDataView const & mutable_image_view)
 {
     // TODO mutable_image_view.bytes_per_pixel(); isn't used
-    assert(3 == mutable_image_view.bytes_per_pixel());
+    assert(BytesPerPixel{3} == mutable_image_view.bytes_per_pixel());
 
     if (File f{filename, "r"}) {
         read_png24(f.get(), mutable_image_view);
@@ -311,7 +314,7 @@ void read_png24(const char * filename, MutableImageDataView const & mutable_imag
 void read_png24(std::FILE * file, MutableImageDataView const & mutable_image_view)
 {
     // TODO mutable_image_view.bytes_per_pixel(); isn't used
-    assert(3 == mutable_image_view.bytes_per_pixel());
+    assert(BytesPerPixel{3} == mutable_image_view.bytes_per_pixel());
 
     PngReadStruct png;
     png_init_io(png.ppng, file);
@@ -323,7 +326,7 @@ void read_png24(std::FILE * file, MutableImageDataView const & mutable_image_vie
 void read_png24(Transport & trans, MutableImageDataView const & mutable_image_view)
 {
     // TODO mutable_image_view.bytes_per_pixel(); isn't used
-    assert(3 == mutable_image_view.bytes_per_pixel());
+    assert(BytesPerPixel{3} == mutable_image_view.bytes_per_pixel());
 
     auto png_read_data_fn = [](png_structp png_ptr, png_bytep data, png_size_t length) {
        // TODO catch exception ?

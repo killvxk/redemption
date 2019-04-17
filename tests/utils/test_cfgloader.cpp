@@ -21,9 +21,11 @@
 */
 
 #define RED_TEST_MODULE TestXXXXXXXXXX
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "utils/cfgloader.hpp"
+
+#include <sstream>
 
 
 RED_AUTO_TEST_CASE(TestCfgloader)

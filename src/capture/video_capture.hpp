@@ -23,7 +23,6 @@
 #include "capture/video_params.hpp"
 #include "capture/video_recorder.hpp"
 #include "capture/notify_next_video.hpp"
-#include "core/RDP/RDPDrawable.hpp"
 #include "gdi/capture_api.hpp"
 #include "transport/out_file_transport.hpp"
 #include "utils/sugar/noncopyable.hpp"
@@ -32,11 +31,9 @@
 #include <memory>
 #include <chrono>
 
-struct timeval;
-class video_recorder;
 class CaptureParams;
-class VideoParams;
 class FullVideoParams;
+class RDPDrawable;
 
 struct VideoTransportBase : Transport
 {
@@ -93,21 +90,13 @@ struct VideoCaptureCtx : noncopyable
         video_recorder & /*recorder*/, timeval const & now, bool ignore_frame_in_timeval);
     void next_video();
 
-    uint16_t width() const noexcept {
-        return this->drawable.width();
-    }
+    uint16_t width() const noexcept;
 
-    uint16_t height() const noexcept {
-        return this->drawable.height();
-    }
+    uint16_t height() const noexcept;
 
-    size_t pix_len() const noexcept {
-        return this->drawable.pix_len();
-    }
+    size_t pix_len() const noexcept;
 
-    const uint8_t * data() const noexcept {
-        return this->drawable.data();
-    }
+    const uint8_t * data() const noexcept;
 
 private:
     void preparing_video_frame(video_recorder & /*recorder*/);

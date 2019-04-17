@@ -20,80 +20,21 @@
 
 
 #define RED_TEST_MODULE TestCLIPRDRChannel
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
-
-#include "core/channel_list.hpp"
-#include "core/client_info.hpp"
 #include "core/RDP/clipboard.hpp"
 #include "test_only/transport/test_transport.hpp"
 #include "mod/rdp/channels/cliprdr_channel.hpp"
 #include "mod/rdp/channels/virtual_channel_data_sender.hpp"
 
+#include "./test_channel.hpp"
 #include "test_only/front/fake_front.hpp"
 
-class TestToClientSender : public VirtualChannelDataSender {
-    Transport& transport;
-
-public:
-    TestToClientSender(Transport& transport) : transport(transport) {}
-
-    virtual void operator() (uint32_t total_length, uint32_t flags,
-            const uint8_t* chunk_data, uint32_t chunk_data_length) override {
-        LOG(LOG_INFO,
-            "TestToClientSender: "
-                "total_length=%u flags=0x%X chunk_data_length=%u",
-            total_length, flags, chunk_data_length);
-
-        const uint32_t dest = 0;    // Client
-        uint8_t tmp[sizeof(dest)+sizeof(total_length)+sizeof(flags)+sizeof(chunk_data_length)];
-        ::out_bytes_be(tmp, sizeof(dest), dest);
-        ::out_bytes_be(tmp + sizeof(dest), sizeof(total_length), total_length);
-        ::out_bytes_be(tmp + sizeof(dest) + sizeof(total_length), sizeof(flags), flags);
-        ::out_bytes_be(tmp + sizeof(dest) + sizeof(total_length) + sizeof(flags), sizeof(chunk_data_length), chunk_data_length);
-        this->transport.send(tmp,sizeof(tmp));
-        this->transport.send(chunk_data, chunk_data_length);
-    }
-};
-
-class TestToServerSender : public VirtualChannelDataSender {
-    Transport& transport;
-
-public:
-    TestToServerSender(Transport& transport) : transport(transport) {}
-
-    virtual void operator() (uint32_t total_length, uint32_t flags,
-            const uint8_t* chunk_data, uint32_t chunk_data_length) override {
-        LOG(LOG_INFO,
-            "TestToServerSender: "
-                "total_length=%u flags=0x%X chunk_data_length=%u",
-            total_length, flags, chunk_data_length);
-
-        const uint32_t dest = 1;    // Server
-        uint8_t tmp[sizeof(dest)+sizeof(total_length)+sizeof(flags)+sizeof(chunk_data_length)];
-        ::out_bytes_be(tmp, sizeof(dest), dest);
-        ::out_bytes_be(tmp + sizeof(dest), sizeof(total_length), total_length);
-        ::out_bytes_be(tmp + sizeof(dest) + sizeof(total_length), sizeof(flags), flags);
-        ::out_bytes_be(tmp + sizeof(dest) + sizeof(total_length) + sizeof(flags), sizeof(chunk_data_length), chunk_data_length);
-        this->transport.send(tmp,sizeof(tmp));
-        this->transport.send(chunk_data, chunk_data_length);
-    }
-};
 
 RED_AUTO_TEST_CASE(TestCliprdrChannelXfreeRDPFullAuthrisation)
 {
-    ClientInfo info;
-    info.keylayout             = 0x04C;
-    info.console_session       = 0;
-    info.brush_cache_code      = 0;
-    info.bpp                   = 24;
-    info.width                 = 800;
-    info.height                = 600;
-    info.rdp5_performanceflags = PERF_DISABLE_WALLPAPER;
-    snprintf(info.hostname, sizeof(info.hostname), "test");
-    FakeFront front(info,
-                    511 // verbose
-                   );
+    ScreenInfo screen_info{BitsPerPixel{24}, 800, 600};
+    FakeFront front(screen_info);
 
     int verbose = static_cast<int>(RDPVerbose::cliprdr | RDPVerbose::cliprdr_dump);
 
@@ -109,6 +50,8 @@ RED_AUTO_TEST_CASE(TestCliprdrChannelXfreeRDPFullAuthrisation)
 
     clipboard_virtual_channel_params.dont_log_data_into_syslog = false;
     clipboard_virtual_channel_params.dont_log_data_into_wrm    = false;
+
+    clipboard_virtual_channel_params.log_only_relevant_clipboard_activities = false;
 
     #include "fixtures/test_cliprdr_channel_xfreerdp_full_authorisation.hpp"
     TestTransport t(indata, sizeof(indata)-1, outdata, sizeof(outdata)-1);
@@ -120,75 +63,13 @@ RED_AUTO_TEST_CASE(TestCliprdrChannelXfreeRDPFullAuthrisation)
         &to_client_sender, &to_server_sender, front,
         clipboard_virtual_channel_params);
 
-    uint8_t  virtual_channel_data[CHANNELS::CHANNEL_CHUNK_LENGTH];
-    InStream virtual_channel_stream(virtual_channel_data);
-
-    auto test = [&]{
-        while (true) {
-            auto end = virtual_channel_data;
-            t.recv_boom(end,
-                   16    // dest(4) + total_length(4) + flags(4) +
-                         //     chunk_length(4)
-                );
-
-            const uint32_t dest              =
-                virtual_channel_stream.in_uint32_le();
-            const uint32_t total_length      =
-                virtual_channel_stream.in_uint32_le();
-            const uint32_t flags             =
-                virtual_channel_stream.in_uint32_le();
-            const uint32_t chunk_data_length =
-                virtual_channel_stream.in_uint32_le();
-
-            //std::cout << "dest=" << dest <<
-            //    ", total_length=" << total_length <<
-            //    ", flags=" <<  flags <<
-            //    ", chunk_data_length=" << chunk_data_length <<
-            //    std::endl;
-
-            end = virtual_channel_data;
-            uint8_t * chunk_data = end;
-
-            t.recv_boom(end, chunk_data_length);
-
-            //hexdump_c(chunk_data, virtual_channel_stream.in_remain());
-
-            if (!dest)  // Client
-            {
-                clipboard_virtual_channel.process_client_message(
-                    total_length, flags, chunk_data, chunk_data_length);
-            }
-            else
-            {
-                std::unique_ptr<AsynchronousTask> out_asynchronous_task;
-
-                clipboard_virtual_channel.process_server_message(
-                    total_length, flags, chunk_data, chunk_data_length,
-                    out_asynchronous_task);
-
-                RED_CHECK(false == bool(out_asynchronous_task));
-            }
-
-            virtual_channel_stream.rewind();
-        }
-    };
-    RED_CHECK_EXCEPTION_ERROR_ID(test(), ERR_TRANSPORT_NO_MORE_DATA);
+    RED_CHECK_EXCEPTION_ERROR_ID(CHECK_CHANNEL(t, clipboard_virtual_channel), ERR_TRANSPORT_NO_MORE_DATA);
 }
 
 RED_AUTO_TEST_CASE(TestCliprdrChannelXfreeRDPDownDenied)
 {
-    ClientInfo info;
-    info.keylayout             = 0x04C;
-    info.console_session       = 0;
-    info.brush_cache_code      = 0;
-    info.bpp                   = 24;
-    info.width                 = 800;
-    info.height                = 600;
-    info.rdp5_performanceflags = PERF_DISABLE_WALLPAPER;
-    snprintf(info.hostname, sizeof(info.hostname), "test");
-    FakeFront front(info,
-                    511 // verbose
-                   );
+    ScreenInfo screen_info{BitsPerPixel{24}, 800, 600};
+    FakeFront front(screen_info);
 
     int verbose = static_cast<int>(RDPVerbose::cliprdr | RDPVerbose::cliprdr_dump);
 
@@ -204,6 +85,8 @@ RED_AUTO_TEST_CASE(TestCliprdrChannelXfreeRDPDownDenied)
 
     clipboard_virtual_channel_params.dont_log_data_into_syslog = false;
     clipboard_virtual_channel_params.dont_log_data_into_wrm    = false;
+
+    clipboard_virtual_channel_params.log_only_relevant_clipboard_activities = false;
 
     #include "fixtures/test_cliprdr_channel_xfreerdp_down_denied.hpp"
     TestTransport t(indata, sizeof(indata)-1, outdata, sizeof(outdata)-1);
@@ -215,75 +98,13 @@ RED_AUTO_TEST_CASE(TestCliprdrChannelXfreeRDPDownDenied)
         &to_client_sender, &to_server_sender, front,
         clipboard_virtual_channel_params);
 
-    uint8_t  virtual_channel_data[CHANNELS::CHANNEL_CHUNK_LENGTH];
-    InStream virtual_channel_stream(virtual_channel_data);
-
-    auto test = [&]{
-        while (true) {
-            auto end = virtual_channel_data;
-            t.recv_boom(end,
-                   16    // dest(4) + total_length(4) + flags(4) +
-                         //     chunk_length(4)
-                );
-
-            const uint32_t dest              =
-                virtual_channel_stream.in_uint32_le();
-            const uint32_t total_length      =
-                virtual_channel_stream.in_uint32_le();
-            const uint32_t flags             =
-                virtual_channel_stream.in_uint32_le();
-            const uint32_t chunk_data_length =
-                virtual_channel_stream.in_uint32_le();
-
-            //std::cout << "dest=" << dest <<
-            //    ", total_length=" << total_length <<
-            //    ", flags=" <<  flags <<
-            //    ", chunk_data_length=" << chunk_data_length <<
-            //    std::endl;
-
-            end = virtual_channel_data;
-            uint8_t * chunk_data = end;
-
-            t.recv_boom(end, chunk_data_length);
-
-            //hexdump_c(chunk_data, virtual_channel_stream.in_remain());
-
-            if (!dest)  // Client
-            {
-                clipboard_virtual_channel.process_client_message(
-                    total_length, flags, chunk_data, chunk_data_length);
-            }
-            else
-            {
-                std::unique_ptr<AsynchronousTask> out_asynchronous_task;
-
-                clipboard_virtual_channel.process_server_message(
-                    total_length, flags, chunk_data, chunk_data_length,
-                    out_asynchronous_task);
-
-                RED_CHECK(false == bool(out_asynchronous_task));
-            }
-
-            virtual_channel_stream.rewind();
-        }
-    };
-    RED_CHECK_EXCEPTION_ERROR_ID(test(), ERR_TRANSPORT_NO_MORE_DATA);
+    RED_CHECK_EXCEPTION_ERROR_ID(CHECK_CHANNEL(t, clipboard_virtual_channel), ERR_TRANSPORT_NO_MORE_DATA);
 }
 
 RED_AUTO_TEST_CASE(TestCliprdrChannelXfreeRDPUpDenied)
 {
-    ClientInfo info;
-    info.keylayout             = 0x04C;
-    info.console_session       = 0;
-    info.brush_cache_code      = 0;
-    info.bpp                   = 24;
-    info.width                 = 800;
-    info.height                = 600;
-    info.rdp5_performanceflags = PERF_DISABLE_WALLPAPER;
-    snprintf(info.hostname, sizeof(info.hostname), "test");
-    FakeFront front(info,
-                    511 // verbose
-                   );
+    ScreenInfo screen_info{BitsPerPixel{24}, 800, 600};
+    FakeFront front(screen_info);
 
     int verbose = static_cast<int>(RDPVerbose::cliprdr | RDPVerbose::cliprdr_dump);
 
@@ -300,6 +121,8 @@ RED_AUTO_TEST_CASE(TestCliprdrChannelXfreeRDPUpDenied)
     clipboard_virtual_channel_params.dont_log_data_into_syslog = false;
     clipboard_virtual_channel_params.dont_log_data_into_wrm    = false;
 
+    clipboard_virtual_channel_params.log_only_relevant_clipboard_activities = false;
+
     #include "fixtures/test_cliprdr_channel_xfreerdp_up_denied.hpp"
     TestTransport t(indata, sizeof(indata)-1, outdata, sizeof(outdata)-1);
 
@@ -310,75 +133,13 @@ RED_AUTO_TEST_CASE(TestCliprdrChannelXfreeRDPUpDenied)
         &to_client_sender, &to_server_sender, front,
         clipboard_virtual_channel_params);
 
-    uint8_t  virtual_channel_data[CHANNELS::CHANNEL_CHUNK_LENGTH];
-    InStream virtual_channel_stream(virtual_channel_data);
-
-    auto test = [&]{
-        while (true) {
-            auto end = virtual_channel_data;
-            t.recv_boom(end,
-                   16    // dest(4) + total_length(4) + flags(4) +
-                         //     chunk_length(4)
-                );
-
-            const uint32_t dest              =
-                virtual_channel_stream.in_uint32_le();
-            const uint32_t total_length      =
-                virtual_channel_stream.in_uint32_le();
-            const uint32_t flags             =
-                virtual_channel_stream.in_uint32_le();
-            const uint32_t chunk_data_length =
-                virtual_channel_stream.in_uint32_le();
-
-            //std::cout << "dest=" << dest <<
-            //    ", total_length=" << total_length <<
-            //    ", flags=" <<  flags <<
-            //    ", chunk_data_length=" << chunk_data_length <<
-            //    std::endl;
-
-            end = virtual_channel_data;
-            uint8_t * chunk_data = end;
-
-            t.recv_boom(end, chunk_data_length);
-
-            //hexdump_c(chunk_data, virtual_channel_stream.in_remain());
-
-            if (!dest)  // Client
-            {
-                clipboard_virtual_channel.process_client_message(
-                    total_length, flags, chunk_data, chunk_data_length);
-            }
-            else
-            {
-                std::unique_ptr<AsynchronousTask> out_asynchronous_task;
-
-                clipboard_virtual_channel.process_server_message(
-                    total_length, flags, chunk_data, chunk_data_length,
-                    out_asynchronous_task);
-
-                RED_CHECK(false == bool(out_asynchronous_task));
-            }
-
-            virtual_channel_stream.rewind();
-        }
-    };
-    RED_CHECK_EXCEPTION_ERROR_ID(test(), ERR_TRANSPORT_NO_MORE_DATA);
+    RED_CHECK_EXCEPTION_ERROR_ID(CHECK_CHANNEL(t, clipboard_virtual_channel), ERR_TRANSPORT_NO_MORE_DATA);
 }
 
 RED_AUTO_TEST_CASE(TestCliprdrChannelXfreeRDPFullDenied)
 {
-    ClientInfo info;
-    info.keylayout             = 0x04C;
-    info.console_session       = 0;
-    info.brush_cache_code      = 0;
-    info.bpp                   = 24;
-    info.width                 = 800;
-    info.height                = 600;
-    info.rdp5_performanceflags = PERF_DISABLE_WALLPAPER;
-    snprintf(info.hostname, sizeof(info.hostname), "test");
-    FakeFront front(info,
-                    511 // verbose
-                   );
+    ScreenInfo screen_info{BitsPerPixel{24}, 800, 600};
+    FakeFront front(screen_info);
 
     int verbose = static_cast<int>(RDPVerbose::cliprdr | RDPVerbose::cliprdr_dump);
     NullReportMessage report_message;
@@ -395,6 +156,8 @@ RED_AUTO_TEST_CASE(TestCliprdrChannelXfreeRDPFullDenied)
     clipboard_virtual_channel_params.dont_log_data_into_syslog = false;
     clipboard_virtual_channel_params.dont_log_data_into_wrm    = false;
 
+    clipboard_virtual_channel_params.log_only_relevant_clipboard_activities = false;
+
     #include "fixtures/test_cliprdr_channel_xfreerdp_full_denied.hpp"
     TestTransport t(indata, sizeof(indata)-1, outdata, sizeof(outdata)-1);
 
@@ -405,59 +168,7 @@ RED_AUTO_TEST_CASE(TestCliprdrChannelXfreeRDPFullDenied)
         &to_client_sender, &to_server_sender, front,
         clipboard_virtual_channel_params);
 
-    uint8_t  virtual_channel_data[CHANNELS::CHANNEL_CHUNK_LENGTH];
-    InStream virtual_channel_stream(virtual_channel_data);
-
-    auto test = [&]{
-        while (true) {
-            auto end = virtual_channel_data;
-            t.recv_boom(end,
-                   16    // dest(4) + total_length(4) + flags(4) +
-                         //     chunk_length(4)
-                );
-
-            const uint32_t dest              =
-                virtual_channel_stream.in_uint32_le();
-            const uint32_t total_length      =
-                virtual_channel_stream.in_uint32_le();
-            const uint32_t flags             =
-                virtual_channel_stream.in_uint32_le();
-            const uint32_t chunk_data_length =
-                virtual_channel_stream.in_uint32_le();
-
-            //std::cout << "dest=" << dest <<
-            //    ", total_length=" << total_length <<
-            //    ", flags=" <<  flags <<
-            //    ", chunk_data_length=" << chunk_data_length <<
-            //    std::endl;
-
-            end = virtual_channel_data;
-            uint8_t * chunk_data = end;
-
-            t.recv_boom(end, chunk_data_length);
-
-            //hexdump_c(chunk_data, virtual_channel_stream.in_remain());
-
-            if (!dest)  // Client
-            {
-                clipboard_virtual_channel.process_client_message(
-                    total_length, flags, chunk_data, chunk_data_length);
-            }
-            else
-            {
-                std::unique_ptr<AsynchronousTask> out_asynchronous_task;
-
-                clipboard_virtual_channel.process_server_message(
-                    total_length, flags, chunk_data, chunk_data_length,
-                    out_asynchronous_task);
-
-                RED_CHECK(false == bool(out_asynchronous_task));
-            }
-
-            virtual_channel_stream.rewind();
-        }
-    };
-    RED_CHECK_EXCEPTION_ERROR_ID(test(), ERR_TRANSPORT_NO_MORE_DATA);
+    RED_CHECK_EXCEPTION_ERROR_ID(CHECK_CHANNEL(t, clipboard_virtual_channel), ERR_TRANSPORT_NO_MORE_DATA);
 }
 
 class NullSender : public VirtualChannelDataSender {
@@ -467,18 +178,8 @@ public:
 
 RED_AUTO_TEST_CASE(TestCliprdrChannelMalformedFormatListPDU)
 {
-    ClientInfo info;
-    info.keylayout             = 0x04C;
-    info.console_session       = 0;
-    info.brush_cache_code      = 0;
-    info.bpp                   = 24;
-    info.width                 = 800;
-    info.height                = 600;
-    info.rdp5_performanceflags = PERF_DISABLE_WALLPAPER;
-    snprintf(info.hostname, sizeof(info.hostname), "test");
-    FakeFront front(info,
-                    511 // verbose
-                   );
+    ScreenInfo screen_info{BitsPerPixel{24}, 800, 600};
+    FakeFront front(screen_info);
 
     int verbose = static_cast<int>(RDPVerbose::cliprdr | RDPVerbose::cliprdr_dump);
 
@@ -494,6 +195,8 @@ RED_AUTO_TEST_CASE(TestCliprdrChannelMalformedFormatListPDU)
 
     clipboard_virtual_channel_params.dont_log_data_into_syslog = false;
     clipboard_virtual_channel_params.dont_log_data_into_wrm    = false;
+
+    clipboard_virtual_channel_params.log_only_relevant_clipboard_activities = false;
 
     NullSender to_client_sender;
     NullSender to_server_sender;
@@ -506,13 +209,21 @@ RED_AUTO_TEST_CASE(TestCliprdrChannelMalformedFormatListPDU)
     InStream virtual_channel_stream(virtual_channel_data);
 
 
-    RDPECLIP::FormatListPDU format_list_pdu;
-    StaticOutStream<256>    out_s;
+    RDPECLIP::FormatListPDUEx format_list_pdu;
+    format_list_pdu.add_format_name(RDPECLIP::CF_TEXT);
 
-    const bool unicodetext           = false;
     const bool use_long_format_names = true;    // Malformation
+    const bool in_ASCII_8 = format_list_pdu.will_be_sent_in_ASCII_8(use_long_format_names);
 
-    format_list_pdu.emit_2(out_s, unicodetext, use_long_format_names);
+    RDPECLIP::CliprdrHeader clipboard_header(RDPECLIP::CB_FORMAT_LIST,
+        RDPECLIP::CB_RESPONSE__NONE_ | (in_ASCII_8 ? RDPECLIP::CB_ASCII_NAMES : 0),
+        format_list_pdu.size(use_long_format_names));
+
+    StaticOutStream<256> out_s;
+
+    clipboard_header.emit(out_s);
+    format_list_pdu.emit(out_s, use_long_format_names);
+
 
     const size_t totalLength = out_s.get_offset();
 
@@ -527,18 +238,8 @@ RED_AUTO_TEST_CASE(TestCliprdrChannelMalformedFormatListPDU)
 
 RED_AUTO_TEST_CASE(TestCliprdrChannelFailedFormatDataResponsePDU)
 {
-    ClientInfo info;
-    info.keylayout             = 0x04C;
-    info.console_session       = 0;
-    info.brush_cache_code      = 0;
-    info.bpp                   = 24;
-    info.width                 = 800;
-    info.height                = 600;
-    info.rdp5_performanceflags = PERF_DISABLE_WALLPAPER;
-    snprintf(info.hostname, sizeof(info.hostname), "test");
-    FakeFront front(info,
-                    511 // verbose
-                   );
+    ScreenInfo screen_info{BitsPerPixel{24}, 800, 600};
+    FakeFront front(screen_info);
 
     int verbose = static_cast<int>(RDPVerbose::cliprdr | RDPVerbose::cliprdr_dump);
 
@@ -554,6 +255,8 @@ RED_AUTO_TEST_CASE(TestCliprdrChannelFailedFormatDataResponsePDU)
 
     clipboard_virtual_channel_params.dont_log_data_into_syslog = false;
     clipboard_virtual_channel_params.dont_log_data_into_wrm    = false;
+
+    clipboard_virtual_channel_params.log_only_relevant_clipboard_activities = false;
 
     NullSender to_client_sender;
     NullSender to_server_sender;

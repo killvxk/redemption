@@ -20,25 +20,23 @@
  */
 
 #define RED_TEST_MODULE TestWidgetLabelGrid
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 
-#include "core/font.hpp"
 #include "mod/internal/widget/grid.hpp"
 #include "mod/internal/widget/labelgrid.hpp"
 #include "mod/internal/widget/screen.hpp"
 
-#include "test_only/mod/fake_draw.hpp"
+#include "test_only/gdi/test_graphic.hpp"
+#include "test_only/core/font.hpp"
 
 
 RED_AUTO_TEST_CASE(TraceLabelGrid)
 {
-    TestDraw drawable(800, 600);
-
-    Font font(FIXTURES_PATH "/Lato-Light_16.rbf");
+    TestGraphic drawable(800, 600);
 
     // WidgetLabel is a label widget at position 0,0 in it's parent context
-    WidgetScreen parent(drawable.gd, font, nullptr, Theme{});
+    WidgetScreen parent(drawable, global_font_lato_light_16(), nullptr, Theme{});
     parent.set_wh(800, 600);
 
     NotifyApi * notifier = nullptr;
@@ -50,17 +48,17 @@ RED_AUTO_TEST_CASE(TraceLabelGrid)
     const uint16_t column_number = 4;
     const uint16_t grid_border   = 2;
 
-    WidgetLabelGrid wgrid(drawable.gd, parent, notifier,
+    WidgetLabelGrid wgrid(drawable, parent, notifier,
                           line_number, column_number,
                           PALE_BLUE, BLACK, LIGHT_BLUE, BLACK,
-                          WINBLUE, WHITE, MEDIUM_BLUE, WHITE, font,
+                          WINBLUE, WHITE, MEDIUM_BLUE, WHITE, global_font_lato_light_16(),
                           grid_border, id);
     wgrid.set_wh(640, 480);
     wgrid.set_xy(x, y);
 
-    const char * texts0[] = { "target_group", "target", "protocol", "timeframe" };
+    array_view_const_char const texts0[] = { "target_group"_av, "target"_av, "protocol"_av, "timeframe"_av };
     wgrid.add_line(texts0);
-    const char * texts1[] = { "win", "admin@device", "RDP", "never" };
+    array_view_const_char const texts1[] = { "win"_av, "admin@device"_av, "RDP"_av, "never"_av };
     wgrid.add_line(texts1);
     wgrid.add_line(texts1);
     wgrid.add_line(texts1);
@@ -70,8 +68,8 @@ RED_AUTO_TEST_CASE(TraceLabelGrid)
         { 50, 150 }, { 150, 800 }, { 50, 150 }, { 50, 100 }
     };
 
-    uint16_t row_height[GRID_NB_ROWS_MAX]      = { 0 };
-    uint16_t column_width[GRID_NB_COLUMNS_MAX] = { 0 };
+    uint16_t row_height[line_number+4]      = { 0 };
+    uint16_t column_width[column_number] = { 0 };
 
     compute_format(wgrid, column_width_strategies, row_height, column_width);
     apply_format(wgrid, row_height, column_width);
@@ -85,7 +83,7 @@ RED_AUTO_TEST_CASE(TraceLabelGrid)
 
     // drawable.save_to_png("/tmp/labelgrid.png");
     // char message[1024];
-    // if (!check_sig(drawable.gd.drawable, message,
+    // if (!check_sig(drawable.drawable, message,
     //                "\x47\x86\xd6\xd2\x1d\x47\xa2\x4e\xcf\x7b"
     //                "\x3f\xce\x8f\x0b\x25\x8b\xf7\x3b\xcf\x01")){
     //     RED_CHECK_MESSAGE(false, message);
@@ -99,7 +97,7 @@ RED_AUTO_TEST_CASE(TraceLabelGrid)
                                     wgrid.cy()));
 
     // drawable.save_to_png("/tmp/labelgrid2.png");
-    // if (!check_sig(drawable.gd.drawable, message,
+    // if (!check_sig(drawable.drawable, message,
     //                "\x0f\xf6\x9f\xa5\xfb\x38\x4c\xb4\x8e\x66"
     //                "\x8e\x6d\x99\x64\x4e\x3c\x9c\x7b\xb6\xca")){
     //     RED_CHECK_MESSAGE(false, message);

@@ -1,5 +1,7 @@
 obj ocr.o : $(REDEMPTION_SRC_PATH)/capture/ocr/locale/latin_to_cyrillic.cpp ;
 
+alias ocr : ocr.o ppocr ;
+
 ## ppocr {
 
 rule create_ppocr_rule ( srcs * )
@@ -58,5 +60,3 @@ create_ppocr_rule
 ;
 
 ## } ppocr
-
-alias ocr : ocr.o ppocr ;

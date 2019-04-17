@@ -48,10 +48,105 @@ namespace
 #ifndef NDEBUG
 # include <cstring>
 # include "utils/log.hpp"
-# if __has_include(<boost/stacktrace.hpp>)
+# if !defined(REDEMPTION_NO_STACKTRACE) && __has_include(<boost/stacktrace.hpp>)
 //#  include <iostream>
 #  include <boost/stacktrace.hpp>
 #  define REDEMPTION_ERROR_WITH_STACKTRACE
+
+#  include <iostream>
+#  include <csignal>
+#  include <cstdlib>
+
+namespace
+{
+    struct DefaultPrintLine
+    {
+        void operator()(int i, std::string const& line)
+        {
+            LOG(LOG_DEBUG, "#%d %s", i, line);
+        }
+    };
+
+    std::string const filter_error = []{ /*NOLINT*/
+        auto s = std::getenv("REDEMPTION_FILTER_ERROR");
+        return s ? std::string{s} : std::string{};
+    }();
+
+    bool error_is_filtered(error_type error)
+    {
+        if (filter_error.empty()) {
+            return false;
+        }
+
+        if (filter_error[0] == '*') {
+            return true;
+        }
+
+        char const* s_err = nullptr;
+        #define MAKE_CASE_V(e, x) case e: s_err = #e; break;
+        #define MAKE_CASE(e) case e: s_err = #e; break;
+        switch (error) {
+            EACH_ERROR(MAKE_CASE, MAKE_CASE_V)
+            default: return false;
+        }
+        #undef MAKE_CASE
+        #undef MAKE_CASE_V
+
+        return std::string::npos != filter_error.find(s_err);
+    }
+
+    template<class F = DefaultPrintLine>
+    void print_stacktrace(F f = {})
+    {
+        int i = 0;
+#       ifdef BOOST_STACKTRACE_DYN_LINK
+        bool is_test = false;
+#       endif
+        auto&& frames = boost::stacktrace::stacktrace();
+        auto&& first = frames.begin();
+        auto&& last = frames.end();
+        if (first == last) {
+            return ;
+        }
+        while (++first != last) {
+            auto&& frame = *first;
+            if (!frame.empty()){
+#               ifdef BOOST_STACKTRACE_DYN_LINK
+                auto&& file = frame.source_file();
+                if (0 == file.compare(0, 6, "tests/")) {
+                    is_test = true;
+                }
+                else if (is_test) {
+                    // abort stacktrace
+                    break;
+                }
+#               endif
+                auto line = boost::stacktrace::to_string(frame);
+                f(i, line);
+                ++i;
+            }
+        }
+        // std::cerr << boost::stacktrace::stacktrace() << std::flush;
+    }
+
+    struct SEGV_Handler
+    {
+        SEGV_Handler() noexcept
+        {
+            auto handler = [](int signum) {
+                ::signal(signum, SIG_DFL);
+                print_stacktrace([](int i, auto const& line) {
+                    std::cerr << "#" << i << " " << line << "\n";
+                });
+                std::cerr.flush();
+                //boost::stacktrace::safe_dump_to("./backtrace.dump");
+                // ::raise(SIGSEGV);
+            };
+            ::signal(SIGSEGV, handler);
+            ::signal(SIGABRT, handler);
+        }
+    } SEGV_Handler;
+} // namespace
 # endif
 #endif
 
@@ -72,15 +167,9 @@ Error::Error(error_type id, int errnum) noexcept
     }
 
 # ifdef REDEMPTION_ERROR_WITH_STACKTRACE
-    int i = 0;
-    for (auto && frame: boost::stacktrace::stacktrace()){
-        if (!frame.empty()){
-            auto line = boost::stacktrace::to_string(frame);
-            LOG(LOG_DEBUG, "#%d %s", i, line);
-            ++i;
-        }
+    if (!error_is_filtered(this->id)) {
+        print_stacktrace();
     }
-//    std::cerr << boost::stacktrace::stacktrace() << std::flush;
 # endif
 #endif
 }
@@ -134,9 +223,9 @@ const char * Error::errmsg(bool with_id) const noexcept
         return "The computer that you are trying to connect to is redirecting you to another computer.";
 
     default:
-        #define MAKE_CASE_V(e, x) case e:                 \
-            return with_id                                \
-                ? "Exception " #e " no: " PP_STRINGIFY(x) \
+        #define MAKE_CASE_V(e, x) case e:                     \
+            return with_id                                    \
+                ? "Exception " #e " no: " RED_PP_STRINGIFY(x) \
                 : "Exception " #e;
 #if __cplusplus >= REDEMPTION_CXX_STD_17
         using namespace jln::literals;

@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "gdi/screen_functions.hpp"
 #include "core/error.hpp"
 #include "core/front_api.hpp"
 #include "core/session_reactor.hpp"
@@ -45,8 +46,14 @@ enum {
     INVALID_RECONNECTION_COOKIE = 0xFFFFFFFF
 };
 
+// Proxy Options
 enum {
     OPTION_DELAY_DISABLED_LAUNCH_MASK = 0x00000001
+};
+
+// Session Probe Options
+enum {
+    OPTION_IGNORE_UI_LESS_PROCESSES_DURING_END_OF_SESSION_CHECK = 0x00000001
 };
 
 class ExtraSystemProcesses
@@ -330,6 +337,10 @@ private:
     const uint32_t param_handle_usage_limit;
     const uint32_t param_memory_usage_limit;
 
+    const bool param_session_probe_ignore_ui_less_processes_during_end_of_session_check;
+
+    const bool param_session_probe_childless_window_as_unidentified_input_field;
+
     FrontAPI& front;
 
     mod_api& mod;
@@ -340,6 +351,7 @@ private:
     ExtraSystemProcesses           extra_system_processes;
     OutboundConnectionMonitorRules outbound_connection_monitor_rules;
     ProcessMonitorRules            process_monitor_rules;
+    ExtraSystemProcesses           windows_of_these_applications_as_unidentified_input_field;
 
     bool disconnection_reconnection_required = false; // Cause => Authenticated user changed.
 
@@ -368,50 +380,57 @@ private:
     }
 
 public:
-    struct Params : public BaseVirtualChannel::Params {
-        std::chrono::milliseconds session_probe_launch_timeout;
-        std::chrono::milliseconds session_probe_launch_fallback_timeout;
-        std::chrono::milliseconds session_probe_keepalive_timeout;
+    struct Params : public BaseVirtualChannel::Params
+    {
+        uninit_checked<std::chrono::milliseconds> session_probe_launch_timeout;
+        uninit_checked<std::chrono::milliseconds> session_probe_launch_fallback_timeout;
+        uninit_checked<std::chrono::milliseconds> session_probe_keepalive_timeout;
 
-        SessionProbeOnKeepaliveTimeout session_probe_on_keepalive_timeout;
+        uninit_checked<SessionProbeOnKeepaliveTimeout> session_probe_on_keepalive_timeout;
 
-        SessionProbeOnLaunchFailure session_probe_on_launch_failure;
+        uninit_checked<SessionProbeOnLaunchFailure> session_probe_on_launch_failure;
 
-        bool session_probe_end_disconnected_session;
+        uninit_checked<bool> session_probe_end_disconnected_session;
 
-        const char* target_informations;
+        uninit_checked<const char*> target_informations;
 
-        uint16_t front_width;
-        uint16_t front_height;
+        uninit_checked<uint16_t> front_width;
+        uninit_checked<uint16_t> front_height;
 
-        std::chrono::milliseconds session_probe_disconnected_application_limit;
-        std::chrono::milliseconds session_probe_disconnected_session_limit;
-        std::chrono::milliseconds session_probe_idle_session_limit;
+        uninit_checked<std::chrono::milliseconds> session_probe_disconnected_application_limit;
+        uninit_checked<std::chrono::milliseconds> session_probe_disconnected_session_limit;
+        uninit_checked<std::chrono::milliseconds> session_probe_idle_session_limit;
 
-        bool session_probe_enable_log;
-        bool session_probe_enable_log_rotation;
+        uninit_checked<bool> session_probe_enable_log;
+        uninit_checked<bool> session_probe_enable_log_rotation;
 
-        const char* real_alternate_shell;
-        const char* real_working_dir;
+        uninit_checked<const char*> real_alternate_shell;
+        uninit_checked<const char*> real_working_dir;
 
-        const char* session_probe_extra_system_processes;
+        uninit_checked<const char*> session_probe_extra_system_processes;
 
-        const char* session_probe_outbound_connection_monitoring_rules;
+        uninit_checked<const char*> session_probe_outbound_connection_monitoring_rules;
 
-        const char* session_probe_process_monitoring_rules;
+        uninit_checked<const char*> session_probe_process_monitoring_rules;
 
-        bool session_probe_allow_multiple_handshake;
+        uninit_checked<const char*> session_probe_windows_of_these_applications_as_unidentified_input_field;
 
-        bool session_probe_enable_crash_dump;
+        uninit_checked<bool> session_probe_allow_multiple_handshake;
 
-        uint32_t session_probe_handle_usage_limit;
-        uint32_t session_probe_memory_usage_limit;
+        uninit_checked<bool> session_probe_enable_crash_dump;
 
-        Translation::language_t lang;
+        uninit_checked<uint32_t> session_probe_handle_usage_limit;
+        uninit_checked<uint32_t> session_probe_memory_usage_limit;
 
-        bool bogus_refresh_rect_ex;
+        uninit_checked<bool> session_probe_ignore_ui_less_processes_during_end_of_session_check;
 
-        bool show_maximized;
+        uninit_checked<bool> session_probe_childless_window_as_unidentified_input_field;
+
+        uninit_checked<Translation::language_t> lang;
+
+        uninit_checked<bool> bogus_refresh_rect_ex;
+
+        uninit_checked<bool> show_maximized;
 
         explicit Params(ReportMessageApi & report_message)
           : BaseVirtualChannel::Params(report_message)
@@ -464,6 +483,8 @@ public:
     , param_enable_crash_dump(params.session_probe_enable_crash_dump)
     , param_handle_usage_limit(params.session_probe_handle_usage_limit)
     , param_memory_usage_limit(params.session_probe_memory_usage_limit)
+    , param_session_probe_ignore_ui_less_processes_during_end_of_session_check(params.session_probe_ignore_ui_less_processes_during_end_of_session_check)
+    , param_session_probe_childless_window_as_unidentified_input_field(params.session_probe_childless_window_as_unidentified_input_field)
     , front(front)
     , mod(mod)
     , rdp(rdp)
@@ -473,6 +494,7 @@ public:
           params.session_probe_outbound_connection_monitoring_rules)
     , process_monitor_rules(
           params.session_probe_process_monitoring_rules)
+    , windows_of_these_applications_as_unidentified_input_field(params.session_probe_windows_of_these_applications_as_unidentified_input_field)
     , gen(gen)
     , session_reactor(session_reactor)
     {
@@ -486,6 +508,11 @@ public:
                 ms2ll(this->session_probe_effective_launch_timeout),
                 static_cast<int>(this->param_session_probe_on_launch_failure));
         }
+
+        this->front.session_probe_started(false);
+        this->front.set_focus_on_password_textbox(false);
+        this->front.set_focus_on_unidentified_input_field(false);
+        this->front.set_consent_ui_visible(false);
     }
 
     bool has_been_launched() const {
@@ -853,8 +880,48 @@ public:
                 }
 
                 send_client_message([](OutStream & out_s) {
-                        const char cstr[] = "Version=" "1" "\x01" "3";
+                        const char cstr[] = "Version=" "1" "\x01" "4";
                         out_s.out_copy_bytes(cstr, sizeof(cstr) - 1u);
+                    });
+
+                {
+                    uint32_t options = 0;
+
+                    if (this->param_session_probe_ignore_ui_less_processes_during_end_of_session_check) {
+                        options |= OPTION_IGNORE_UI_LESS_PROCESSES_DURING_END_OF_SESSION_CHECK;
+                    }
+
+                    if (options)
+                    {
+                        send_client_message([options](OutStream & out_s) {
+                                {
+                                    const char cstr[] = "Options=";
+                                    out_s.out_copy_bytes(cstr, sizeof(cstr) - 1u);
+                                }
+
+                                {
+                                    char cstr[128];
+                                    int len = std::snprintf(cstr, sizeof(cstr), "%u", options);
+                                    out_s.out_copy_bytes(cstr, size_t(len));
+                                }
+                            });
+                    }
+                }
+
+                send_client_message([this](OutStream & out_s) {
+                        {
+                            const char cstr[] = "ChildlessWindowAsUnidentifiedInputField=";
+                            out_s.out_copy_bytes(cstr, sizeof(cstr) - 1u);
+                        }
+
+                        if (this->param_session_probe_childless_window_as_unidentified_input_field) {
+                            const char cstr[] = "Yes";
+                            out_s.out_copy_bytes(cstr, sizeof(cstr) - 1u);
+                        }
+                        else {
+                            const char cstr[] = "No";
+                            out_s.out_copy_bytes(cstr, sizeof(cstr) - 1u);
+                        }
                     });
 
                 send_client_message([](OutStream & out_s) {
@@ -1182,6 +1249,44 @@ public:
                         }
                     });
             }
+
+            else if (!::strcasecmp(parameters_[0].c_str(), "Get windows of application as unidentified input field") &&
+                     (2 <= parameters_.size())) {
+                const unsigned int app_index =
+                    ::strtoul(parameters_[1].c_str(), nullptr, 10);
+
+                // WindowsOfApplicationAsUnidentifiedInputField=AppIndex\x01ErrorCode[\x01AppName]
+                // ErrorCode : 0 on success. -1 if an error occurred.
+
+
+                send_client_message([this, app_index](OutStream & out_s) {
+                        {
+                            const char cstr[] = "WindowsOfApplicationAsUnidentifiedInputField=";
+                            out_s.out_copy_bytes(cstr, sizeof(cstr) - 1u);
+                        }
+
+                        std::string name;
+
+                        const bool result =
+                            this->windows_of_these_applications_as_unidentified_input_field.get(app_index, name);
+
+                        {
+                            const int error_code = (result ? 0 : -1);
+                            char cstr[128];
+                            std::snprintf(cstr, sizeof(cstr), "%u" "\x01" "%d",
+                                app_index, error_code);
+                            out_s.out_copy_bytes(cstr, strlen(cstr));
+                        }
+
+                        if (result) {
+                            char cstr[1024];
+                            std::snprintf(cstr, sizeof(cstr), "\x01" "%s",
+                                name.c_str());
+                            out_s.out_copy_bytes(cstr, strlen(cstr));
+                        }
+                    });
+            }
+
             else {
                 LOG(LOG_INFO,
                     "SessionProbeVirtualChannel::process_server_message: "
@@ -1274,7 +1379,13 @@ public:
                 {"type", "SESSION_ENDING_IN_PROGRESS"},
             });
 
-            this->report_message.log5(info);
+            ArcsightLogInfo arc_info;
+            arc_info.name = "SESSION_ENDING_IN_PROGRESS";
+            arc_info.signatureID = ArcsightLogInfo::SESSION_ENDING_IN_PROGRESS;
+            arc_info.ApplicationProtocol = "rdp";
+            arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+            this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
             if (bool(this->verbose & RDPVerbose::sesprobe)) {
                 LOG(LOG_INFO, "%s", info);
@@ -1288,13 +1399,52 @@ public:
             bool message_format_invalid = false;
 
             if (!parameters_.empty()) {
-                if (!::strcasecmp(order_.c_str(), "PASSWORD_TEXT_BOX_GET_FOCUS")) {
+
+                if (!::strcasecmp(order_.c_str(), "KERBEROS_TICKET_CREATION") ||
+                    !::strcasecmp(order_.c_str(), "KERBEROS_TICKET_DELETION")) {
+                    if (parameters_.size() == 7) {
+                        auto info = key_qvalue_pairs({
+                                { "type",            order_         },
+                                { "encryption_type", parameters_[0] },
+                                { "client_name",     parameters_[1] },
+                                { "server_name",     parameters_[2] },
+                                { "start_time",      parameters_[3] },
+                                { "end_time",        parameters_[4] },
+                                { "renew_time",      parameters_[5] },
+                                { "flags",           parameters_[6] }
+                            });
+
+                        ArcsightLogInfo arc_info;
+                        arc_info.name = order_;
+                        arc_info.signatureID = ArcsightLogInfo::KERBEROS_TICKET;
+                        arc_info.message = info;
+                        arc_info.ApplicationProtocol = "rdp";
+                        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                        this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
+
+                        if (bool(this->verbose & RDPVerbose::sesprobe)) {
+                            LOG(LOG_INFO, "%s", info);
+                        }
+                    }
+                    else {
+                        message_format_invalid = true;
+                    }
+                }
+                else if (!::strcasecmp(order_.c_str(), "PASSWORD_TEXT_BOX_GET_FOCUS")) {
                     auto info = key_qvalue_pairs({
                         {"type",   "PASSWORD_TEXT_BOX_GET_FOCUS"},
                         {"status", parameters_[0]},
                     });
 
-                    this->report_message.log5(info);
+                    ArcsightLogInfo arc_info;
+                    arc_info.name = "PASSWORD_TEXT_BOX_GET_FOCUS";
+                    arc_info.signatureID = ArcsightLogInfo::PASSWORD_TEXT_BOX_GET_FOCUS;
+                    arc_info.WallixBastionStatus = parameters_[0];
+                    arc_info.ApplicationProtocol = "rdp";
+                    arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                    this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                     if (bool(this->verbose & RDPVerbose::sesprobe)) {
                         LOG(LOG_INFO, "%s", info);
@@ -1308,6 +1458,33 @@ public:
                         message_format_invalid = true;
                     }
                 }
+                else if (!::strcasecmp(order_.c_str(), "UNIDENTIFIED_INPUT_FIELD_GET_FOCUS")) {
+                    auto info = key_qvalue_pairs({
+                        {"type",   "UNIDENTIFIED_INPUT_FIELD_GET_FOCUS"},
+                        {"status", parameters_[0]},
+                    });
+
+                    ArcsightLogInfo arc_info;
+                    arc_info.name = "UNIDENTIFIED_INPUT_FIELD_GET_FOCUS";
+                    arc_info.signatureID = ArcsightLogInfo::UNIDENTIFIED_INPUT_FIELD_GET_FOCUS;
+                    arc_info.WallixBastionStatus = parameters_[0];
+                    arc_info.ApplicationProtocol = "rdp";
+                    arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                    this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
+
+                    if (bool(this->verbose & RDPVerbose::sesprobe)) {
+                        LOG(LOG_INFO, "%s", info);
+                    }
+
+                    if (parameters_.size() == 1) {
+                        this->front.set_focus_on_unidentified_input_field(
+                            !::strcasecmp(parameters_[0].c_str(), "yes"));
+                    }
+                    else {
+                        message_format_invalid = true;
+                    }
+                }
                 else if (!::strcasecmp(order_.c_str(), "UAC_PROMPT_BECOME_VISIBLE")) {
                     if (parameters_.size() == 1) {
                         auto info = key_qvalue_pairs({
@@ -1315,7 +1492,14 @@ public:
                             {"status", parameters_[0]},
                         });
 
-                        this->report_message.log5(info);
+                        ArcsightLogInfo arc_info;
+                        arc_info.name = "UAC_PROMPT_BECOME_VISIBLE";
+                        arc_info.signatureID = ArcsightLogInfo::UAC_PROMPT_BECOME_VISIBLE;
+                        arc_info.WallixBastionStatus = parameters_[0];
+                        arc_info.ApplicationProtocol = "rdp";
+                        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                        this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                         if (bool(this->verbose & RDPVerbose::sesprobe)) {
                             LOG(LOG_INFO, "%s", info);
@@ -1335,7 +1519,14 @@ public:
                             {"display_name", parameters_[1]},
                         });
 
-                        this->report_message.log5(info);
+                        ArcsightLogInfo arc_info;
+                        arc_info.name = "INPUT_LANGUAGE";
+                        arc_info.signatureID = ArcsightLogInfo::INPUT_LANGUAGE;
+                        arc_info.message = info;
+                        arc_info.ApplicationProtocol = "rdp";
+                        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                        this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                         if (bool(this->verbose & RDPVerbose::sesprobe)) {
                             LOG(LOG_INFO, "%s", info);
@@ -1356,7 +1547,14 @@ public:
                             {"command_line", parameters_[0]},
                         });
 
-                        this->report_message.log5(info);
+                        ArcsightLogInfo arc_info;
+                        arc_info.name = order_;
+                        arc_info.signatureID = ArcsightLogInfo::PROCESS;
+                        arc_info.message = info;
+                        arc_info.ApplicationProtocol = "rdp";
+                        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                        this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                         if (bool(this->verbose & RDPVerbose::sesprobe)) {
                             LOG(LOG_INFO, "%s", info);
@@ -1374,7 +1572,15 @@ public:
                             {"raw_result",       parameters_[1]},
                         });
 
-                        this->report_message.log5(info);
+                        ArcsightLogInfo arc_info;
+                        arc_info.name = "STARTUP_APPLICATION";
+                        arc_info.signatureID = ArcsightLogInfo::STARTUP_APPLICATION;
+                        arc_info.message = info;
+                        arc_info.ApplicationProtocol = "rdp";
+                        arc_info.WallixBastionStatus = "FAIL_TO_RUN";
+                        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                        this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                         if (bool(this->verbose & RDPVerbose::sesprobe)) {
                             LOG(LOG_INFO, "%s", info);
@@ -1399,7 +1605,15 @@ public:
                             {"raw_result_message", parameters_[2]},
                         });
 
-                        this->report_message.log5(info);
+                        ArcsightLogInfo arc_info;
+                        arc_info.name = "STARTUP_APPLICATION";
+                        arc_info.signatureID = ArcsightLogInfo::STARTUP_APPLICATION;
+                        arc_info.message = info;
+                        arc_info.ApplicationProtocol = "rdp";
+                        arc_info.WallixBastionStatus = "FAIL_TO_RUN";
+                        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                        this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                         if (bool(this->verbose & RDPVerbose::sesprobe)) {
                             LOG(LOG_INFO, "%s", info);
@@ -1423,7 +1637,14 @@ public:
                             {"application_name", parameters_[1]},
                         });
 
-                        this->report_message.log5(info);
+                        ArcsightLogInfo arc_info;
+                        arc_info.name = "OUTBOUND_CONNECTION_BLOCKED";
+                        arc_info.signatureID = ArcsightLogInfo::OUTBOUND_CONNECTION;
+                        arc_info.message = info;
+                        arc_info.ApplicationProtocol = "rdp";
+                        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                        this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                         if (bool(this->verbose & RDPVerbose::sesprobe)) {
                             LOG(LOG_INFO, "%s", info);
@@ -1441,7 +1662,14 @@ public:
                             {"application_name", parameters_[1]}
                             });
 
-                        this->report_message.log5(info);
+                        ArcsightLogInfo arc_info;
+                        arc_info.name = "OUTBOUND_CONNECTION_DETECTED";
+                        arc_info.signatureID = ArcsightLogInfo::OUTBOUND_CONNECTION;
+                        arc_info.message = info;
+                        arc_info.ApplicationProtocol = "rdp";
+                        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                        this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                         if (bool(this->verbose & RDPVerbose::sesprobe)) {
                             LOG(LOG_INFO, "%s", info);
@@ -1491,7 +1719,14 @@ public:
                                 {"dst_port",     parameters_[4]},
                                 });
 
-                            this->report_message.log5(info);
+                            ArcsightLogInfo arc_info;
+                            arc_info.name = order_;
+                            arc_info.signatureID = ArcsightLogInfo::OUTBOUND_CONNECTION;
+                            arc_info.message = info;
+                            arc_info.ApplicationProtocol = "rdp";
+                            arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                            this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                             {
                                 char message[4096];
@@ -1560,7 +1795,14 @@ public:
                                 {"app_cmd_line", parameters_[2]},
                                 });
 
-                            this->report_message.log5(info);
+                            ArcsightLogInfo arc_info;
+                            arc_info.name = order_;
+                            arc_info.signatureID = ArcsightLogInfo::PROCESS;
+                            arc_info.message = info;
+                            arc_info.ApplicationProtocol = "rdp";
+                            arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                            this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                             {
                                 char message[4096];
@@ -1613,7 +1855,14 @@ public:
                             {"window", parameters_[0]},
                             });
 
-                        this->report_message.log5(info);
+                        ArcsightLogInfo arc_info;
+                        arc_info.name = order_;
+                        arc_info.signatureID = ArcsightLogInfo::FOREGROUND_WINDOW_CHANGED;
+                        arc_info.message = info;
+                        arc_info.ApplicationProtocol = "rdp";
+                        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                        this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                         if (bool(this->verbose & RDPVerbose::sesprobe)) {
                             LOG(LOG_INFO, "%s", info);
@@ -1631,7 +1880,14 @@ public:
                             {"button", parameters_[1]},
                         });
 
-                        this->report_message.log5(info);
+                        ArcsightLogInfo arc_info;
+                        arc_info.name = order_;
+                        arc_info.signatureID = ArcsightLogInfo::BUTTON_CLICKED;
+                        arc_info.message = info;
+                        arc_info.ApplicationProtocol = "rdp";
+                        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                        this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                         if (bool(this->verbose & RDPVerbose::sesprobe)) {
                             LOG(LOG_INFO, "%s", info);
@@ -1649,7 +1905,14 @@ public:
                             {"edit",   parameters_[1]},
                         });
 
-                        this->report_message.log5(info);
+                        ArcsightLogInfo arc_info;
+                        arc_info.name = "EDIT_CHANGED";
+                        arc_info.signatureID = ArcsightLogInfo::EDIT_CHANGED;
+                        arc_info.message = info;
+                        arc_info.ApplicationProtocol = "rdp";
+                        arc_info.direction_flag = ArcsightLogInfo::SERVER_SRC;
+
+                        this->report_message.log6(info, arc_info, this->session_reactor.get_current_time());
 
                         if (bool(this->verbose & RDPVerbose::sesprobe)) {
                             LOG(LOG_INFO, "%s", info);

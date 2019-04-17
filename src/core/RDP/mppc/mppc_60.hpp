@@ -237,28 +237,6 @@ struct rdp_mppc_60_dec : public rdp_mppc_dec
     , history_ptr(this->history_buf)
     {}
 
-    void mini_dump() override
-    {
-        this->_dump(16);
-    }
-
-    void dump() override
-    {
-        this->_dump(RDP_60_HIST_BUF_LEN);
-    }
-
-private:
-    void _dump(size_t histo_buf_max)
-    {
-        LOG(LOG_INFO, "Type=RDP 6.0 bulk decompressor");
-        LOG(LOG_INFO, "historyBuffer");
-        hexdump_d(this->history_buf, histo_buf_max);
-        LOG(LOG_INFO, "offsetCache");
-        hexdump_d(reinterpret_cast<const char *>(this->offset_cache), RDP_60_OFFSET_CACHE_SIZE); /*NOLINT*/
-        LOG(LOG_INFO, "historyPointerOffset=%" PRIdPTR,   this->history_ptr - this->history_buf);
-        LOG(LOG_INFO, "historyBufferEndOffset=%" PRIdPTR, this->history_buf_end - this->history_buf);
-    }
-
 protected:
     static inline uint16_t LEChash(uint16_t key)
     {
@@ -682,7 +660,9 @@ struct rdp_mppc_60_enc : public rdp_mppc_enc
     static const size_t CACHED_OFFSET_COUNT              = 4;
 
     using offset_type = uint16_t;
-    using hash_table_manager = rdp_mppc_enc_hash_table_manager<offset_type>;
+    using hash_table_manager = rdp_mppc_enc_hash_table_manager<offset_type,
+                                                               MINIMUM_MATCH_LENGTH,
+                                                               MAXIMUM_HASH_BUFFER_UNDO_ELEMENT>;
     using hash_type = hash_table_manager::hash_type;
 
     // The shared state necessary to support the transmission and reception
@@ -722,25 +702,7 @@ struct rdp_mppc_60_enc : public rdp_mppc_enc
         , historyBuffer{0}
         , offsetCache{0}
         , outputBuffer{0}
-        , hash_tab_mgr(MINIMUM_MATCH_LENGTH, MAXIMUM_HASH_BUFFER_UNDO_ELEMENT)
     {}
-
-    void dump(bool mini_dump) const override
-    {
-        LOG(LOG_INFO, "Type=RDP 6.0 bulk compressor");
-        LOG(LOG_INFO, "historyBuffer");
-        hexdump_d(this->historyBuffer, (mini_dump ? 16 : RDP_60_HIST_BUF_LEN));
-        LOG(LOG_INFO, "outputBuffer");
-        hexdump_d(this->outputBuffer, (mini_dump ? 16 : RDP_60_HIST_BUF_LEN));
-        LOG(LOG_INFO, "historyOffset=%u", this->historyOffset);
-        LOG(LOG_INFO, "bytes_in_opb=%u", this->bytes_in_opb);
-        LOG(LOG_INFO, "offsetCache");
-        hexdump_d(reinterpret_cast<const char *>(this->offsetCache), sizeof(this->offsetCache));
-        LOG(LOG_INFO, "flags=0x%02X", this->flags);
-        LOG(LOG_INFO, "flagsHold=0x%02X", this->flagsHold);
-
-        this->hash_tab_mgr.dump(mini_dump);
-    }
 
     static inline int cache_find(uint16_t const * offset_cache, uint16_t copy_offset)
     {
@@ -821,7 +783,7 @@ private:
         if (this->historyOffset == 0) {
             // encode first two bytes as literals
             ctr = MINIMUM_MATCH_LENGTH - 1;
-            for (offset_type i = 0; i < ctr; i++) {
+            for (offset_type i = 0; i < ctr; ++i) {
                 ::encode_literal_60(
                     this->historyBuffer[this->historyOffset + i],
                     this->outputBuffer, bits_left, opb_index, this->verbose);
@@ -956,7 +918,7 @@ private:
         // add remaining data if any to the output
         while (uncompressed_data_size - ctr > 0) {
             ::encode_literal_60(uncompressed_data[ctr], this->outputBuffer, bits_left, opb_index, this->verbose);
-            ctr++;
+            ++ctr;
         }
 
         // add End-of-Stream (EOS) marker
@@ -1006,14 +968,8 @@ private:
         uint8_t & compressedType, uint16_t & compressed_data_size, uint16_t /*reserved*/) override
     {
         this->compress_60(uncompressed_data, uncompressed_data_size);
-        if (this->flags & PACKET_COMPRESSED) {
-            compressedType       = this->flags;
-            compressed_data_size = this->bytes_in_opb;
-        }
-        else {
-            compressedType       = 0;
-            compressed_data_size = 0;
-        }
+        compressedType       = (this->flags & PACKET_COMPRESSED) ? this->flags        : 0;
+        compressed_data_size = (this->flags & PACKET_COMPRESSED) ? this->bytes_in_opb : 0;
     }
 
 public:

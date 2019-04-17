@@ -21,17 +21,17 @@
 */
 
 #define RED_TEST_MODULE TestWrmCapture
-#include "system/redemption_unit_tests.hpp"
+#include "test_only/test_framework/redemption_unit_tests.hpp"
 
 #include "capture/video_capture.hpp"
 
 #ifndef REDEMPTION_NO_FFMPEG
 
+#include "core/RDP/orders/RDPOrdersPrimaryOpaqueRect.hpp"
 #include "capture/full_video_params.hpp"
 #include "capture/capture_params.hpp"
 #include "core/RDP/RDPDrawable.hpp"
 #include "utils/fileutils.hpp"
-#include "utils/log.hpp"
 
 
 inline void simple_movie(
@@ -77,12 +77,9 @@ RED_AUTO_TEST_CASE(TestSequencedVideoCapture)
     {
         struct notified_on_video_change : public NotifyNextVideo
         {
-            void notify_next_video(const timeval& now, reason reason) override
+            void notify_next_video(const timeval& /*now*/, reason /*reason*/) override
             {
-                LOG(LOG_INFO, "next video: now=%u:%u reason=%u",
-                    static_cast<unsigned>(now.tv_sec),
-                    static_cast<unsigned>(now.tv_usec),
-                    static_cast<unsigned>(reason));
+                // TEST test
             }
         } next_video_notifier;
 
@@ -116,12 +113,9 @@ RED_AUTO_TEST_CASE(TestSequencedVideoCaptureMP4)
     {
         struct notified_on_video_change : public NotifyNextVideo
         {
-            void notify_next_video(const timeval& now, reason reason) override
+            void notify_next_video(const timeval& /*now*/, reason /*reason*/) override
             {
-                LOG(LOG_INFO, "next video: now=%u:%u reason=%u",
-                    static_cast<unsigned>(now.tv_sec),
-                    static_cast<unsigned>(now.tv_usec),
-                    static_cast<unsigned>(reason));
+                // TEST test
             }
         } next_video_notifier;
 
@@ -153,12 +147,9 @@ RED_AUTO_TEST_CASE(TestVideoCaptureOneChunkFLV)
 {
     struct notified_on_video_change : public NotifyNextVideo
     {
-        void notify_next_video(const timeval& now, reason reason) override
+        void notify_next_video(const timeval& /*now*/, reason /*reason*/) override
         {
-            LOG(LOG_INFO, "next video: now=%u:%u reason=%u",
-                static_cast<unsigned>(now.tv_sec),
-                static_cast<unsigned>(now.tv_usec),
-                static_cast<unsigned>(reason));
+            // TEST
         }
     } next_video_notifier;
 
@@ -229,12 +220,9 @@ RED_AUTO_TEST_CASE(SequencedVideoCaptureFLV)
 {
     struct notified_on_video_change : public NotifyNextVideo
     {
-        void notify_next_video(const timeval& now, reason reason) override
+        void notify_next_video(const timeval& /*now*/, reason /*reason*/) override
         {
-            LOG(LOG_INFO, "next video: now=%u:%u reason=%u",
-                static_cast<unsigned>(now.tv_sec),
-                static_cast<unsigned>(now.tv_usec),
-                static_cast<unsigned>(reason));
+            // TEST check notification
         }
     } next_video_notifier;
 
@@ -278,12 +266,9 @@ RED_AUTO_TEST_CASE(SequencedVideoCaptureX264)
 {
     struct notified_on_video_change : public NotifyNextVideo
     {
-        void notify_next_video(const timeval& now, reason reason) override
+        void notify_next_video(const timeval& /*now*/, reason /*reason*/) override
         {
-            LOG(LOG_INFO, "next video: now=%u:%u reason=%u",
-                static_cast<unsigned>(now.tv_sec),
-                static_cast<unsigned>(now.tv_usec),
-                static_cast<unsigned>(reason));
+            // TEST check notification
         }
     } next_video_notifier;
 

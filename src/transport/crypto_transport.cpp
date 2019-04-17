@@ -28,6 +28,7 @@
 #include "utils/genfstat.hpp"
 #include "utils/parse.hpp"
 #include "utils/sugar/byte_ptr.hpp"
+#include "utils/strutils.hpp"
 #include "utils/sugar/unique_fd.hpp"
 
 #include <memory>
@@ -684,7 +685,7 @@ OutCryptoTransport::~OutCryptoTransport()
         if (this->cctx.get_with_checksum()){
             char mes[MD_HASH::DIGEST_LENGTH*4+1+128]{};
             char * p = mes;
-            p+= sprintf(mes, "Encrypted transport implicitly closed, hash checksums dropped :");
+            p += sprintf(mes, "Encrypted transport implicitly closed, hash checksums dropped :");
             auto hexdump = [&p](uint8_t (&hash)[MD_HASH::DIGEST_LENGTH]) {
                 *p++ = ' ';                // 1 octet
                 for (unsigned c : hash) {
@@ -749,7 +750,10 @@ void OutCryptoTransport::open(const char * const finalname, const char * const h
         throw Error(ERR_TRANSPORT_OPEN_FAILED, err);
     }
 
-    strcpy(this->finalname, finalname);
+    if (!utils::strbcpy(this->finalname, finalname)) {
+        LOG(LOG_ERR, "OutCryptoTransport::open finalname too long");
+        throw Error(ERR_TRANSPORT_OPEN_FAILED);
+    }
     this->hash_filename = hash_filename;
     this->derivator.assign(derivator.begin(), derivator.end());
     this->groupid = groupid;

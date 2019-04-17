@@ -33,6 +33,7 @@
 #include "utils/bitmap_private_data.hpp" // aux_::bitmap_data_allocator
 #include "utils/stream.hpp"
 #include "utils/image_data_view.hpp"
+#include "utils/sugar/numerics/safe_conversions.hpp"
 
 
 using std::size_t; /*NOLINT*/
@@ -409,11 +410,20 @@ unsigned get_fom_count_set(std::size_t line_size, const uint8_t * pmin, const ui
     return 0;
 }
 
+// Detect TS_BITMAP_DATA(Uncompressed bitmap data) + (Compressed)bitmapDataStream
 void decompress_(
   MutableImageDataView const & image,
-  const uint8_t* input, uint16_t src_cx, size_t size)
+  const uint8_t* input, uint16_t src_cx, size_t size, size_t* RM18446_adjusted_size)
 {
-  const uint16_t dst_cx = image.width();
+    // Detect TS_BITMAP_DATA(Uncompressed bitmap data) + (Compressed)bitmapDataStream
+    if (RM18446_adjusted_size) {
+        *RM18446_adjusted_size = 0;
+    }
+
+    // Detect TS_BITMAP_DATA(Uncompressed bitmap data) + (Compressed)bitmapDataStream
+    const uint8_t * const RM18446_input_saved = input;
+
+    const uint16_t dst_cx = image.width();
     uint8_t* pmin = image.mutable_data();
     uint8_t* pmax = pmin + image.pix_len();
     const size_t line_size = image.line_size();
@@ -445,6 +455,9 @@ void decompress_(
     uint8_t opcode;
     uint8_t lastopcode = 0xFF;
     while (input < end) {
+        // Detect TS_BITMAP_DATA(Uncompressed bitmap data) + (Compressed)bitmapDataStream
+        const uint8_t* RM18446_input_good = input;
+
         // Read RLE operators, handle short and long forms
         uint8_t code = input[0]; input++;
         switch (code >> 4) {
@@ -582,11 +595,26 @@ void decompress_(
         lastopcode = opcode;
         //LOG(LOG_INFO, "%s %u", this->get_opcode(opcode), count);
         /* Output body */
+
+        // Detect TS_BITMAP_DATA(Uncompressed bitmap data) + (Compressed)bitmapDataStream
+        bool RM18446_processing_in_progress = false;
+
         while (count > 0) {
             if(out >= pmax) {
                 LOG(LOG_WARNING, "Decompressed bitmap too large. Dying.");
+
+                // Detect TS_BITMAP_DATA(Uncompressed bitmap data) + (Compressed)bitmapDataStream
+                if (RM18446_adjusted_size && !RM18446_processing_in_progress && (out == pmax)) {
+                    *RM18446_adjusted_size = RM18446_input_good - RM18446_input_saved;
+                    return;
+                }
+
                 throw Error(ERR_BITMAP_DECOMPRESSED_DATA_TOO_LARGE);
             }
+
+            // Detect TS_BITMAP_DATA(Uncompressed bitmap data) + (Compressed)bitmapDataStream
+            RM18446_processing_in_progress = true;
+
             yprev = (out - line_size < pmin) ? 0 : this->get_pixel(out - line_size);
             switch (opcode) {
             case FILL:
@@ -648,6 +676,20 @@ void decompress_(
                 out_x_count = 0;
             }
         }
+
+        if(out == pmax) {
+            // Detect TS_BITMAP_DATA(Uncompressed bitmap data) + (Compressed)bitmapDataStream
+            if(RM18446_adjusted_size) {
+                *RM18446_adjusted_size = input - RM18446_input_saved;
+            }
+
+            return;
+        }
+    }
+
+    // Detect TS_BITMAP_DATA(Uncompressed bitmap data) + (Compressed)bitmapDataStream
+    if (RM18446_adjusted_size && (out == pmax)) {
+        *RM18446_adjusted_size = size;
     }
 }
 
@@ -1151,7 +1193,6 @@ void get_run(
         raw_bytes = 0;
         run_length++;
     }
-    //LOG(LOG_INFO, "");
 }
 
 void compress_color_plane(uint16_t cx, uint16_t cy, OutStream & outbuffer, uint8_t * color_plane)
@@ -1279,7 +1320,8 @@ void compress_color_plane(uint16_t cx, uint16_t cy, OutStream & outbuffer, uint8
 void rle_compress60(ConstImageDataView const & image, OutStream & outbuffer)
 {
     //LOG(LOG_INFO, "bmp compress60");
-    assert((image.bits_per_pixel() == 24) || (image.bits_per_pixel() == 32));
+    assert(image.bits_per_pixel() == BitsPerPixel{24}
+        || image.bits_per_pixel() == BitsPerPixel{32});
     const uint16_t cx = image.width();
     const uint16_t cy = image.height();
     const uint32_t color_plane_size = sizeof(uint8_t) * cx * cy;
@@ -1291,7 +1333,7 @@ void rle_compress60(ConstImageDataView const & image, OutStream & outbuffer)
     uint8_t * red_plane   = mem_color + color_plane_size * 0;
     uint8_t * green_plane = mem_color + color_plane_size * 1;
     uint8_t * blue_plane  = mem_color + color_plane_size * 2;
-    const uint8_t   byte_per_color = image.bytes_per_pixel();
+    const uint8_t   byte_per_color = safe_int(image.bytes_per_pixel());
     const uint8_t * data = image.data();
     uint8_t * pixel_over_red_plane   = red_plane;
     uint8_t * pixel_over_green_plane = green_plane;
@@ -1336,7 +1378,8 @@ void rle_decompress60(
   uint16_t src_cx, uint16_t src_cy, const uint8_t *data, size_t data_size)
 {
     //LOG(LOG_INFO, "bmp decompress60: cx=%u cy=%u data_size=%u", src_cx, src_cy, data_size);
-  assert((image.bits_per_pixel() == 24) || (image.bits_per_pixel() == 32));
+  assert((image.bits_per_pixel() == BitsPerPixel{24})
+      || (image.bits_per_pixel() == BitsPerPixel{32}));
     //LOG(LOG_INFO, "data_size=%u src_cx=%u src_cy=%u", data_size, src_cx, src_cy);
     //hexdump_d(data, data_size);
     uint8_t FormatHeader = *data++;
@@ -1387,7 +1430,7 @@ void rle_decompress60(
     uint8_t * g     = green_plane;
     uint8_t * b     = blue_plane;
     uint8_t * pixel = image.mutable_data();
-    uint8_t   bpp   = image.bytes_per_pixel();
+    uint8_t   bpp   = safe_int(image.bytes_per_pixel());
     for (uint16_t y = 0; y < cy; y++) {
         for (uint16_t x = 0; x < cx; x++) {
             uint32_t color = (0xFFu << 24) | ((*r++) << 16) | ((*g++) << 8) | (*b++);
@@ -1398,16 +1441,18 @@ void rle_decompress60(
     //LOG(LOG_INFO, "bmp decompress60: done");
 }
 
+// Detect TS_BITMAP_DATA(Uncompressed bitmap data) + (Compressed)bitmapDataStream
 void rle_decompress(
     MutableImageDataView const & image,
-    const uint8_t* input, uint16_t src_cx, uint16_t src_cy, size_t size)
+    const uint8_t* input, uint16_t src_cx, uint16_t src_cy, size_t size, size_t* RM18446_adjusted_size)
 {
     (void)src_cy;
     switch (image.bits_per_pixel()) {
-        case 8 : return RLEDecompressorImpl< 8>{}.decompress_(image, input, src_cx, size);
-        case 15: return RLEDecompressorImpl<15>{}.decompress_(image, input, src_cx, size);
-        case 16: return RLEDecompressorImpl<16>{}.decompress_(image, input, src_cx, size);
-        default: return RLEDecompressorImpl<24>{}.decompress_(image, input, src_cx, size);
+        // Detect TS_BITMAP_DATA(Uncompressed bitmap data) + (Compressed)bitmapDataStream
+        case BitsPerPixel{8 }: return RLEDecompressorImpl< 8>{}.decompress_(image, input, src_cx, size, RM18446_adjusted_size);
+        case BitsPerPixel{15}: return RLEDecompressorImpl<15>{}.decompress_(image, input, src_cx, size, RM18446_adjusted_size);
+        case BitsPerPixel{16}: return RLEDecompressorImpl<16>{}.decompress_(image, input, src_cx, size, RM18446_adjusted_size);
+        default:               return RLEDecompressorImpl<24>{}.decompress_(image, input, src_cx, size, RM18446_adjusted_size);
     }
 }
 
@@ -1415,9 +1460,9 @@ void rle_decompress(
 void rle_compress(ConstImageDataView const & image, OutStream & outbuffer)
 {
     switch (image.bits_per_pixel()) {
-        case 8 : return RLEDecompressorImpl< 8>{}.compress_(image, outbuffer);
-        case 15: return RLEDecompressorImpl<15>{}.compress_(image, outbuffer);
-        case 16: return RLEDecompressorImpl<16>{}.compress_(image, outbuffer);
-        default: return RLEDecompressorImpl<24>{}.compress_(image, outbuffer);
+        case BitsPerPixel{8 }: return RLEDecompressorImpl< 8>{}.compress_(image, outbuffer);
+        case BitsPerPixel{15}: return RLEDecompressorImpl<15>{}.compress_(image, outbuffer);
+        case BitsPerPixel{16}: return RLEDecompressorImpl<16>{}.compress_(image, outbuffer);
+        default:               return RLEDecompressorImpl<24>{}.compress_(image, outbuffer);
     }
 }

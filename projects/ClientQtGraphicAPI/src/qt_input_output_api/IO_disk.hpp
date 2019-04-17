@@ -26,10 +26,10 @@
 #include <linux/hdreg.h>
 
 #include "utils/fileutils.hpp"
+#include "utils/sugar/cast.hpp"
 #include "utils/log.hpp"
-//#include "client_redemption/client_redemption_api.hpp"
-#include "client_redemption/client_input_output_api/client_iodisk_api.hpp"
-#include "core/RDP/channels/rdpdr.hpp"
+#include "client_redemption/client_channels/client_rdpdr_channel.hpp"
+
 
 
 
@@ -41,6 +41,7 @@ public:
 
     bool ifile_good(const char * new_path) override {
         std::ifstream file(new_path);
+
         if (file.good()) {
             file.close();
             return true;
@@ -164,9 +165,9 @@ public:
     }
 
     uint32_t get_volume_serial_number(int device) override {
-        static struct hd_driveid hd;
+        struct hd_driveid hd;
         ioctl(device, HDIO_GET_IDENTITY, &hd);
-        return this->string_to_hex32(hd.serial_no);
+        return strtol(char_ptr_cast(hd.serial_no), nullptr, 16);
     }
 
     bool write_file(const char * file_to_write, const char * data, int data_len) override {

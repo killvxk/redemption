@@ -26,7 +26,8 @@
 #include "core/RDP/tpdu_buffer.hpp"
 #include "core/RDP/x224.hpp"
 
-#include "utils/sugar/strutils.hpp"
+#include "utils/sugar/multisz.hpp"
+#include "utils/sugar/algostring.hpp"
 
 
 // Protocol Security Negotiation Protocols
@@ -68,7 +69,7 @@ RdpNego::RdpNego(
     LOG(LOG_INFO, "RdpNego: TLS=%s NLA=%s adminMode=%s",
         ((this->enabled_protocols & RdpNegoProtocols::Tls) ? "Enabled" : "Disabled"),
         ((this->enabled_protocols & RdpNegoProtocols::Nla) ? "Enabled" : "Disabled"),
-		(this->restricted_admin_mode ? "Enabled" : "Disabled")
+        (this->restricted_admin_mode ? "Enabled" : "Disabled")
         );
 
     strncpy(this->username, username, 127);
@@ -232,12 +233,10 @@ bool RdpNego::recv_next_data(TpduBuffer& buf, Transport& trans, ServerCert const
             return (this->state != State::Final);
 
         case State::SslHybrid:
-            assert(0 == buf.remaining());
             this->state = this->activate_ssl_hybrid(trans, cert);
             return (this->state != State::Final);
 
         case State::Tls:
-            assert(0 == buf.remaining());
             this->state = this->activate_ssl_tls(trans, cert);
             return (this->state != State::Final);
 
@@ -306,8 +305,7 @@ RdpNego::State RdpNego::recv_connection_confirm(OutTransport trans, InStream x22
             LOG(LOG_INFO, "Enable NLA is probably required");
 
             if (!this->nla_tried) {
-                this->extra_message += " ";
-                this->extra_message += TR(trkeys::err_nla_required, this->lang);
+                str_append(this->extra_message, " ", TR(trkeys::err_nla_required, this->lang));
             }
             trans.disconnect();
 
@@ -320,8 +318,7 @@ RdpNego::State RdpNego::recv_connection_confirm(OutTransport trans, InStream x22
             LOG(LOG_INFO, "Enable TLS is probably required");
 
             if (!this->tls) {
-                this->extra_message += " ";
-                this->extra_message += TR(trkeys::err_tls_required, this->lang);
+                str_append(this->extra_message, " ", TR(trkeys::err_tls_required, this->lang));
             }
             trans.disconnect();
 
@@ -497,7 +494,7 @@ void RdpNego::send_negotiation_request(OutTransport trans)
                        (this->tls || this->nla) ? (X224::RDP_NEG_REQ) : (X224::RDP_NEG_NONE),
                        this->restricted_admin_mode ? X224::RESTRICTED_ADMIN_MODE_REQUIRED : 0,
                        rdp_neg_requestedProtocols);
-    trans.send(stream.get_data(), stream.get_offset());
+    trans.send(stream.get_bytes());
     LOG(LOG_INFO, "RdpNego::send_x224_connection_request_pdu done");
 }
 

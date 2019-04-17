@@ -26,7 +26,6 @@
 
 #include "capture/capture_params.hpp"
 
-#include "core/RDP/RDPDrawable.hpp"
 #include "core/RDP/RDPSerializer.hpp"
 #include "core/RDP/caches/bmpcache.hpp"
 #include "core/RDP/caches/glyphcache.hpp"
@@ -72,7 +71,7 @@ public:
     void flush() override {
         if (this->stream.get_offset() > 0) {
             send_wrm_chunk(this->trans, WrmChunkType::LAST_IMAGE_CHUNK, this->stream.get_offset(), 1);
-            this->trans.send(this->stream.get_data(), this->stream.get_offset());
+            this->trans.send(this->stream.get_bytes());
             this->stream = OutStream(buf);
         }
     }
@@ -82,7 +81,7 @@ private:
         size_t to_buffer_len = len;
         while (this->stream.get_offset() + to_buffer_len > this->max) {
             send_wrm_chunk(this->trans, WrmChunkType::PARTIAL_IMAGE_CHUNK, this->max, 1);
-            this->trans.send(this->stream.get_data(), this->stream.get_offset());
+            this->trans.send(stream.get_bytes());
             size_t to_send = this->max - this->stream.get_offset();
             this->trans.send(buffer + len - to_buffer_len, to_send);
             to_buffer_len -= to_send;
@@ -135,7 +134,8 @@ public:
 
     GraphicToFile(const timeval & now
                 , Transport & trans
-                , const uint8_t capture_bpp
+                , const BitsPerPixel capture_bpp
+                // TOSO strong type
                 , const bool remote_app
                 , BmpCache & bmp_cache
                 , GlyphCache & gly_cache
@@ -269,12 +269,12 @@ public:
 
             payload.out_uint8(ignore_time_interval ? 1 : 0);
 
-            payload.out_copy_bytes(keyboard_buffer_32.get_data(), keyboard_buffer_32.get_offset());
+            payload.out_copy_bytes(keyboard_buffer_32.get_bytes());
             keyboard_buffer_32 = OutStream(keyboard_buffer_32_buf);
         }
 
         send_wrm_chunk(this->trans, WrmChunkType::TIMESTAMP, payload.get_offset(), 1);
-        this->trans.send(payload.get_data(), payload.get_offset());
+        this->trans.send(payload.get_bytes());
 
         this->last_sent_timer = this->timer;
     }
@@ -288,7 +288,7 @@ public:
         //------------------------------ missing variable length ---------------
 
         send_wrm_chunk(this->trans, WrmChunkType::SAVE_STATE, payload.get_offset(), 1);
-        this->trans.send(payload.get_data(), payload.get_offset());
+        this->trans.send(payload.get_bytes());
     }
 
     void save_bmp_caches()
@@ -364,7 +364,7 @@ public:
     void send_orders_chunk()
     {
         send_wrm_chunk(this->trans, WrmChunkType::RDP_UPDATE_ORDERS, this->stream_orders.get_offset(), this->order_count);
-        this->trans.send(this->stream_orders.get_data(), this->stream_orders.get_offset());
+        this->trans.send(this->stream_orders.get_bytes());
         this->order_count = 0;
         this->stream_orders.rewind();
     }
@@ -388,7 +388,7 @@ public:
     void send_bitmaps_chunk()
     {
         send_wrm_chunk(this->trans, WrmChunkType::RDP_UPDATE_BITMAP, this->stream_bitmaps.get_offset(), this->bitmap_count);
-        this->trans.send(this->stream_bitmaps.get_data(), this->stream_bitmaps.get_offset());
+        this->trans.send(this->stream_bitmaps.get_bytes());
         this->bitmap_count = 0;
         this->stream_bitmaps.rewind();
     }
@@ -405,7 +405,7 @@ public:
         payload.out_uint16_le(min_image_frame_dim.h);
 
         send_wrm_chunk(this->trans, WrmChunkType::IMAGE_FRAME_RECT, payload.get_offset(), 0);
-        this->trans.send(payload.get_data(), payload.get_offset());
+        this->trans.send(payload.get_bytes());
     }
 
 protected:
@@ -423,7 +423,7 @@ protected:
             cursor.emit_pointer2(payload);
         }
         send_wrm_chunk(this->trans, (pointer32x32)?WrmChunkType::POINTER:WrmChunkType::POINTER2, payload.get_offset(), 0);
-        this->trans.send(payload.get_data(), payload.get_offset());
+        this->trans.send(payload.get_bytes());
     }
 
     void cached_pointer_update(int cache_idx) override {
@@ -437,7 +437,7 @@ protected:
         payload.out_uint16_le(this->mouse_x);
         payload.out_uint16_le(this->mouse_y);
         payload.out_uint8(cache_idx);
-        this->trans.send(payload.get_data(), payload.get_offset());
+        this->trans.send(payload.get_bytes());
     }
 
 public:
@@ -456,7 +456,7 @@ public:
         payload.out_uint16_le(message_length);
 
         send_wrm_chunk(this->trans, WrmChunkType::SESSION_UPDATE, payload.get_offset() + message_length, 1);
-        this->trans.send(payload.get_data(), payload.get_offset());
+        this->trans.send(payload.get_bytes());
         this->trans.send(message.data(), message.size());
         this->trans.send("\0", 1);
     }
@@ -488,7 +488,7 @@ class WrmCaptureImpl :
     struct Serializer final : GraphicToFile {
         Serializer(const timeval & now
                 , Transport & trans
-                , const uint8_t capture_bpp
+                , const BitsPerPixel capture_bpp
                 , const bool remote_app
                 , BmpCache & bmp_cache
                 , GlyphCache & gly_cache
@@ -515,8 +515,8 @@ class WrmCaptureImpl :
 
                 RDPBitmapData target_bitmap_data = bitmap_data;
 
-                target_bitmap_data.bits_per_pixel = bmp.bpp();
-                target_bitmap_data.flags          = BITMAP_COMPRESSION | NO_BITMAP_COMPRESSION_HDR;
+                target_bitmap_data.bits_per_pixel = safe_int(bmp.bpp());
+                target_bitmap_data.flags          = BITMAP_COMPRESSION | NO_BITMAP_COMPRESSION_HDR;  /*NOLINT*/
                 target_bitmap_data.bitmap_length  = bmp_stream.get_offset();
 
                 GraphicToFile::draw(target_bitmap_data, bmp);
